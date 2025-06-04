@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Injectable, Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { UsersModule } from './users/users.module';
@@ -11,9 +11,20 @@ import { SetsModule } from './sets/sets.module';
 import { SessionsModule } from './sessions/sessions.module';
 import { MatchesModule } from './matches/matches.module';
 import { LocationsModule } from './locations/locations.module';
+import { Cron, ScheduleModule } from '@nestjs/schedule';
+
+
+@Injectable()
+class RootCronService {
+  // Run every minute
+  @Cron('*/30 * * * * *')
+  handleCron() {
+  }
+}
 
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '.env',
@@ -38,6 +49,6 @@ import { LocationsModule } from './locations/locations.module';
     LocationsModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService, RootCronService],
 })
 export class AppModule {}
