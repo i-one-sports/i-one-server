@@ -3348,7 +3348,7 @@ async function bootstrap() {
     const httpAdapter = app.get(core_1.HttpAdapterHost);
     app.use(cookieParser());
     app.useGlobalFilters(new common_1.GlobalExceptionFilter(httpAdapter));
-    app.setGlobalPrefix('api/v1');
+    app.setGlobalPrefix('i-one');
     await app.listen(process.env.PORT ?? 3000);
 }
 bootstrap();

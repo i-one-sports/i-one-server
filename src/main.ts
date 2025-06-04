@@ -19,7 +19,7 @@ async function bootstrap() {
   app.use(cookieParser());
   
   app.useGlobalFilters(new GlobalExceptionFilter(httpAdapter));
-  app.setGlobalPrefix('api/v1');
+  app.setGlobalPrefix('i-one');
   await app.listen(process.env.PORT ?? 3000);
 }
 bootstrap();
