@@ -18,7 +18,7 @@ import { createSessionRequest } from './dto/sessions.dto';
 export class SessionsController {
   constructor(private sessionsService: SessionsService) {}
 
-  @Get('nearby-sessions')
+  @Post('nearby-sessions')
   async findNearbySessionMatches(@Body() data: { lng: number; lat: number }) {
     return this.sessionsService.findNearbySessionMatches(data.lng, data.lat);
   }
