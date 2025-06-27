@@ -6,6 +6,7 @@ import {
   IsPhoneNumber,
   IsNumber,
   MinLength,
+  IsBoolean,
 } from 'class-validator';
 
 export class registerUserRequest {
@@ -44,6 +45,10 @@ export class registerUserRequest {
 
   @IsNotEmpty()
   location: LocationCoordinates;
+
+  @IsBoolean()
+  @IsNotEmpty()
+  isOwner: boolean
 }
 
 export class ForgotPasswordDto {
