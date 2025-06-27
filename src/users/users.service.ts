@@ -63,6 +63,12 @@ export class UsersService {
     }
   }
 
+  async getUser(id: string) {
+    return await this.usersRepository.findOne({
+      _id: id
+    })
+  }
+
   async forgetPassword(data: ForgotPasswordDto) {
     const user: User = await this.usersRepository.findOne({
       email: data.email,
