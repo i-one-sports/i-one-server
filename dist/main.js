@@ -828,6 +828,9 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
     else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
     return c > 3 && r && Object.defineProperty(target, key, r), r;
 };
+var __metadata = (this && this.__metadata) || function (k, v) {
+    if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+};
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.AppModule = void 0;
 const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
@@ -843,12 +846,27 @@ const sets_module_1 = __webpack_require__(/*! ./sets/sets.module */ "./src/sets/
 const sessions_module_1 = __webpack_require__(/*! ./sessions/sessions.module */ "./src/sessions/sessions.module.ts");
 const matches_module_1 = __webpack_require__(/*! ./matches/matches.module */ "./src/matches/matches.module.ts");
 const locations_module_1 = __webpack_require__(/*! ./locations/locations.module */ "./src/locations/locations.module.ts");
+const schedule_1 = __webpack_require__(/*! @nestjs/schedule */ "@nestjs/schedule");
+let RootCronService = class RootCronService {
+    handleCron() {
+    }
+};
+__decorate([
+    (0, schedule_1.Cron)('*/30 * * * * *'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", void 0)
+], RootCronService.prototype, "handleCron", null);
+RootCronService = __decorate([
+    (0, common_1.Injectable)()
+], RootCronService);
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
 exports.AppModule = AppModule = __decorate([
     (0, common_1.Module)({
         imports: [
+            schedule_1.ScheduleModule.forRoot(),
             config_1.ConfigModule.forRoot({
                 isGlobal: true,
                 envFilePath: '.env',
@@ -873,7 +891,7 @@ exports.AppModule = AppModule = __decorate([
             locations_module_1.LocationsModule,
         ],
         controllers: [app_controller_1.AppController],
-        providers: [app_service_1.AppService],
+        providers: [app_service_1.AppService, RootCronService],
     })
 ], AppModule);
 
@@ -3178,6 +3196,16 @@ module.exports = require("@nestjs/passport");
 
 /***/ }),
 
+/***/ "@nestjs/schedule":
+/*!***********************************!*\
+  !*** external "@nestjs/schedule" ***!
+  \***********************************/
+/***/ ((module) => {
+
+module.exports = require("@nestjs/schedule");
+
+/***/ }),
+
 /***/ "bcrypt":
 /*!*************************!*\
   !*** external "bcrypt" ***!
@@ -3310,11 +3338,18 @@ const common_1 = __webpack_require__(/*! @app/common */ "./libs/common/src/index
 const cookieParser = __webpack_require__(/*! cookie-parser */ "cookie-parser");
 async function bootstrap() {
     const app = await core_1.NestFactory.create(app_module_1.AppModule);
+    app.enableCors({
+        origin: '*',
+        methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+        allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+        credentials: true,
+        maxAge: 3600,
+    });
     const httpAdapter = app.get(core_1.HttpAdapterHost);
     app.use(cookieParser());
     app.useGlobalFilters(new common_1.GlobalExceptionFilter(httpAdapter));
-    app.setGlobalPrefix('api/v1');
-    await app.listen(3000);
+    app.setGlobalPrefix('i-one');
+    await app.listen(process.env.PORT ?? 3000);
 }
 bootstrap();
 

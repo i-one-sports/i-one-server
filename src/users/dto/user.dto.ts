@@ -40,7 +40,7 @@ export class registerUserRequest {
 
   @IsString()
   @IsNotEmpty()
-  position: string;
+  position: string; // MF, ST. CB, GK
 
   @IsNotEmpty()
   location: LocationCoordinates;
