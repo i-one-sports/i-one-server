@@ -52,7 +52,8 @@ export class UsersService {
       firstName,
       location,
       position,
-      isOwner
+      isOwner,
+      nickname
     };
     try {
       const user = await this.usersRepository.create(payload);
