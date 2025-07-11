@@ -17,6 +17,7 @@ export class SessionsService {
   ) {}
 
   async findNearbySessionMatches(lng: number, lat: number) {
+  
     const nearbyLocations = await this.locationRepository.find({
       location: {
         $near: {
@@ -24,10 +25,12 @@ export class SessionsService {
             type: 'Point',
             coordinates: [lng, lat],
           },
-          $maxDistance: 5000,
+          // $maxDistance: 200000000,
         },
       },
     });
+
+    console.log(nearbyLocations)
     const locationIds = nearbyLocations.map((loc) => loc._id);
     const locatedSessions = await this.sessionRepository.find({
       location: { $in: locationIds },
