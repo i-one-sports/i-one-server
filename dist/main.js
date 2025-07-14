@@ -1076,6 +1076,8 @@ let AuthService = class AuthService {
         response.cookie('Authentication', token, {
             httpOnly: true,
             expires,
+            sameSite: 'none',
+            secure: true,
         });
         response.send();
     }
@@ -1946,7 +1948,7 @@ let SessionsController = class SessionsController {
 };
 exports.SessionsController = SessionsController;
 __decorate([
-    (0, common_1.Get)('nearby-sessions'),
+    (0, common_1.Post)('nearby-sessions'),
     __param(0, (0, common_1.Body)()),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [Object]),
@@ -2171,10 +2173,10 @@ let SessionsService = class SessionsService {
                         type: 'Point',
                         coordinates: [lng, lat],
                     },
-                    $maxDistance: 5000,
                 },
             },
         });
+        console.log(nearbyLocations);
         const locationIds = nearbyLocations.map((loc) => loc._id);
         const locatedSessions = await this.sessionRepository.find({
             location: { $in: locationIds },
@@ -2754,6 +2756,11 @@ __decorate([
     (0, class_validator_1.IsNotEmpty)(),
     __metadata("design:type", typeof (_a = typeof common_1.LocationCoordinates !== "undefined" && common_1.LocationCoordinates) === "function" ? _a : Object)
 ], registerUserRequest.prototype, "location", void 0);
+__decorate([
+    (0, class_validator_1.IsBoolean)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", Boolean)
+], registerUserRequest.prototype, "isOwner", void 0);
 class ForgotPasswordDto {
 }
 exports.ForgotPasswordDto = ForgotPasswordDto;
@@ -2815,12 +2822,14 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
-var _a, _b, _c, _d, _e;
+var _a, _b, _c, _d, _e, _f;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.UsersController = void 0;
 const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
 const users_service_1 = __webpack_require__(/*! ./users.service */ "./src/users/users.service.ts");
 const user_dto_1 = __webpack_require__(/*! ./dto/user.dto */ "./src/users/dto/user.dto.ts");
+const jwt_guard_1 = __webpack_require__(/*! src/auth/guards/jwt.guard */ "./src/auth/guards/jwt.guard.ts");
+const common_2 = __webpack_require__(/*! @app/common */ "./libs/common/src/index.ts");
 let UsersController = class UsersController {
     constructor(usersService) {
         this.usersService = usersService;
@@ -2836,6 +2845,9 @@ let UsersController = class UsersController {
     }
     async resetPassword(data) {
         return this.usersService.resetPassword(data);
+    }
+    async getUser(user) {
+        return this.usersService.getUser(user._id.toString());
     }
 };
 exports.UsersController = UsersController;
@@ -2867,6 +2879,14 @@ __decorate([
     __metadata("design:paramtypes", [typeof (_e = typeof user_dto_1.ResetPasswordDto !== "undefined" && user_dto_1.ResetPasswordDto) === "function" ? _e : Object]),
     __metadata("design:returntype", Promise)
 ], UsersController.prototype, "resetPassword", null);
+__decorate([
+    (0, common_1.UseGuards)(jwt_guard_1.JwtAuthGuard),
+    (0, common_1.Get)(),
+    __param(0, (0, common_2.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [typeof (_f = typeof common_2.User !== "undefined" && common_2.User) === "function" ? _f : Object]),
+    __metadata("design:returntype", Promise)
+], UsersController.prototype, "getUser", null);
 exports.UsersController = UsersController = __decorate([
     (0, common_1.Controller)('user'),
     __metadata("design:paramtypes", [typeof (_a = typeof users_service_1.UsersService !== "undefined" && users_service_1.UsersService) === "function" ? _a : Object])
@@ -2999,7 +3019,7 @@ let UsersService = UsersService_1 = class UsersService {
         this.mailService = mailService;
         this.logger = new common_1.Logger(UsersService_1.name);
     }
-    async registerUser({ firstName, lastName, nickname, email, password, phoneNumber, address, position, location, }) {
+    async registerUser({ firstName, lastName, nickname, email, password, phoneNumber, address, position, location, isOwner }) {
         const formattedPhone = (0, common_2.internationalisePhoneNumber)(phoneNumber);
         await this.checkExistingUser(phoneNumber, email, nickname);
         const payload = {
@@ -3011,6 +3031,8 @@ let UsersService = UsersService_1 = class UsersService {
             firstName,
             location,
             position,
+            isOwner,
+            nickname
         };
         try {
             const user = await this.usersRepository.create(payload);
@@ -3019,6 +3041,11 @@ let UsersService = UsersService_1 = class UsersService {
         catch (error) {
             throw new common_2.CustomHttpException(`can not process request. Try again later ${JSON.stringify(error)}`, common_1.HttpStatus.INTERNAL_SERVER_ERROR);
         }
+    }
+    async getUser(id) {
+        return await this.usersRepository.findOne({
+            _id: id
+        });
     }
     async forgetPassword(data) {
         const user = await this.usersRepository.findOne({
@@ -3336,17 +3363,35 @@ const core_1 = __webpack_require__(/*! @nestjs/core */ "@nestjs/core");
 const app_module_1 = __webpack_require__(/*! ./app.module */ "./src/app.module.ts");
 const common_1 = __webpack_require__(/*! @app/common */ "./libs/common/src/index.ts");
 const cookieParser = __webpack_require__(/*! cookie-parser */ "cookie-parser");
+const common_2 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
 async function bootstrap() {
     const app = await core_1.NestFactory.create(app_module_1.AppModule);
     app.enableCors({
-        origin: '*',
+        origin: [
+            'http://localhost:4500',
+        ],
         methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-        allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+        allowedHeaders: [
+            'Content-Type',
+            'Authorization',
+            'Accept',
+            'Origin',
+            'X-Requested-With',
+            'Access-Control-Request-Method',
+            'Access-Control-Request-Headers'
+        ],
+        exposedHeaders: ['Set-Cookie'],
+        preflightContinue: false,
+        optionsSuccessStatus: 204,
         credentials: true,
-        maxAge: 3600,
     });
     const httpAdapter = app.get(core_1.HttpAdapterHost);
     app.use(cookieParser());
+    app.useGlobalPipes(new common_2.ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+    }));
     app.useGlobalFilters(new common_1.GlobalExceptionFilter(httpAdapter));
     app.setGlobalPrefix('i-one');
     await app.listen(process.env.PORT ?? 3000);

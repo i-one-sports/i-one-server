@@ -38,6 +38,7 @@ export class UsersService {
     address,
     position,
     location,
+    isOwner
   }: registerUserRequest) {
     const formattedPhone = internationalisePhoneNumber(phoneNumber);
     await this.checkExistingUser(phoneNumber, email, nickname);
@@ -51,6 +52,8 @@ export class UsersService {
       firstName,
       location,
       position,
+      isOwner,
+      nickname
     };
     try {
       const user = await this.usersRepository.create(payload);
@@ -61,6 +64,12 @@ export class UsersService {
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
+  }
+
+  async getUser(id: string) {
+    return await this.usersRepository.findOne({
+      _id: id
+    })
   }
 
   async forgetPassword(data: ForgotPasswordDto) {
