@@ -8,10 +8,12 @@ import {
   type HydratedDocument,
   type ClientSession,
   PopulateOptions,
+  UpdateQuery,
+  UpdateResult,
 } from 'mongoose';
 import { type AbstractDocument } from './abstract.schema';
 
-export abstract class AbstractRepository<TDocument extends AbstractDocument> {
+export abstract class  AbstractRepository<TDocument extends AbstractDocument> {
   protected abstract readonly logger: Logger;
 
   protected constructor(
@@ -139,13 +141,12 @@ export abstract class AbstractRepository<TDocument extends AbstractDocument> {
   }
 
   async updateMany(
-    filterQuery: FilterQuery<TDocument>,
-    update: Partial<TDocument>,
-  ): Promise<any> {
-    return await new Promise((resolve) =>
-      resolve(this.model.updateMany(filterQuery, update, { new: true })),
-    );
-  }
+  filterQuery: FilterQuery<TDocument>,
+  update: UpdateQuery<TDocument>,
+): Promise<UpdateResult> {
+  console.log("Model name:", this.model.modelName);
+  return this.model.updateMany(filterQuery, update);
+}
 
   async findAndUpdate(
     filterQuery: FilterQuery<TDocument>,

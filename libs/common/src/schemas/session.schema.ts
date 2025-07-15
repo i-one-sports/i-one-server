@@ -1,6 +1,7 @@
 import { Prop, SchemaFactory } from '@nestjs/mongoose';
 import { Types } from 'mongoose';
 import { AbstractDocument } from './abstract.schema';
+import { MATCH_TYPE } from 'src/config/constants';
 
 export class Session extends AbstractDocument {
   @Prop({ type: Types.ObjectId, ref: 'Location' })
@@ -44,5 +45,8 @@ export class Session extends AbstractDocument {
 
   @Prop({ default: false })
   isFull: boolean;
+
+  @Prop({ enum: MATCH_TYPE, default: MATCH_TYPE.FRIENDLY })
+  matchType: string;
 }
 export const SessionSchema = SchemaFactory.createForClass(Session);

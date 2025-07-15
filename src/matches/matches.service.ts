@@ -3,12 +3,16 @@ import { MatchRepository } from './matches.repository';
 import { SetRepository } from '../sets/sets.repository';
 import { CustomHttpException, MatchI } from '@app/common';
 import { Set } from '@app/common';
+import { SessionRepository } from 'src/sessions/sessions.repository';
+import { Model } from 'mongoose';
+import { Session } from 'inspector/promises';
 
 @Injectable()
 export class MatchesService {
   constructor(
     private readonly matchRepository: MatchRepository,
     private readonly setRepository: SetRepository,
+    private readonly sessionRepository: SessionRepository,
   ) {}
 
   private async viewSetForSession(sessionId: string): Promise<Set[]> {
@@ -17,6 +21,13 @@ export class MatchesService {
 
   async matchUp(sessionId: string) {
     const sets = await this.viewSetForSession(sessionId);
+    const session = await this.sessionRepository.findOne({ _id: sessionId });
+
+    if (!session) {
+      throw new CustomHttpException('Session not found', HttpStatus.NOT_FOUND);
+    }
+
+    const sessionMatchType = session.matchType;
 
     if (!sets || sets.length === 0) {
       throw new CustomHttpException(
@@ -60,7 +71,7 @@ export class MatchesService {
       matchUps.push({
         teamOne: randomTeam1,
         teamTwo: randomTeam2,
-        session: sessionId,
+        matchType: sessionMatchType,
       });
     }
 

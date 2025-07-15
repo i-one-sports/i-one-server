@@ -19,7 +19,9 @@ export class SessionsController {
   constructor(private sessionsService: SessionsService) {}
 
   @Post('nearby-sessions')
-  async findNearbySessionMatches(@Body() data: { lng: number; lat: number }) {
+  async findNearbySessionMatches(@Body() data: { lng: number; lat: number }) 
+  {
+    console.log(data)
     return this.sessionsService.findNearbySessionMatches(data.lng, data.lat);
   }
 
@@ -99,4 +101,10 @@ export class SessionsController {
       data.timeDuration,
     );
   }
+
+  @Patch('matchtype')
+  async updateManySession() {
+    return await this.sessionsService.updateAllSessions();
+  }
+ 
 }

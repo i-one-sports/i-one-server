@@ -263,7 +263,8 @@ class AbstractRepository {
         return await new Promise((resolve) => resolve(this.model.updateOne(filterQuery, update)));
     }
     async updateMany(filterQuery, update) {
-        return await new Promise((resolve) => resolve(this.model.updateMany(filterQuery, update, { new: true })));
+        console.log("Model name:", this.model.modelName);
+        return this.model.updateMany(filterQuery, update);
     }
     async findAndUpdate(filterQuery, update) {
         return await new Promise((resolve) => {
@@ -454,6 +455,7 @@ exports.SessionSchema = exports.Session = void 0;
 const mongoose_1 = __webpack_require__(/*! @nestjs/mongoose */ "@nestjs/mongoose");
 const mongoose_2 = __webpack_require__(/*! mongoose */ "mongoose");
 const abstract_schema_1 = __webpack_require__(/*! ./abstract.schema */ "./libs/common/src/schemas/abstract.schema.ts");
+const constants_1 = __webpack_require__(/*! src/config/constants */ "./src/config/constants.ts");
 class Session extends abstract_schema_1.AbstractDocument {
 }
 exports.Session = Session;
@@ -513,6 +515,10 @@ __decorate([
     (0, mongoose_1.Prop)({ default: false }),
     __metadata("design:type", Boolean)
 ], Session.prototype, "isFull", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ enum: constants_1.MATCH_TYPE, default: constants_1.MATCH_TYPE.FRIENDLY }),
+    __metadata("design:type", String)
+], Session.prototype, "matchType", void 0);
 exports.SessionSchema = mongoose_1.SchemaFactory.createForClass(Session);
 
 
@@ -1232,6 +1238,25 @@ exports.UserLocalStrategy = UserLocalStrategy = __decorate([
 
 /***/ }),
 
+/***/ "./src/config/constants.ts":
+/*!*********************************!*\
+  !*** ./src/config/constants.ts ***!
+  \*********************************/
+/***/ ((__unused_webpack_module, exports) => {
+
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.MATCH_TYPE = void 0;
+var MATCH_TYPE;
+(function (MATCH_TYPE) {
+    MATCH_TYPE["TOURNAMENT"] = "tournament";
+    MATCH_TYPE["LEAGUE"] = "league";
+    MATCH_TYPE["FRIENDLY"] = "friendly";
+})(MATCH_TYPE || (exports.MATCH_TYPE = MATCH_TYPE = {}));
+
+
+/***/ }),
+
 /***/ "./src/database/database.module.ts":
 /*!*****************************************!*\
   !*** ./src/database/database.module.ts ***!
@@ -1652,6 +1677,7 @@ const matches_repository_1 = __webpack_require__(/*! src/matches/matches.reposit
 const matches_controller_1 = __webpack_require__(/*! ./matches.controller */ "./src/matches/matches.controller.ts");
 const matches_service_1 = __webpack_require__(/*! ./matches.service */ "./src/matches/matches.service.ts");
 const sets_repository_1 = __webpack_require__(/*! src/sets/sets.repository */ "./src/sets/sets.repository.ts");
+const sessions_repository_1 = __webpack_require__(/*! src/sessions/sessions.repository */ "./src/sessions/sessions.repository.ts");
 let MatchesModule = class MatchesModule {
 };
 exports.MatchesModule = MatchesModule;
@@ -1660,11 +1686,12 @@ exports.MatchesModule = MatchesModule = __decorate([
         imports: [
             mongoose_1.MongooseModule.forFeature([
                 { name: common_1.Match.name, schema: common_1.MatchSchema },
+                { name: common_1.Session.name, schema: common_1.SessionSchema },
                 { name: common_1.Set.name, schema: common_1.SetSchema },
             ]),
         ],
         controllers: [matches_controller_1.MatchesController],
-        providers: [matches_service_1.MatchesService, matches_repository_1.MatchRepository, sets_repository_1.SetRepository],
+        providers: [matches_service_1.MatchesService, matches_repository_1.MatchRepository, sets_repository_1.SetRepository, sessions_repository_1.SessionRepository],
         exports: [matches_service_1.MatchesService],
     })
 ], MatchesModule);
@@ -1731,23 +1758,30 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
-var _a, _b;
+var _a, _b, _c;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.MatchesService = void 0;
 const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
 const matches_repository_1 = __webpack_require__(/*! ./matches.repository */ "./src/matches/matches.repository.ts");
 const sets_repository_1 = __webpack_require__(/*! ../sets/sets.repository */ "./src/sets/sets.repository.ts");
 const common_2 = __webpack_require__(/*! @app/common */ "./libs/common/src/index.ts");
+const sessions_repository_1 = __webpack_require__(/*! src/sessions/sessions.repository */ "./src/sessions/sessions.repository.ts");
 let MatchesService = class MatchesService {
-    constructor(matchRepository, setRepository) {
+    constructor(matchRepository, setRepository, sessionRepository) {
         this.matchRepository = matchRepository;
         this.setRepository = setRepository;
+        this.sessionRepository = sessionRepository;
     }
     async viewSetForSession(sessionId) {
         return await this.setRepository.find({ session: sessionId });
     }
     async matchUp(sessionId) {
         const sets = await this.viewSetForSession(sessionId);
+        const session = await this.sessionRepository.findOne({ _id: sessionId });
+        if (!session) {
+            throw new common_2.CustomHttpException('Session not found', common_1.HttpStatus.NOT_FOUND);
+        }
+        const sessionMatchType = session.matchType;
         if (!sets || sets.length === 0) {
             throw new common_2.CustomHttpException('No sets found for this session', common_1.HttpStatus.NOT_FOUND);
         }
@@ -1774,7 +1808,7 @@ let MatchesService = class MatchesService {
             matchUps.push({
                 teamOne: randomTeam1,
                 teamTwo: randomTeam2,
-                session: sessionId,
+                matchType: sessionMatchType,
             });
         }
         return await this.matchRepository.insertMany(matchUps);
@@ -1819,7 +1853,7 @@ let MatchesService = class MatchesService {
 exports.MatchesService = MatchesService;
 exports.MatchesService = MatchesService = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [typeof (_a = typeof matches_repository_1.MatchRepository !== "undefined" && matches_repository_1.MatchRepository) === "function" ? _a : Object, typeof (_b = typeof sets_repository_1.SetRepository !== "undefined" && sets_repository_1.SetRepository) === "function" ? _b : Object])
+    __metadata("design:paramtypes", [typeof (_a = typeof matches_repository_1.MatchRepository !== "undefined" && matches_repository_1.MatchRepository) === "function" ? _a : Object, typeof (_b = typeof sets_repository_1.SetRepository !== "undefined" && sets_repository_1.SetRepository) === "function" ? _b : Object, typeof (_c = typeof sessions_repository_1.SessionRepository !== "undefined" && sessions_repository_1.SessionRepository) === "function" ? _c : Object])
 ], MatchesService);
 
 
@@ -1913,6 +1947,7 @@ let SessionsController = class SessionsController {
         this.sessionsService = sessionsService;
     }
     async findNearbySessionMatches(data) {
+        console.log(data);
         return this.sessionsService.findNearbySessionMatches(data.lng, data.lat);
     }
     async viewAllSessions() {
@@ -1944,6 +1979,9 @@ let SessionsController = class SessionsController {
     }
     async rescheduleSession(sessionId, data) {
         return this.sessionsService.recheduleSession(sessionId, data.startTime, data.timeDuration);
+    }
+    async updateManySession() {
+        return await this.sessionsService.updateAllSessions();
     }
 };
 exports.SessionsController = SessionsController;
@@ -2029,6 +2067,12 @@ __decorate([
     __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", Promise)
 ], SessionsController.prototype, "rescheduleSession", null);
+__decorate([
+    (0, common_1.Patch)('matchtype'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", Promise)
+], SessionsController.prototype, "updateManySession", null);
 exports.SessionsController = SessionsController = __decorate([
     (0, common_1.Controller)('sessions'),
     (0, common_1.UseGuards)(jwt_guard_1.JwtAuthGuard),
@@ -2122,6 +2166,8 @@ let SessionRepository = SessionRepository_1 = class SessionRepository extends co
         super(SessionModel);
         this.logger = new common_1.Logger(SessionRepository_1.name);
     }
+    async updateAllSessions() {
+    }
 };
 exports.SessionRepository = SessionRepository;
 exports.SessionRepository = SessionRepository = SessionRepository_1 = __decorate([
@@ -2158,6 +2204,7 @@ const locations_repository_1 = __webpack_require__(/*! ../locations/locations.re
 const matches_repository_1 = __webpack_require__(/*! ../matches/matches.repository */ "./src/matches/matches.repository.ts");
 const users_repository_1 = __webpack_require__(/*! ../users/users.repository */ "./src/users/users.repository.ts");
 const common_2 = __webpack_require__(/*! @app/common */ "./libs/common/src/index.ts");
+const constants_1 = __webpack_require__(/*! src/config/constants */ "./src/config/constants.ts");
 let SessionsService = class SessionsService {
     constructor(sessionRepository, locationRepository, matchRepository, userRepository) {
         this.sessionRepository = sessionRepository;
@@ -2166,23 +2213,29 @@ let SessionsService = class SessionsService {
         this.userRepository = userRepository;
     }
     async findNearbySessionMatches(lng, lat) {
-        const nearbyLocations = await this.locationRepository.find({
-            location: {
-                $near: {
-                    $geometry: {
-                        type: 'Point',
-                        coordinates: [lng, lat],
+        try {
+            const nearbyLocations = await this.locationRepository.find({
+                location: {
+                    $near: {
+                        $geometry: {
+                            type: 'Point',
+                            coordinates: [lng, lat],
+                        },
                     },
                 },
-            },
-        });
-        console.log(nearbyLocations);
-        const locationIds = nearbyLocations.map((loc) => loc._id);
-        const locatedSessions = await this.sessionRepository.find({
-            location: { $in: locationIds },
-        });
-        const sessionIds = locatedSessions.map((session) => session._id);
-        return this.matchRepository.findAndPopulate({ session: { $in: sessionIds } }, ['teamOne', 'teamTwo']);
+            });
+            console.log(nearbyLocations);
+            const locationIds = nearbyLocations.map((loc) => loc._id);
+            const locatedSessions = await this.sessionRepository.find({
+                location: { $in: locationIds },
+            });
+            const sessionIds = locatedSessions.map((session) => session._id);
+            return this.matchRepository.findAndPopulate({ session: { $in: sessionIds } }, ['teamOne', 'teamTwo']);
+        }
+        catch (error) {
+            console.error('Error Finding sessions:', error);
+            throw new common_2.CustomHttpException('Error Finding sessions: ' + (error?.message || error), common_1.HttpStatus.INTERNAL_SERVER_ERROR);
+        }
     }
     async startSession(userId, locationId) {
         const user = await this.userRepository.findOne({ _id: userId });
@@ -2387,6 +2440,22 @@ let SessionsService = class SessionsService {
             message: 'Session rescheduled successfully',
             session: updatedSession,
         };
+    }
+    async updateAllSessions() {
+        try {
+            const filter = {};
+            const update = {
+                $set: { matchType: constants_1.MATCH_TYPE.FRIENDLY },
+            };
+            const updatedResult = await this.sessionRepository.updateMany(filter, update);
+            console.log("Updating with filter:", filter);
+            console.log("Updating with update:", update);
+            return updatedResult;
+        }
+        catch (error) {
+            console.error('Error updating sessions:', error);
+            throw new common_2.CustomHttpException('Error updating sessions: ' + (error?.message || error), common_1.HttpStatus.INTERNAL_SERVER_ERROR);
+        }
     }
 };
 exports.SessionsService = SessionsService;

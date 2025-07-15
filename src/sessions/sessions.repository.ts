@@ -10,4 +10,9 @@ export class SessionRepository extends AbstractRepository<Session> {
   constructor(@InjectModel(Session.name) SessionModel: Model<Session>) {
     super(SessionModel);
   }
+
+  async updateAllSessions(){
+      
+  }
+
 }

@@ -4,8 +4,9 @@ import { LocationRepository } from '../locations/locations.repository';
 import { MatchRepository } from '../matches/matches.repository';
 import { UserRepository } from '../users/users.repository';
 import { CustomHttpException, Session, SessionI, User } from '@app/common';
-import { UpdateQuery } from 'mongoose';
+import { UpdateQuery, FilterQuery } from 'mongoose';
 import { createSessionRequest } from './dto/sessions.dto';
+import { MATCH_TYPE } from 'src/config/constants';
 
 @Injectable()
 export class SessionsService {
@@ -17,8 +18,8 @@ export class SessionsService {
   ) {}
 
   async findNearbySessionMatches(lng: number, lat: number) {
-  
-    const nearbyLocations = await this.locationRepository.find({
+try{
+      const nearbyLocations = await this.locationRepository.find({
       location: {
         $near: {
           $geometry: {
@@ -30,7 +31,7 @@ export class SessionsService {
       },
     });
 
-    console.log(nearbyLocations)
+    console.log(nearbyLocations);
     const locationIds = nearbyLocations.map((loc) => loc._id);
     const locatedSessions = await this.sessionRepository.find({
       location: { $in: locationIds },
@@ -41,6 +42,14 @@ export class SessionsService {
       { session: { $in: sessionIds } },
       ['teamOne', 'teamTwo'],
     );
+
+}catch(error){
+console.error('Error Finding sessions:', error);
+      throw new CustomHttpException(
+        'Error Finding sessions: ' + (error?.message || error),
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+}
   }
 
   async startSession(userId: string, locationId: string) {
@@ -384,5 +393,29 @@ export class SessionsService {
       message: 'Session rescheduled successfully',
       session: updatedSession,
     };
+  }
+
+  async updateAllSessions() {
+    try {
+      const filter: FilterQuery<Session> = {};
+      const update: UpdateQuery<Session> = {
+        $set: { matchType: MATCH_TYPE.FRIENDLY },
+      };
+
+      const updatedResult = await this.sessionRepository.updateMany(
+        filter,
+        update,
+      );
+      console.log("Updating with filter:", filter);
+console.log("Updating with update:", update);
+
+      return updatedResult;
+    } catch (error) {
+      console.error('Error updating sessions:', error);
+      throw new CustomHttpException(
+        'Error updating sessions: ' + (error?.message || error),
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
   }
 }
