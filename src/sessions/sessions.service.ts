@@ -153,6 +153,7 @@ console.error('Error Finding sessions:', error);
         stopTime: addedStopTime,
         winningDecider,
         maxNumber,
+        members: [userId]
       },
     );
 
@@ -195,12 +196,9 @@ console.error('Error Finding sessions:', error);
     if (!session)
       throw new CustomHttpException('Session not found', HttpStatus.NOT_FOUND);
 
-    if (session.members.includes(userId)) {
-      throw new CustomHttpException(
-        'User is already in the session',
-        HttpStatus.CONFLICT,
-      );
-    }
+   const exists = session.members.some(id => id.equals(userId));
+
+   if (exists) throw new CustomHttpException("User already in this session", HttpStatus.CONFLICT)
 
     if (session.isFull) {
       throw new CustomHttpException('Session is full', HttpStatus.BAD_REQUEST);
@@ -242,7 +240,7 @@ console.error('Error Finding sessions:', error);
         {
           $pull: { members: userId },
           $set: { isFull: session.members.length - 1 >= session.maxNumber },
-        },
+        }, 
       );
 
       await this.userRepository.findOneAndUpdate(
@@ -266,26 +264,27 @@ console.error('Error Finding sessions:', error);
   }
 
   async viewSessionMembers(sessionId: string) {
-    const session: SessionI = await this.sessionRepository.findOneAndPopulate(
-      {
-        _id: sessionId,
-      },
-      ['members'],
-    );
+    try{
+      const session = await this.sessionRepository.findRaw().find({
+      _id: sessionId
+    }).populate('members', 'firstName lastName nickname' )
 
     if (session === null) {
       throw new CustomHttpException('Session not found', HttpStatus.NOT_FOUND);
     }
 
-    if (!session.members || session.members.length === 0) {
-      throw new CustomHttpException(
-        'No members have joined yet',
-        HttpStatus.NOT_FOUND,
-      );
-    }
+    // if (!session.members || session.members.length === 0) {
+    //   throw new CustomHttpException(
+    //     'No members have joined yet',
+    //     HttpStatus.NOT_FOUND,
+    //   );
+    // }
 
-    const nicknames = session.members.map((member) => member.nickname);
-    return nicknames;
+    // const nicknames = session.members.map((member) => member.nickname);
+    return session
+    }catch(error: any ){
+      console.log(error.message)
+    }
   }
 
   async viewSession(sessionId: string) {

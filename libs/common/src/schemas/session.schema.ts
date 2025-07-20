@@ -1,7 +1,9 @@
-import { Prop, SchemaFactory } from '@nestjs/mongoose';
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Types } from 'mongoose';
 import { AbstractDocument } from './abstract.schema';
 import { MATCH_TYPE, WINNING_DECIDER } from '../types/common';
+
+@Schema({ timestamps: true, versionKey: false })
 export class Session extends AbstractDocument {
   @Prop({ type: Types.ObjectId, ref: 'Location' })
   location: string;
@@ -45,7 +47,7 @@ export class Session extends AbstractDocument {
   @Prop({ default: false })
   isFull: boolean;
 
-  @Prop({ enum: MATCH_TYPE, default: MATCH_TYPE.FRIENDLY })
-  matchType: string;
+  @Prop({ type:String, default: MATCH_TYPE.FRIENDLY })
+  matchType: MATCH_TYPE;
 }
 export const SessionSchema = SchemaFactory.createForClass(Session);

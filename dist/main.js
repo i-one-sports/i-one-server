@@ -449,15 +449,15 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
-var _a, _b;
+var _a, _b, _c;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.SessionSchema = exports.Session = void 0;
 const mongoose_1 = __webpack_require__(/*! @nestjs/mongoose */ "@nestjs/mongoose");
 const mongoose_2 = __webpack_require__(/*! mongoose */ "mongoose");
 const abstract_schema_1 = __webpack_require__(/*! ./abstract.schema */ "./libs/common/src/schemas/abstract.schema.ts");
 const common_1 = __webpack_require__(/*! ../types/common */ "./libs/common/src/types/common.ts");
-class Session extends abstract_schema_1.AbstractDocument {
-}
+let Session = class Session extends abstract_schema_1.AbstractDocument {
+};
 exports.Session = Session;
 __decorate([
     (0, mongoose_1.Prop)({ type: mongoose_2.Types.ObjectId, ref: 'Location' }),
@@ -516,9 +516,12 @@ __decorate([
     __metadata("design:type", Boolean)
 ], Session.prototype, "isFull", void 0);
 __decorate([
-    (0, mongoose_1.Prop)({ enum: common_1.MATCH_TYPE, default: common_1.MATCH_TYPE.FRIENDLY }),
-    __metadata("design:type", String)
+    (0, mongoose_1.Prop)({ type: String, default: common_1.MATCH_TYPE.FRIENDLY }),
+    __metadata("design:type", typeof (_c = typeof common_1.MATCH_TYPE !== "undefined" && common_1.MATCH_TYPE) === "function" ? _c : Object)
 ], Session.prototype, "matchType", void 0);
+exports.Session = Session = __decorate([
+    (0, mongoose_1.Schema)({ timestamps: true, versionKey: false })
+], Session);
 exports.SessionSchema = mongoose_1.SchemaFactory.createForClass(Session);
 
 
@@ -2282,6 +2285,7 @@ let SessionsService = class SessionsService {
             stopTime: addedStopTime,
             winningDecider,
             maxNumber,
+            members: [userId]
         });
         return newSession;
     }
@@ -2308,9 +2312,9 @@ let SessionsService = class SessionsService {
         const session = await this.sessionRepository.findOne({ _id: sessionId });
         if (!session)
             throw new common_2.CustomHttpException('Session not found', common_1.HttpStatus.NOT_FOUND);
-        if (session.members.includes(userId)) {
-            throw new common_2.CustomHttpException('User is already in the session', common_1.HttpStatus.CONFLICT);
-        }
+        const exists = session.members.some(id => id.equals(userId));
+        if (exists)
+            throw new common_2.CustomHttpException("User already in this session", common_1.HttpStatus.CONFLICT);
         if (session.isFull) {
             throw new common_2.CustomHttpException('Session is full', common_1.HttpStatus.BAD_REQUEST);
         }
@@ -2352,17 +2356,18 @@ let SessionsService = class SessionsService {
         }
     }
     async viewSessionMembers(sessionId) {
-        const session = await this.sessionRepository.findOneAndPopulate({
-            _id: sessionId,
-        }, ['members']);
-        if (session === null) {
-            throw new common_2.CustomHttpException('Session not found', common_1.HttpStatus.NOT_FOUND);
+        try {
+            const session = await this.sessionRepository.findRaw().find({
+                _id: sessionId
+            }).populate('members', 'firstName lastName nickname');
+            if (session === null) {
+                throw new common_2.CustomHttpException('Session not found', common_1.HttpStatus.NOT_FOUND);
+            }
+            return session;
         }
-        if (!session.members || session.members.length === 0) {
-            throw new common_2.CustomHttpException('No members have joined yet', common_1.HttpStatus.NOT_FOUND);
+        catch (error) {
+            console.log(error.message);
         }
-        const nicknames = session.members.map((member) => member.nickname);
-        return nicknames;
     }
     async viewSession(sessionId) {
         const verifySession = await this.sessionRepository.findOne({
@@ -3207,6 +3212,7 @@ let UsersService = UsersService_1 = class UsersService {
         const user = await this.usersRepository.findOne({
             email: email.toLowerCase(),
         });
+        console.log(user);
         if (user === null) {
             throw new common_2.CustomHttpException('User with email is not found', common_1.HttpStatus.NOT_FOUND);
         }

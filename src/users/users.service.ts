@@ -236,6 +236,7 @@ export class UsersService {
     const user: User = await this.usersRepository.findOne({
       email: email.toLowerCase(),
     });
+    console.log(user)
     if (user === null) {
       throw new CustomHttpException(
         'User with email is not found',
