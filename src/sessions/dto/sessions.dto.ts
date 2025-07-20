@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsNumber } from 'class-validator';
+import { IsDate, IsDateString, IsNotEmpty, IsNumber, IsString } from 'class-validator';
 
 export class createSessionRequest {
   @IsNotEmpty()
@@ -18,10 +18,10 @@ export class createSessionRequest {
   minsPerSet: number;
 
   @IsNotEmpty()
-  @IsNumber()
-  startTime: number;
+  @IsDateString()
+  startTime: Date;
 
-  @IsNotEmpty()
-  @IsNumber()
-  winningDecider: number;
+ 
+ @IsString()
+  winningDecider: string;
 }

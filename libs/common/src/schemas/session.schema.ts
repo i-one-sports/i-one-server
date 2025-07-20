@@ -1,8 +1,7 @@
 import { Prop, SchemaFactory } from '@nestjs/mongoose';
 import { Types } from 'mongoose';
 import { AbstractDocument } from './abstract.schema';
-import { MATCH_TYPE } from 'src/config/constants';
-
+import { MATCH_TYPE, WINNING_DECIDER } from '../types/common';
 export class Session extends AbstractDocument {
   @Prop({ type: Types.ObjectId, ref: 'Location' })
   location: string;
@@ -25,7 +24,7 @@ export class Session extends AbstractDocument {
   @Prop({ default: null })
   stopTime: Date;
 
-  @Prop({ default: null })
+  @Prop({ default: WINNING_DECIDER.PENALTY })
   winningDecider: string;
 
   @Prop({ default: false })

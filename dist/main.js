@@ -455,7 +455,7 @@ exports.SessionSchema = exports.Session = void 0;
 const mongoose_1 = __webpack_require__(/*! @nestjs/mongoose */ "@nestjs/mongoose");
 const mongoose_2 = __webpack_require__(/*! mongoose */ "mongoose");
 const abstract_schema_1 = __webpack_require__(/*! ./abstract.schema */ "./libs/common/src/schemas/abstract.schema.ts");
-const constants_1 = __webpack_require__(/*! src/config/constants */ "./src/config/constants.ts");
+const common_1 = __webpack_require__(/*! ../types/common */ "./libs/common/src/types/common.ts");
 class Session extends abstract_schema_1.AbstractDocument {
 }
 exports.Session = Session;
@@ -488,7 +488,7 @@ __decorate([
     __metadata("design:type", typeof (_b = typeof Date !== "undefined" && Date) === "function" ? _b : Object)
 ], Session.prototype, "stopTime", void 0);
 __decorate([
-    (0, mongoose_1.Prop)({ default: null }),
+    (0, mongoose_1.Prop)({ default: common_1.WINNING_DECIDER.PENALTY }),
     __metadata("design:type", String)
 ], Session.prototype, "winningDecider", void 0);
 __decorate([
@@ -516,7 +516,7 @@ __decorate([
     __metadata("design:type", Boolean)
 ], Session.prototype, "isFull", void 0);
 __decorate([
-    (0, mongoose_1.Prop)({ enum: constants_1.MATCH_TYPE, default: constants_1.MATCH_TYPE.FRIENDLY }),
+    (0, mongoose_1.Prop)({ enum: common_1.MATCH_TYPE, default: common_1.MATCH_TYPE.FRIENDLY }),
     __metadata("design:type", String)
 ], Session.prototype, "matchType", void 0);
 exports.SessionSchema = mongoose_1.SchemaFactory.createForClass(Session);
@@ -677,6 +677,17 @@ exports.UserSchema.index({ location: '2dsphere' });
 
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.WINNING_DECIDER = exports.MATCH_TYPE = void 0;
+var MATCH_TYPE;
+(function (MATCH_TYPE) {
+    MATCH_TYPE["TOURNAMENT"] = "tournament";
+    MATCH_TYPE["LEAGUE"] = "league";
+    MATCH_TYPE["FRIENDLY"] = "friendly";
+})(MATCH_TYPE || (exports.MATCH_TYPE = MATCH_TYPE = {}));
+var WINNING_DECIDER;
+(function (WINNING_DECIDER) {
+    WINNING_DECIDER["PENALTY"] = "penalties";
+})(WINNING_DECIDER || (exports.WINNING_DECIDER = WINNING_DECIDER = {}));
 
 
 /***/ }),
@@ -1234,25 +1245,6 @@ exports.UserLocalStrategy = UserLocalStrategy = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [typeof (_a = typeof users_service_1.UsersService !== "undefined" && users_service_1.UsersService) === "function" ? _a : Object])
 ], UserLocalStrategy);
-
-
-/***/ }),
-
-/***/ "./src/config/constants.ts":
-/*!*********************************!*\
-  !*** ./src/config/constants.ts ***!
-  \*********************************/
-/***/ ((__unused_webpack_module, exports) => {
-
-
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.MATCH_TYPE = void 0;
-var MATCH_TYPE;
-(function (MATCH_TYPE) {
-    MATCH_TYPE["TOURNAMENT"] = "tournament";
-    MATCH_TYPE["LEAGUE"] = "league";
-    MATCH_TYPE["FRIENDLY"] = "friendly";
-})(MATCH_TYPE || (exports.MATCH_TYPE = MATCH_TYPE = {}));
 
 
 /***/ }),
@@ -1875,6 +1867,7 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
+var _a;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.createSessionRequest = void 0;
 const class_validator_1 = __webpack_require__(/*! class-validator */ "class-validator");
@@ -1903,13 +1896,12 @@ __decorate([
 ], createSessionRequest.prototype, "minsPerSet", void 0);
 __decorate([
     (0, class_validator_1.IsNotEmpty)(),
-    (0, class_validator_1.IsNumber)(),
-    __metadata("design:type", Number)
+    (0, class_validator_1.IsDateString)(),
+    __metadata("design:type", typeof (_a = typeof Date !== "undefined" && Date) === "function" ? _a : Object)
 ], createSessionRequest.prototype, "startTime", void 0);
 __decorate([
-    (0, class_validator_1.IsNotEmpty)(),
-    (0, class_validator_1.IsNumber)(),
-    __metadata("design:type", Number)
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
 ], createSessionRequest.prototype, "winningDecider", void 0);
 
 
@@ -2204,7 +2196,7 @@ const locations_repository_1 = __webpack_require__(/*! ../locations/locations.re
 const matches_repository_1 = __webpack_require__(/*! ../matches/matches.repository */ "./src/matches/matches.repository.ts");
 const users_repository_1 = __webpack_require__(/*! ../users/users.repository */ "./src/users/users.repository.ts");
 const common_2 = __webpack_require__(/*! @app/common */ "./libs/common/src/index.ts");
-const constants_1 = __webpack_require__(/*! src/config/constants */ "./src/config/constants.ts");
+const common_3 = __webpack_require__(/*! @app/common */ "./libs/common/src/index.ts");
 let SessionsService = class SessionsService {
     constructor(sessionRepository, locationRepository, matchRepository, userRepository) {
         this.sessionRepository = sessionRepository;
@@ -2448,7 +2440,7 @@ let SessionsService = class SessionsService {
         try {
             const filter = {};
             const update = {
-                $set: { matchType: constants_1.MATCH_TYPE.FRIENDLY },
+                $set: { matchType: common_3.MATCH_TYPE.FRIENDLY },
             };
             const updatedResult = await this.sessionRepository.updateMany(filter, update);
             console.log("Updating with filter:", filter);

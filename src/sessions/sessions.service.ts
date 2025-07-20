@@ -6,7 +6,7 @@ import { UserRepository } from '../users/users.repository';
 import { CustomHttpException, Session, SessionI, User } from '@app/common';
 import { UpdateQuery, FilterQuery } from 'mongoose';
 import { createSessionRequest } from './dto/sessions.dto';
-import { MATCH_TYPE } from 'src/config/constants';
+import { MATCH_TYPE } from '@app/common';
 
 @Injectable()
 export class SessionsService {
