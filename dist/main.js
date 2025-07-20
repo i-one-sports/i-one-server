@@ -2239,6 +2239,9 @@ let SessionsService = class SessionsService {
     }
     async startSession(userId, locationId) {
         const user = await this.userRepository.findOne({ _id: userId });
+        const location = await this.locationRepository.findOne({ _id: locationId });
+        if (!location)
+            throw new common_2.CustomHttpException('Location not found', common_1.HttpStatus.NOT_FOUND);
         if (user == null) {
             throw new common_2.CustomHttpException('User not found', common_1.HttpStatus.NOT_FOUND);
         }

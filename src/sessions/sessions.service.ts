@@ -54,6 +54,9 @@ console.error('Error Finding sessions:', error);
 
   async startSession(userId: string, locationId: string) {
     const user = await this.userRepository.findOne({ _id: userId });
+    const location = await this.locationRepository.findOne({_id: locationId})
+
+    if (!location) throw new CustomHttpException('Location not found', HttpStatus.NOT_FOUND);
 
     if (user == null) {
       throw new CustomHttpException('User not found', HttpStatus.NOT_FOUND);

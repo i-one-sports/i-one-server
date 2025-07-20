@@ -3,6 +3,7 @@ import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from '@app/common';
 import * as cookieParser from 'cookie-parser';
 import { ValidationPipe } from '@nestjs/common';
+import { populateDb } from './helpers/seed-users';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -40,6 +41,7 @@ async function bootstrap() {
     }),
   );
   
+
 
   app.useGlobalFilters(new GlobalExceptionFilter(httpAdapter));
   app.setGlobalPrefix('i-one');
