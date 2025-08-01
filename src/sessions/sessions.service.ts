@@ -31,7 +31,6 @@ try{
       },
     });
 
-    console.log(nearbyLocations);
     const locationIds = nearbyLocations.map((loc) => loc._id);
     const locatedSessions = await this.sessionRepository.find({
       location: { $in: locationIds },
@@ -78,6 +77,12 @@ console.error('Error Finding sessions:', error);
       { _id: userId },
       { currentSession: session._id },
     );
+
+    await this.locationRepository.findOneAndUpdate(
+      { _id: locationId},
+    {
+      booked: true
+    })
 
     return session;
   }

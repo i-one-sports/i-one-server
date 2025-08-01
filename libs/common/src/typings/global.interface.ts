@@ -37,3 +37,9 @@ export interface MatchI {
 export interface SetI {
   name: string;
 }
+
+export enum UploadType {
+  PITCH = 'pitches',
+  USER_AVATAR = 'users',
+  // RESOURCE_AVATAR = 'resources'
+}
