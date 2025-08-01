@@ -10,6 +10,12 @@ export class Location extends AbstractDocument {
   @Prop({ required: true, type: String })
   address: string;
 
+  @Prop({ type: Boolean, default: false})
+  booked: boolean
+
+  @Prop()
+  pitchPhoto?: string
+
   @Prop({
     type: {
       type: String,

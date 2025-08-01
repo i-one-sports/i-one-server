@@ -15,3 +15,4 @@ export * from './decorators/isOwner.decorator';
 export * from './filters/http-exception.filter copy';
 export * from './utils/nodemailer';
 export * from './utils/phone.number';
+export * from './utils/random'

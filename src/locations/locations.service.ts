@@ -40,17 +40,16 @@ export class LocationsService {
     return await this.locationRepository.find({});
   }
 
-  async viewNearbyLocations(locationData: ViewNearbyLocationsDto) {
-    const { longitude, latitude } = locationData;
+  async viewNearbyLocations(lng: number, lat: number) {
 
     return await this.locationRepository.find({
       'location.coordinates': {
         $near: {
           $geometry: {
             type: 'Point',
-            coordinates: [parseFloat(longitude), parseFloat(latitude)],
+            coordinates: [lng,lat],
           },
-          $maxDistance: 5000,
+          // $maxDistance: 5000,
         },
       },
     });
