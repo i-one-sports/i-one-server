@@ -5,6 +5,7 @@ import { LocationsController } from './locations.controller';
 import { LocationsService } from './locations.service';
 import { LocationRepository } from './locations.repository';
 import { UserRepository } from 'src/users/users.repository';
+import { AwsService } from '@app/common/providers/aws.service';
 
 @Module({
   imports: [
@@ -14,7 +15,7 @@ import { UserRepository } from 'src/users/users.repository';
     ]),
   ],
   controllers: [LocationsController],
-  providers: [LocationsService, LocationRepository, UserRepository],
+  providers: [LocationsService, LocationRepository, UserRepository, AwsService],
   exports: [LocationsService],
 })
 export class LocationsModule {}

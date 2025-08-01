@@ -193,6 +193,12 @@ console.error('Error Finding sessions:', error);
       { captain: null, inProgress: false },
     );
 
+    await this.locationRepository.findOneAndUpdate({
+      _id: session.location,
+    }, {
+      booked: false
+    })
+    
     return { message: 'Session ended successfully', session };
   }
 

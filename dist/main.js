@@ -177,6 +177,81 @@ __exportStar(__webpack_require__(/*! ./utils/random */ "./libs/common/src/utils/
 
 /***/ }),
 
+/***/ "./libs/common/src/providers/aws.service.ts":
+/*!**************************************************!*\
+  !*** ./libs/common/src/providers/aws.service.ts ***!
+  \**************************************************/
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+var __metadata = (this && this.__metadata) || function (k, v) {
+    if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+};
+var AwsService_1;
+var _a;
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.AwsService = void 0;
+const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
+const client_s3_1 = __webpack_require__(/*! @aws-sdk/client-s3 */ "@aws-sdk/client-s3");
+const credential_providers_1 = __webpack_require__(/*! @aws-sdk/credential-providers */ "@aws-sdk/credential-providers");
+const common_2 = __webpack_require__(/*! @app/common */ "./libs/common/src/index.ts");
+const config_1 = __webpack_require__(/*! @nestjs/config */ "@nestjs/config");
+let AwsService = AwsService_1 = class AwsService {
+    constructor(configService) {
+        this.configService = configService;
+        this.logger = new common_1.Logger(AwsService_1.name);
+        const endpoint = this.configService.get('AWS_S3_ENDPOINT');
+        this.AWS_S3_BUCKET = this.configService.get('AWS_S3_BUCKET') || 'i-one';
+        this.s3 = new client_s3_1.S3({
+            credentials: (0, credential_providers_1.fromEnv)(),
+            endpoint,
+            forcePathStyle: true,
+            region: this.configService.get('AWS_REGION')
+        });
+    }
+    async upload(file, type, identifier) {
+        const timestamp = Date.now();
+        const randomString = common_2.RandomGen.genRandomString(100, 8);
+        const extension = file.mimetype.split('/')[1];
+        const Key = `${type}/${identifier || timestamp}/${randomString}.${extension}`;
+        const command = new client_s3_1.PutObjectCommand({
+            Key,
+            Bucket: this.AWS_S3_BUCKET,
+            Body: file.buffer,
+            ContentType: file.mimetype,
+            ContentDisposition: 'inline',
+        });
+        const baseUrl = this.configService.get('AWS_S3_BASE_URL');
+        const url = `${baseUrl}/${Key}`;
+        try {
+            await this.s3.send(command);
+            return url;
+        }
+        catch (error) {
+            this.logger.error({
+                message: `Failed to upload ${type} to S3`,
+                error,
+                key: Key
+            });
+            return undefined;
+        }
+    }
+};
+exports.AwsService = AwsService;
+exports.AwsService = AwsService = AwsService_1 = __decorate([
+    (0, common_1.Injectable)(),
+    __metadata("design:paramtypes", [typeof (_a = typeof config_1.ConfigService !== "undefined" && config_1.ConfigService) === "function" ? _a : Object])
+], AwsService);
+
+
+/***/ }),
+
 /***/ "./libs/common/src/schemas/abstract.repository.ts":
 /*!********************************************************!*\
   !*** ./libs/common/src/schemas/abstract.repository.ts ***!
@@ -1390,7 +1465,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
-var _a, _b, _c, _d, _e;
+var _a, _b, _c, _d, _e, _f, _g;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.LocationsController = void 0;
 const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
@@ -1398,9 +1473,17 @@ const jwt_guard_1 = __webpack_require__(/*! src/auth/guards/jwt.guard */ "./src/
 const locations_service_1 = __webpack_require__(/*! ./locations.service */ "./src/locations/locations.service.ts");
 const location_dto_1 = __webpack_require__(/*! ./dto/location.dto */ "./src/locations/dto/location.dto.ts");
 const common_2 = __webpack_require__(/*! @app/common */ "./libs/common/src/index.ts");
+const platform_express_1 = __webpack_require__(/*! @nestjs/platform-express */ "@nestjs/platform-express");
+const multer = __webpack_require__(/*! multer */ "multer");
+const aws_service_1 = __webpack_require__(/*! @app/common/providers/aws.service */ "./libs/common/src/providers/aws.service.ts");
 let LocationsController = class LocationsController {
-    constructor(locationsService) {
+    constructor(locationsService, awsService) {
         this.locationsService = locationsService;
+        this.awsService = awsService;
+    }
+    async uploadPitchPhoto(file, locationId) {
+        const pitchUrl = await this.awsService.upload(file, common_2.UploadType.PITCH, locationId);
+        return { pitchPhoto: pitchUrl };
     }
     async viewAllLocations() {
         return this.locationsService.viewAllLocations();
@@ -1409,13 +1492,21 @@ let LocationsController = class LocationsController {
         return this.locationsService.registerLocation(data);
     }
     async getNearbyLocations(data) {
-        return this.locationsService.viewNearbyLocations(data);
+        return this.locationsService.viewNearbyLocations(data.lng, data.lat);
     }
     async getMyLocation(user) {
         return this.locationsService.getMyLocation(user._id.toString());
     }
 };
 exports.LocationsController = LocationsController;
+__decorate([
+    (0, common_1.Post)('pitch/:locationId'),
+    __param(0, (0, common_1.UploadedFile)()),
+    __param(1, (0, common_1.Param)('locationId')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [typeof (_d = typeof Express !== "undefined" && (_c = Express.Multer) !== void 0 && _c.File) === "function" ? _d : Object, String]),
+    __metadata("design:returntype", Promise)
+], LocationsController.prototype, "uploadPitchPhoto", null);
 __decorate([
     (0, common_1.Get)('all'),
     __metadata("design:type", Function),
@@ -1427,27 +1518,31 @@ __decorate([
     __param(0, (0, common_2.IsOwner)()),
     __param(1, (0, common_1.Body)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [typeof (_b = typeof common_2.User !== "undefined" && common_2.User) === "function" ? _b : Object, typeof (_c = typeof location_dto_1.CreateLocationDto !== "undefined" && location_dto_1.CreateLocationDto) === "function" ? _c : Object]),
+    __metadata("design:paramtypes", [typeof (_e = typeof common_2.User !== "undefined" && common_2.User) === "function" ? _e : Object, typeof (_f = typeof location_dto_1.CreateLocationDto !== "undefined" && location_dto_1.CreateLocationDto) === "function" ? _f : Object]),
     __metadata("design:returntype", Promise)
 ], LocationsController.prototype, "registerLocation", null);
 __decorate([
     (0, common_1.Get)('nearby'),
     __param(0, (0, common_1.Body)()),
+    __param(0, (0, common_1.Body)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [typeof (_d = typeof location_dto_1.ViewNearbyLocationsDto !== "undefined" && location_dto_1.ViewNearbyLocationsDto) === "function" ? _d : Object]),
+    __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", Promise)
 ], LocationsController.prototype, "getNearbyLocations", null);
 __decorate([
     (0, common_1.Get)(),
     __param(0, (0, common_2.CurrentUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [typeof (_e = typeof common_2.User !== "undefined" && common_2.User) === "function" ? _e : Object]),
+    __metadata("design:paramtypes", [typeof (_g = typeof common_2.User !== "undefined" && common_2.User) === "function" ? _g : Object]),
     __metadata("design:returntype", Promise)
 ], LocationsController.prototype, "getMyLocation", null);
 exports.LocationsController = LocationsController = __decorate([
     (0, common_1.Controller)('location'),
     (0, common_1.UseGuards)(jwt_guard_1.JwtAuthGuard),
-    __metadata("design:paramtypes", [typeof (_a = typeof locations_service_1.LocationsService !== "undefined" && locations_service_1.LocationsService) === "function" ? _a : Object])
+    (0, common_1.UseInterceptors)((0, platform_express_1.FileInterceptor)('file', {
+        storage: multer.memoryStorage()
+    })),
+    __metadata("design:paramtypes", [typeof (_a = typeof locations_service_1.LocationsService !== "undefined" && locations_service_1.LocationsService) === "function" ? _a : Object, typeof (_b = typeof aws_service_1.AwsService !== "undefined" && aws_service_1.AwsService) === "function" ? _b : Object])
 ], LocationsController);
 
 
@@ -1475,6 +1570,7 @@ const locations_controller_1 = __webpack_require__(/*! ./locations.controller */
 const locations_service_1 = __webpack_require__(/*! ./locations.service */ "./src/locations/locations.service.ts");
 const locations_repository_1 = __webpack_require__(/*! ./locations.repository */ "./src/locations/locations.repository.ts");
 const users_repository_1 = __webpack_require__(/*! src/users/users.repository */ "./src/users/users.repository.ts");
+const aws_service_1 = __webpack_require__(/*! @app/common/providers/aws.service */ "./libs/common/src/providers/aws.service.ts");
 let LocationsModule = class LocationsModule {
 };
 exports.LocationsModule = LocationsModule;
@@ -1487,7 +1583,7 @@ exports.LocationsModule = LocationsModule = __decorate([
             ]),
         ],
         controllers: [locations_controller_1.LocationsController],
-        providers: [locations_service_1.LocationsService, locations_repository_1.LocationRepository, users_repository_1.UserRepository],
+        providers: [locations_service_1.LocationsService, locations_repository_1.LocationRepository, users_repository_1.UserRepository, aws_service_1.AwsService],
         exports: [locations_service_1.LocationsService],
     })
 ], LocationsModule);
@@ -1587,16 +1683,14 @@ let LocationsService = class LocationsService {
     async viewAllLocations() {
         return await this.locationRepository.find({});
     }
-    async viewNearbyLocations(locationData) {
-        const { longitude, latitude } = locationData;
+    async viewNearbyLocations(lng, lat) {
         return await this.locationRepository.find({
             'location.coordinates': {
                 $near: {
                     $geometry: {
                         type: 'Point',
-                        coordinates: [parseFloat(longitude), parseFloat(latitude)],
+                        coordinates: [lng, lat],
                     },
-                    $maxDistance: 5000,
                 },
             },
         });
@@ -2369,6 +2463,11 @@ let SessionsService = class SessionsService {
         await this.sessionRepository.findOneAndUpdate({
             _id: session._id.toString(),
         }, { captain: null, inProgress: false });
+        await this.locationRepository.findOneAndUpdate({
+            _id: session.location,
+        }, {
+            booked: false
+        });
         return { message: 'Session ended successfully', session };
     }
     async joinSession(userId, sessionId) {
@@ -3296,6 +3395,26 @@ exports.UsersService = UsersService = UsersService_1 = __decorate([
 
 /***/ }),
 
+/***/ "@aws-sdk/client-s3":
+/*!*************************************!*\
+  !*** external "@aws-sdk/client-s3" ***!
+  \*************************************/
+/***/ ((module) => {
+
+module.exports = require("@aws-sdk/client-s3");
+
+/***/ }),
+
+/***/ "@aws-sdk/credential-providers":
+/*!************************************************!*\
+  !*** external "@aws-sdk/credential-providers" ***!
+  \************************************************/
+/***/ ((module) => {
+
+module.exports = require("@aws-sdk/credential-providers");
+
+/***/ }),
+
 /***/ "@nestjs/common":
 /*!*********************************!*\
   !*** external "@nestjs/common" ***!
@@ -3356,6 +3475,16 @@ module.exports = require("@nestjs/passport");
 
 /***/ }),
 
+/***/ "@nestjs/platform-express":
+/*!*******************************************!*\
+  !*** external "@nestjs/platform-express" ***!
+  \*******************************************/
+/***/ ((module) => {
+
+module.exports = require("@nestjs/platform-express");
+
+/***/ }),
+
 /***/ "@nestjs/schedule":
 /*!***********************************!*\
   !*** external "@nestjs/schedule" ***!
@@ -3413,6 +3542,16 @@ module.exports = require("express");
 /***/ ((module) => {
 
 module.exports = require("mongoose");
+
+/***/ }),
+
+/***/ "multer":
+/*!*************************!*\
+  !*** external "multer" ***!
+  \*************************/
+/***/ ((module) => {
+
+module.exports = require("multer");
 
 /***/ }),
 
