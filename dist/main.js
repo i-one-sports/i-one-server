@@ -172,6 +172,7 @@ __exportStar(__webpack_require__(/*! ./decorators/isOwner.decorator */ "./libs/c
 __exportStar(__webpack_require__(/*! ./filters/http-exception.filter copy */ "./libs/common/src/filters/http-exception.filter copy.ts"), exports);
 __exportStar(__webpack_require__(/*! ./utils/nodemailer */ "./libs/common/src/utils/nodemailer.ts"), exports);
 __exportStar(__webpack_require__(/*! ./utils/phone.number */ "./libs/common/src/utils/phone.number.ts"), exports);
+__exportStar(__webpack_require__(/*! ./utils/random */ "./libs/common/src/utils/random.ts"), exports);
 
 
 /***/ }),
@@ -355,6 +356,14 @@ __decorate([
     (0, mongoose_1.Prop)({ required: true, type: String }),
     __metadata("design:type", String)
 ], Location.prototype, "address", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ type: Boolean, default: false }),
+    __metadata("design:type", Boolean)
+], Location.prototype, "booked", void 0);
+__decorate([
+    (0, mongoose_1.Prop)(),
+    __metadata("design:type", String)
+], Location.prototype, "pitchPhoto", void 0);
 __decorate([
     (0, mongoose_1.Prop)({
         type: {
@@ -703,6 +712,12 @@ var WINNING_DECIDER;
 
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.UploadType = void 0;
+var UploadType;
+(function (UploadType) {
+    UploadType["PITCH"] = "pitches";
+    UploadType["USER_AVATAR"] = "users";
+})(UploadType || (exports.UploadType = UploadType = {}));
 
 
 /***/ }),
@@ -786,6 +801,52 @@ function internationalisePhoneNumber(num) {
         default:
             return num;
     }
+}
+
+
+/***/ }),
+
+/***/ "./libs/common/src/utils/random.ts":
+/*!*****************************************!*\
+  !*** ./libs/common/src/utils/random.ts ***!
+  \*****************************************/
+/***/ ((__unused_webpack_module, exports) => {
+
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.RandomGen = void 0;
+exports.booleanParser = booleanParser;
+exports.RandomGen = {
+    genRandomNum: (rounds = 9, length = 7) => {
+        const gen = [];
+        for (let i = 0; i < length; i++) {
+            gen.push(Math.floor(Math.random() * rounds));
+        }
+        const rando = gen.join('');
+        return Number(rando);
+    },
+    genRandomString: (rounds = 100, length = 7) => {
+        const gen = [];
+        for (let i = 0; i < length; i++) {
+            gen.push(Math.floor(Math.random() * rounds));
+        }
+        return gen.join('');
+    },
+    generateAlphanumericString: (length) => {
+        if (length <= 6) {
+            throw new Error('Length should be greater than 6.');
+        }
+        const alphabet = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        const numbers = '0123456789';
+        const alphaPart = alphabet.slice(0, 2);
+        const alphanumericPart = alphabet + numbers;
+        const result = alphaPart +
+            Array.from({ length: length - 2 }, () => alphanumericPart[Math.floor(Math.random() * alphanumericPart.length)]).join('');
+        return result.toUpperCase();
+    }
+};
+function booleanParser(booleanString) {
+    return booleanString.length === 4;
 }
 
 
@@ -2219,7 +2280,6 @@ let SessionsService = class SessionsService {
                     },
                 },
             });
-            console.log(nearbyLocations);
             const locationIds = nearbyLocations.map((loc) => loc._id);
             const locatedSessions = await this.sessionRepository.find({
                 location: { $in: locationIds },
@@ -2248,6 +2308,9 @@ let SessionsService = class SessionsService {
             captain: userId,
         });
         await this.userRepository.findOneAndUpdate({ _id: userId }, { currentSession: session._id });
+        await this.locationRepository.findOneAndUpdate({ _id: locationId }, {
+            booked: true
+        });
         return session;
     }
     async createSession({ setNumber, playersPerTeam, timeDuration, minsPerSet, startTime, winningDecider, }, userId, sessionId) {
