@@ -393,11 +393,13 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
+var _a;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.MatchSchema = exports.Match = void 0;
 const mongoose_1 = __webpack_require__(/*! @nestjs/mongoose */ "@nestjs/mongoose");
 const mongoose_2 = __webpack_require__(/*! mongoose */ "mongoose");
 const abstract_schema_1 = __webpack_require__(/*! ./abstract.schema */ "./libs/common/src/schemas/abstract.schema.ts");
+const common_1 = __webpack_require__(/*! ../types/common */ "./libs/common/src/types/common.ts");
 let Match = class Match extends abstract_schema_1.AbstractDocument {
 };
 exports.Match = Match;
@@ -425,6 +427,10 @@ __decorate([
     (0, mongoose_1.Prop)({ type: mongoose_2.Types.ObjectId, ref: 'Session' }),
     __metadata("design:type", String)
 ], Match.prototype, "session", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ type: String, default: common_1.MATCH_TYPE.FRIENDLY }),
+    __metadata("design:type", typeof (_a = typeof common_1.MATCH_TYPE !== "undefined" && common_1.MATCH_TYPE) === "function" ? _a : Object)
+], Match.prototype, "matchType", void 0);
 exports.Match = Match = __decorate([
     (0, mongoose_1.Schema)({ timestamps: true })
 ], Match);
@@ -548,8 +554,8 @@ exports.SetSchema = exports.Set = void 0;
 const mongoose_1 = __webpack_require__(/*! @nestjs/mongoose */ "@nestjs/mongoose");
 const mongoose_2 = __webpack_require__(/*! mongoose */ "mongoose");
 const abstract_schema_1 = __webpack_require__(/*! ./abstract.schema */ "./libs/common/src/schemas/abstract.schema.ts");
-class Set extends abstract_schema_1.AbstractDocument {
-}
+let Set = class Set extends abstract_schema_1.AbstractDocument {
+};
 exports.Set = Set;
 __decorate([
     (0, mongoose_1.Prop)({ type: mongoose_2.Types.ObjectId, ref: 'Session' }),
@@ -563,6 +569,9 @@ __decorate([
     (0, mongoose_1.Prop)({ type: mongoose_2.Types.ObjectId, ref: 'User' }),
     __metadata("design:type", Array)
 ], Set.prototype, "players", void 0);
+exports.Set = Set = __decorate([
+    (0, mongoose_1.Schema)({ timestamps: true, versionKey: false })
+], Set);
 exports.SetSchema = mongoose_1.SchemaFactory.createForClass(Set);
 
 
@@ -2654,6 +2663,7 @@ const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
 const sets_repository_1 = __webpack_require__(/*! ./sets.repository */ "./src/sets/sets.repository.ts");
 const sessions_repository_1 = __webpack_require__(/*! ../sessions/sessions.repository */ "./src/sessions/sessions.repository.ts");
 const common_2 = __webpack_require__(/*! @app/common */ "./libs/common/src/index.ts");
+const mongoose_1 = __webpack_require__(/*! mongoose */ "mongoose");
 let SetsService = class SetsService {
     constructor(setRepository, sessionRepository) {
         this.setRepository = setRepository;
@@ -2691,43 +2701,53 @@ let SetsService = class SetsService {
             const player = availablePlayers[i];
             const setIndex = i % createdSets.length;
             const pickedSet = createdSets[setIndex];
+            console.log(pickedSet);
             await this.setRepository.findOneAndUpdate({ _id: pickedSet._id }, { $push: { players: player } });
         }
     }
     async createSet(sessionId) {
-        const session = await this.sessionRepository.findOne({ _id: sessionId });
-        if (!session) {
-            throw new common_2.CustomHttpException('Session not found', common_1.HttpStatus.NOT_FOUND);
-        }
-        const existingSets = await this.setRepository.find({ session: sessionId });
-        const usedNames = existingSets.map((set) => set.name);
-        const availableNames = this.setNames.filter((name) => !usedNames.includes(name));
-        if (availableNames.length < session.setNumber) {
-            throw new common_2.CustomHttpException('Not enough unique names available for the session', common_1.HttpStatus.BAD_REQUEST);
-        }
-        const count = await this.setRepository
-            .findRaw()
-            .countDocuments({ session: sessionId });
-        if (session.maxNumber >= count) {
-            throw new common_2.CustomHttpException('Set already created', common_1.HttpStatus.BAD_REQUEST);
-        }
-        const setData = Array(session.setNumber)
-            .fill(null)
-            .map(() => {
-            const randomIndex = Math.floor(Math.random() * availableNames.length);
-            const randomName = availableNames.splice(randomIndex, 1)[0];
+        try {
+            const session = await this.sessionRepository.findOne({ _id: sessionId });
+            if (!session) {
+                throw new common_2.CustomHttpException('Session not found', common_1.HttpStatus.NOT_FOUND);
+            }
+            const existingSets = await this.setRepository.find({ session: sessionId });
+            const usedNames = existingSets.map((set) => set.name);
+            const availableNames = this.setNames.filter((name) => !usedNames.includes(name));
+            if (availableNames.length < session.setNumber) {
+                throw new common_2.CustomHttpException('Not enough unique names available for the session', common_1.HttpStatus.BAD_REQUEST);
+            }
+            const count = await this.setRepository
+                .findRaw()
+                .countDocuments({ session: sessionId });
+            const setExists = await this.setRepository.findOne({ session: sessionId });
+            if (setExists) {
+                throw new common_2.CustomHttpException('Set already created', common_1.HttpStatus.BAD_REQUEST);
+            }
+            const setData = Array(session.setNumber)
+                .fill(null)
+                .map(() => {
+                const randomIndex = Math.floor(Math.random() * availableNames.length);
+                const randomName = availableNames.splice(randomIndex, 1)[0];
+                return {
+                    _id: new mongoose_1.Types.ObjectId(),
+                    session: session._id,
+                    name: randomName,
+                    players: [],
+                };
+            });
+            const createdSets = await this.setRepository.insertMany(setData);
+            await this.allocateMembers(session, createdSets);
+            56;
             return {
-                session: session._id,
-                name: randomName,
-                players: [],
+                message: 'Sets created successfully',
+                sets: createdSets,
             };
-        });
-        const createdSets = await this.setRepository.insertMany(setData);
-        await this.allocateMembers(session, createdSets);
-        return {
-            message: 'Sets created successfully',
-            sets: createdSets,
-        };
+        }
+        catch (error) {
+            throw new common_2.CustomHttpException(error.message, common_1.HttpStatus.INTERNAL_SERVER_ERROR);
+            console.log(error);
+        }
     }
     async viewAllSets() {
         return this.setRepository.findAndPopulate({}, ['players']);

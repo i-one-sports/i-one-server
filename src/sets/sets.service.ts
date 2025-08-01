@@ -3,6 +3,7 @@ import { SetRepository } from './sets.repository';
 import { SessionRepository } from '../sessions/sessions.repository';
 import { CustomHttpException } from '@app/common';
 import { Set, Session } from '@app/common';
+import { Types } from 'mongoose';
 
 @Injectable()
 export class SetsService {
@@ -51,15 +52,19 @@ export class SetsService {
       const setIndex = i % createdSets.length;
       const pickedSet = createdSets[setIndex];
 
+      console.log(pickedSet)
+
       await this.setRepository.findOneAndUpdate(
         { _id: pickedSet._id },
         { $push: { players: player } },
+
       );
     }
   }
 
   async createSet(sessionId: string) {
-    const session = await this.sessionRepository.findOne({ _id: sessionId });
+   try {
+     const session = await this.sessionRepository.findOne({ _id: sessionId });
     if (!session) {
       throw new CustomHttpException('Session not found', HttpStatus.NOT_FOUND);
     }
@@ -80,12 +85,18 @@ export class SetsService {
     const count = await this.setRepository
       .findRaw()
       .countDocuments({ session: sessionId });
-    if (session.maxNumber >= count) {
+
+      const setExists = await this.setRepository.findOne({session: sessionId})
+
+
+    if (setExists) {
       throw new CustomHttpException(
         'Set already created',
         HttpStatus.BAD_REQUEST,
       );
     }
+
+
 
     const setData = Array(session.setNumber)
       .fill(null)
@@ -93,6 +104,7 @@ export class SetsService {
         const randomIndex = Math.floor(Math.random() * availableNames.length);
         const randomName = availableNames.splice(randomIndex, 1)[0];
         return {
+          _id: new Types.ObjectId(),
           session: session._id,
           name: randomName,
           players: [],
@@ -100,13 +112,18 @@ export class SetsService {
       });
 
     const createdSets = await this.setRepository.insertMany(setData);
-    await this.allocateMembers(session, createdSets);
+    await this.allocateMembers(session, createdSets);56
 
     return {
       message: 'Sets created successfully',
       sets: createdSets,
     };
-  }
+
+   } catch (error:any) {
+    throw new CustomHttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR)
+    console.log(error)
+   } 
+   }
 
   async viewAllSets() {
     return this.setRepository.findAndPopulate({}, ['players']);

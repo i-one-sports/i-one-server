@@ -1,7 +1,8 @@
-import { Prop, SchemaFactory } from '@nestjs/mongoose';
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Types } from 'mongoose';
 import { AbstractDocument } from './abstract.schema';
 
+@Schema({timestamps: true, versionKey: false})
 export class Set extends AbstractDocument {
   @Prop({ type: Types.ObjectId, ref: 'Session' })
   session: string;
