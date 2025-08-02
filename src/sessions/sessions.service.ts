@@ -133,6 +133,7 @@ console.error('Error Finding sessions:', error);
     }
 
     const overlappingSchedule = await this.sessionRepository.findOne({
+      location: session.location,
       startTime: { $lt: new Date(addedStopTime) },
       stopTime: { $gt: new Date(startTime) },
     });

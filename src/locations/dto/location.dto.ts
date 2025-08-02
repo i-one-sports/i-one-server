@@ -3,6 +3,7 @@ import { LocationCoordinates } from '@app/common';
 export class CreateLocationDto {
   name: string;
   address: string;
+  pitchPhoto?: string;
   location: LocationCoordinates;
 }
 

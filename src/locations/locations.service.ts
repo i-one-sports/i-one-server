@@ -12,7 +12,7 @@ export class LocationsService {
   ) {}
 
   async registerLocation(locationData: CreateLocationDto): Promise<Location> {
-    const { name, address, location } = locationData;
+    const { name, address, location, pitchPhoto } = locationData;
 
     const alreadyExists = await this.locationRepository.findOne({
       'location.coordinates': {
@@ -33,7 +33,7 @@ export class LocationsService {
       );
     }
 
-    return await this.locationRepository.create({ name, address, location });
+    return await this.locationRepository.create({ name, address, location, pitchPhoto });
   }
 
   async viewAllLocations(): Promise<Location[]> {
