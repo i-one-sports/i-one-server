@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { JwtAuthGuard } from 'src/auth/guards/jwt.guard';
 import { LocationsService } from './locations.service';
 import { CreateLocationDto, ViewNearbyLocationsDto } from './dto/location.dto';
@@ -47,8 +47,11 @@ export class LocationsController {
     }
     
     @Get('nearby')
-    async getNearbyLocations(@Body() @Body() data: { lng: number; lat: number }) {
-      return this.locationsService.viewNearbyLocations(data.lng, data.lat);
+    async getNearbyLocations(
+      @Query('lng') lng: number,
+      @Query('lat') lat: number,
+    ) {
+      return this.locationsService.viewNearbyLocations(lng, lat);
     }
     
     @Get()
