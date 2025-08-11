@@ -1500,8 +1500,8 @@ let LocationsController = class LocationsController {
     async registerLocation(user, data) {
         return this.locationsService.registerLocation(data);
     }
-    async getNearbyLocations(data) {
-        return this.locationsService.viewNearbyLocations(data.lng, data.lat);
+    async getNearbyLocations(lng, lat) {
+        return this.locationsService.viewNearbyLocations(lng, lat);
     }
     async getMyLocation(user) {
         return this.locationsService.getMyLocation(user._id.toString());
@@ -1532,10 +1532,10 @@ __decorate([
 ], LocationsController.prototype, "registerLocation", null);
 __decorate([
     (0, common_1.Get)('nearby'),
-    __param(0, (0, common_1.Body)()),
-    __param(0, (0, common_1.Body)()),
+    __param(0, (0, common_1.Query)('lng')),
+    __param(1, (0, common_1.Query)('lat')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object]),
+    __metadata("design:paramtypes", [Number, Number]),
     __metadata("design:returntype", Promise)
 ], LocationsController.prototype, "getNearbyLocations", null);
 __decorate([
@@ -1672,7 +1672,7 @@ let LocationsService = class LocationsService {
         this.userRepository = userRepository;
     }
     async registerLocation(locationData) {
-        const { name, address, location } = locationData;
+        const { name, address, location, pitchPhoto } = locationData;
         const alreadyExists = await this.locationRepository.findOne({
             'location.coordinates': {
                 $near: {
@@ -1687,7 +1687,7 @@ let LocationsService = class LocationsService {
         if (alreadyExists) {
             throw new common_2.CustomHttpException('Location already registered', common_1.HttpStatus.CONFLICT);
         }
-        return await this.locationRepository.create({ name, address, location });
+        return await this.locationRepository.create({ name, address, location, pitchPhoto });
     }
     async viewAllLocations() {
         return await this.locationRepository.find({});
@@ -2105,9 +2105,9 @@ let SessionsController = class SessionsController {
     constructor(sessionsService) {
         this.sessionsService = sessionsService;
     }
-    async findNearbySessionMatches(data) {
-        console.log(data);
-        return this.sessionsService.findNearbySessionMatches(data.lng, data.lat);
+    async findNearbySessionMatches(lng, lat) {
+        console.log(lng, lat);
+        return this.sessionsService.findNearbySessionMatches(lng, lat);
     }
     async viewAllSessions() {
         return this.sessionsService.viewAllSessions();
@@ -2145,10 +2145,11 @@ let SessionsController = class SessionsController {
 };
 exports.SessionsController = SessionsController;
 __decorate([
-    (0, common_1.Post)('nearby-sessions'),
-    __param(0, (0, common_1.Body)()),
+    (0, common_1.Get)('nearby-sessions'),
+    __param(0, (0, common_1.Query)('lng')),
+    __param(1, (0, common_1.Query)('lat')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object]),
+    __metadata("design:paramtypes", [Number, Number]),
     __metadata("design:returntype", Promise)
 ], SessionsController.prototype, "findNearbySessionMatches", null);
 __decorate([
@@ -2388,7 +2389,62 @@ let SessionsService = class SessionsService {
                 location: { $in: locationIds },
             });
             const sessionIds = locatedSessions.map((session) => session._id);
-            return this.matchRepository.findAndPopulate({ session: { $in: sessionIds } }, ['teamOne', 'teamTwo']);
+            const aggregatedMatches = await this.matchRepository.findRaw().aggregate([
+                {
+                    $match: {
+                        session: { $in: sessionIds },
+                    },
+                },
+                {
+                    $lookup: {
+                        from: 'sets',
+                        localField: 'teamOne',
+                        foreignField: '_id',
+                        as: 'teamOne',
+                        pipeline: [
+                            {
+                                $lookup: {
+                                    from: 'sessions',
+                                    localField: 'session',
+                                    foreignField: '_id',
+                                    as: 'session',
+                                },
+                            },
+                            {
+                                $unwind: '$session',
+                            },
+                        ],
+                    },
+                },
+                {
+                    $unwind: '$teamOne',
+                },
+                {
+                    $lookup: {
+                        from: 'sets',
+                        localField: 'teamTwo',
+                        foreignField: '_id',
+                        as: 'teamTwo',
+                        pipeline: [
+                            {
+                                $lookup: {
+                                    from: 'sessions',
+                                    localField: 'session',
+                                    foreignField: '_id',
+                                    as: 'session',
+                                },
+                            },
+                            {
+                                $unwind: '$session',
+                            },
+                        ],
+                    },
+                },
+                {
+                    $unwind: '$teamTwo',
+                },
+            ]);
+            return aggregatedMatches;
         }
         catch (error) {
             console.error('Error Finding sessions:', error);
@@ -2412,7 +2468,7 @@ let SessionsService = class SessionsService {
         });
         await this.userRepository.findOneAndUpdate({ _id: userId }, { currentSession: session._id });
         await this.locationRepository.findOneAndUpdate({ _id: locationId }, {
-            booked: true
+            booked: true,
         });
         return session;
     }
@@ -2434,6 +2490,7 @@ let SessionsService = class SessionsService {
             throw new common_2.CustomHttpException('Session Time already exists', common_1.HttpStatus.CONFLICT);
         }
         const overlappingSchedule = await this.sessionRepository.findOne({
+            location: session.location,
             startTime: { $lt: new Date(addedStopTime) },
             stopTime: { $gt: new Date(startTime) },
         });
@@ -2451,7 +2508,7 @@ let SessionsService = class SessionsService {
             stopTime: addedStopTime,
             winningDecider,
             maxNumber,
-            members: [userId]
+            members: [userId],
         });
         return newSession;
     }
@@ -2475,7 +2532,7 @@ let SessionsService = class SessionsService {
         await this.locationRepository.findOneAndUpdate({
             _id: session.location,
         }, {
-            booked: false
+            booked: false,
         });
         return { message: 'Session ended successfully', session };
     }
@@ -2483,9 +2540,9 @@ let SessionsService = class SessionsService {
         const session = await this.sessionRepository.findOne({ _id: sessionId });
         if (!session)
             throw new common_2.CustomHttpException('Session not found', common_1.HttpStatus.NOT_FOUND);
-        const exists = session.members.some(id => id.equals(userId));
+        const exists = session.members.some((id) => id.equals(userId));
         if (exists)
-            throw new common_2.CustomHttpException("User already in this session", common_1.HttpStatus.CONFLICT);
+            throw new common_2.CustomHttpException('User already in this session', common_1.HttpStatus.CONFLICT);
         if (session.isFull) {
             throw new common_2.CustomHttpException('Session is full', common_1.HttpStatus.BAD_REQUEST);
         }
@@ -2528,9 +2585,12 @@ let SessionsService = class SessionsService {
     }
     async viewSessionMembers(sessionId) {
         try {
-            const session = await this.sessionRepository.findRaw().find({
-                _id: sessionId
-            }).populate('members', 'firstName lastName nickname');
+            const session = await this.sessionRepository
+                .findRaw()
+                .find({
+                _id: sessionId,
+            })
+                .populate('members', 'firstName lastName nickname');
             if (session === null) {
                 throw new common_2.CustomHttpException('Session not found', common_1.HttpStatus.NOT_FOUND);
             }
@@ -2619,8 +2679,8 @@ let SessionsService = class SessionsService {
                 $set: { matchType: common_3.MATCH_TYPE.FRIENDLY },
             };
             const updatedResult = await this.sessionRepository.updateMany(filter, update);
-            console.log("Updating with filter:", filter);
-            console.log("Updating with update:", update);
+            console.log('Updating with filter:', filter);
+            console.log('Updating with update:', update);
             return updatedResult;
         }
         catch (error) {

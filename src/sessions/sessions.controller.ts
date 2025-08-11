@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from 'src/auth/guards/jwt.guard';
@@ -18,11 +19,13 @@ import { createSessionRequest } from './dto/sessions.dto';
 export class SessionsController {
   constructor(private sessionsService: SessionsService) {}
 
-  @Post('nearby-sessions')
-  async findNearbySessionMatches(@Body() data: { lng: number; lat: number }) 
-  {
-    console.log(data)
-    return this.sessionsService.findNearbySessionMatches(data.lng, data.lat);
+  @Get('nearby-sessions')
+  async findNearbySessionMatches(
+    @Query('lng') lng: number,
+    @Query('lat') lat: number,
+  ) {
+    console.log(lng, lat);
+    return this.sessionsService.findNearbySessionMatches(lng, lat);
   }
 
   @Get('all')
@@ -106,5 +109,4 @@ export class SessionsController {
   async updateManySession() {
     return await this.sessionsService.updateAllSessions();
   }
- 
 }

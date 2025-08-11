@@ -18,44 +18,97 @@ export class SessionsService {
   ) {}
 
   async findNearbySessionMatches(lng: number, lat: number) {
-try{
+    try {
       const nearbyLocations = await this.locationRepository.find({
-      location: {
-        $near: {
-          $geometry: {
-            type: 'Point',
-            coordinates: [lng, lat],
+        location: {
+          $near: {
+            $geometry: {
+              type: 'Point',
+              coordinates: [lng, lat],
+            },
+            // $maxDistance: 200000000,
           },
-          // $maxDistance: 200000000,
         },
-      },
-    });
+      });
 
-    const locationIds = nearbyLocations.map((loc) => loc._id);
-    const locatedSessions = await this.sessionRepository.find({
-      location: { $in: locationIds },
-    });
-    const sessionIds = locatedSessions.map((session) => session._id);
+      const locationIds = nearbyLocations.map((loc) => loc._id);
+      const locatedSessions = await this.sessionRepository.find({
+        location: { $in: locationIds },
+      });
+      const sessionIds = locatedSessions.map((session) => session._id);
 
-    return this.matchRepository.findAndPopulate(
-      { session: { $in: sessionIds } },
-      ['teamOne', 'teamTwo'],
-    );
+      const aggregatedMatches = await this.matchRepository.findRaw().aggregate([
+        {
+          $match: {
+            session: { $in: sessionIds },
+          },
+        },
+        {
+          $lookup: {
+            from: 'sets',
+            localField: 'teamOne',
+            foreignField: '_id',
+            as: 'teamOne',
+            pipeline: [
+              {
+                $lookup: {
+                  from: 'sessions',
+                  localField: 'session',
+                  foreignField: '_id',
+                  as: 'session',
+                },
+              },
+              {
+                $unwind: '$session',
+              },
+            ],
+          },
+        },
+        {
+          $unwind: '$teamOne',
+        },
+        {
+          $lookup: {
+            from: 'sets',
+            localField: 'teamTwo',
+            foreignField: '_id',
+            as: 'teamTwo',
+            pipeline: [
+              {
+                $lookup: {
+                  from: 'sessions',
+                  localField: 'session',
+                  foreignField: '_id',
+                  as: 'session',
+                },
+              },
+              {
+                $unwind: '$session',
+              },
+            ],
+          },
+        },
+        {
+          $unwind: '$teamTwo',
+        },
+      ]);
 
-}catch(error){
-console.error('Error Finding sessions:', error);
+      return aggregatedMatches;
+    } catch (error) {
+      console.error('Error Finding sessions:', error);
       throw new CustomHttpException(
         'Error Finding sessions: ' + (error?.message || error),
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
-}
+    }
   }
 
   async startSession(userId: string, locationId: string) {
     const user = await this.userRepository.findOne({ _id: userId });
-    const location = await this.locationRepository.findOne({_id: locationId})
+    const location = await this.locationRepository.findOne({ _id: locationId });
 
-    if (!location) throw new CustomHttpException('Location not found', HttpStatus.NOT_FOUND);
+    if (!location)
+      throw new CustomHttpException('Location not found', HttpStatus.NOT_FOUND);
 
     if (user == null) {
       throw new CustomHttpException('User not found', HttpStatus.NOT_FOUND);
@@ -79,10 +132,11 @@ console.error('Error Finding sessions:', error);
     );
 
     await this.locationRepository.findOneAndUpdate(
-      { _id: locationId},
-    {
-      booked: true
-    })
+      { _id: locationId },
+      {
+        booked: true,
+      },
+    );
 
     return session;
   }
@@ -159,7 +213,7 @@ console.error('Error Finding sessions:', error);
         stopTime: addedStopTime,
         winningDecider,
         maxNumber,
-        members: [userId]
+        members: [userId],
       },
     );
 
@@ -194,12 +248,15 @@ console.error('Error Finding sessions:', error);
       { captain: null, inProgress: false },
     );
 
-    await this.locationRepository.findOneAndUpdate({
-      _id: session.location,
-    }, {
-      booked: false
-    })
-    
+    await this.locationRepository.findOneAndUpdate(
+      {
+        _id: session.location,
+      },
+      {
+        booked: false,
+      },
+    );
+
     return { message: 'Session ended successfully', session };
   }
 
@@ -208,9 +265,13 @@ console.error('Error Finding sessions:', error);
     if (!session)
       throw new CustomHttpException('Session not found', HttpStatus.NOT_FOUND);
 
-   const exists = session.members.some(id => id.equals(userId));
+    const exists = session.members.some((id) => id.equals(userId));
 
-   if (exists) throw new CustomHttpException("User already in this session", HttpStatus.CONFLICT)
+    if (exists)
+      throw new CustomHttpException(
+        'User already in this session',
+        HttpStatus.CONFLICT,
+      );
 
     if (session.isFull) {
       throw new CustomHttpException('Session is full', HttpStatus.BAD_REQUEST);
@@ -252,7 +313,7 @@ console.error('Error Finding sessions:', error);
         {
           $pull: { members: userId },
           $set: { isFull: session.members.length - 1 >= session.maxNumber },
-        }, 
+        },
       );
 
       await this.userRepository.findOneAndUpdate(
@@ -276,26 +337,32 @@ console.error('Error Finding sessions:', error);
   }
 
   async viewSessionMembers(sessionId: string) {
-    try{
-      const session = await this.sessionRepository.findRaw().find({
-      _id: sessionId
-    }).populate('members', 'firstName lastName nickname' )
+    try {
+      const session = await this.sessionRepository
+        .findRaw()
+        .find({
+          _id: sessionId,
+        })
+        .populate('members', 'firstName lastName nickname');
 
-    if (session === null) {
-      throw new CustomHttpException('Session not found', HttpStatus.NOT_FOUND);
-    }
+      if (session === null) {
+        throw new CustomHttpException(
+          'Session not found',
+          HttpStatus.NOT_FOUND,
+        );
+      }
 
-    // if (!session.members || session.members.length === 0) {
-    //   throw new CustomHttpException(
-    //     'No members have joined yet',
-    //     HttpStatus.NOT_FOUND,
-    //   );
-    // }
+      // if (!session.members || session.members.length === 0) {
+      //   throw new CustomHttpException(
+      //     'No members have joined yet',
+      //     HttpStatus.NOT_FOUND,
+      //   );
+      // }
 
-    // const nicknames = session.members.map((member) => member.nickname);
-    return session
-    }catch(error: any ){
-      console.log(error.message)
+      // const nicknames = session.members.map((member) => member.nickname);
+      return session;
+    } catch (error: any) {
+      console.log(error.message);
     }
   }
 
@@ -420,8 +487,8 @@ console.error('Error Finding sessions:', error);
         filter,
         update,
       );
-      console.log("Updating with filter:", filter);
-console.log("Updating with update:", update);
+      console.log('Updating with filter:', filter);
+      console.log('Updating with update:', update);
 
       return updatedResult;
     } catch (error) {
