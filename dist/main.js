@@ -165,6 +165,11 @@ __exportStar(__webpack_require__(/*! ./schemas/sets.schema */ "./libs/common/src
 __exportStar(__webpack_require__(/*! ./schemas/session.schema */ "./libs/common/src/schemas/session.schema.ts"), exports);
 __exportStar(__webpack_require__(/*! ./schemas/match.schema */ "./libs/common/src/schemas/match.schema.ts"), exports);
 __exportStar(__webpack_require__(/*! ./schemas/location.schema */ "./libs/common/src/schemas/location.schema.ts"), exports);
+__exportStar(__webpack_require__(/*! ./schemas/team.schema */ "./libs/common/src/schemas/team.schema.ts"), exports);
+__exportStar(__webpack_require__(/*! ./schemas/group.schema */ "./libs/common/src/schemas/group.schema.ts"), exports);
+__exportStar(__webpack_require__(/*! ./schemas/tournament-location.schema */ "./libs/common/src/schemas/tournament-location.schema.ts"), exports);
+__exportStar(__webpack_require__(/*! ./schemas/tournament-match.schema */ "./libs/common/src/schemas/tournament-match.schema.ts"), exports);
+__exportStar(__webpack_require__(/*! ./schemas/tournament.schema */ "./libs/common/src/schemas/tournament.schema.ts"), exports);
 __exportStar(__webpack_require__(/*! ./utils/phone.number */ "./libs/common/src/utils/phone.number.ts"), exports);
 __exportStar(__webpack_require__(/*! ./typings/global.interface */ "./libs/common/src/typings/global.interface.ts"), exports);
 __exportStar(__webpack_require__(/*! ./decorators/currentUser.decorator */ "./libs/common/src/decorators/currentUser.decorator.ts"), exports);
@@ -394,6 +399,49 @@ __decorate([
 exports.AbstractDocument = AbstractDocument = __decorate([
     (0, mongoose_1.Schema)()
 ], AbstractDocument);
+
+
+/***/ }),
+
+/***/ "./libs/common/src/schemas/group.schema.ts":
+/*!*************************************************!*\
+  !*** ./libs/common/src/schemas/group.schema.ts ***!
+  \*************************************************/
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+var __metadata = (this && this.__metadata) || function (k, v) {
+    if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.GroupSchema = exports.Group = void 0;
+const mongoose_1 = __webpack_require__(/*! @nestjs/mongoose */ "@nestjs/mongoose");
+const mongoose_2 = __webpack_require__(/*! mongoose */ "mongoose");
+let Group = class Group {
+};
+exports.Group = Group;
+__decorate([
+    (0, mongoose_1.Prop)({ required: true }),
+    __metadata("design:type", String)
+], Group.prototype, "name", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ type: [{ type: mongoose_2.Types.ObjectId, ref: 'Team' }] }),
+    __metadata("design:type", Array)
+], Group.prototype, "teams", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ type: [{ type: Object }] }),
+    __metadata("design:type", Array)
+], Group.prototype, "standings", void 0);
+exports.Group = Group = __decorate([
+    (0, mongoose_1.Schema)()
+], Group);
+exports.GroupSchema = mongoose_1.SchemaFactory.createForClass(Group);
 
 
 /***/ }),
@@ -661,6 +709,294 @@ exports.SetSchema = mongoose_1.SchemaFactory.createForClass(Set);
 
 /***/ }),
 
+/***/ "./libs/common/src/schemas/team.schema.ts":
+/*!************************************************!*\
+  !*** ./libs/common/src/schemas/team.schema.ts ***!
+  \************************************************/
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+var __metadata = (this && this.__metadata) || function (k, v) {
+    if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.TeamSchema = exports.Team = void 0;
+const mongoose_1 = __webpack_require__(/*! @nestjs/mongoose */ "@nestjs/mongoose");
+const mongoose_2 = __webpack_require__(/*! mongoose */ "mongoose");
+const abstract_schema_1 = __webpack_require__(/*! ./abstract.schema */ "./libs/common/src/schemas/abstract.schema.ts");
+let Team = class Team extends abstract_schema_1.AbstractDocument {
+};
+exports.Team = Team;
+__decorate([
+    (0, mongoose_1.Prop)({ required: true }),
+    __metadata("design:type", String)
+], Team.prototype, "name", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ default: '' }),
+    __metadata("design:type", String)
+], Team.prototype, "logo", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ default: '' }),
+    __metadata("design:type", String)
+], Team.prototype, "description", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ default: '' }),
+    __metadata("design:type", String)
+], Team.prototype, "country", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ default: '' }),
+    __metadata("design:type", String)
+], Team.prototype, "city", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ type: [{ type: mongoose_2.Types.ObjectId, ref: 'User' }] }),
+    __metadata("design:type", Array)
+], Team.prototype, "players", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ type: mongoose_2.Types.ObjectId, ref: 'User', required: true }),
+    __metadata("design:type", String)
+], Team.prototype, "captain", void 0);
+exports.Team = Team = __decorate([
+    (0, mongoose_1.Schema)({ timestamps: true, versionKey: false })
+], Team);
+exports.TeamSchema = mongoose_1.SchemaFactory.createForClass(Team);
+
+
+/***/ }),
+
+/***/ "./libs/common/src/schemas/tournament-location.schema.ts":
+/*!***************************************************************!*\
+  !*** ./libs/common/src/schemas/tournament-location.schema.ts ***!
+  \***************************************************************/
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+var __metadata = (this && this.__metadata) || function (k, v) {
+    if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+};
+var _a;
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.TournamentLocationSchema = exports.TournamentLocation = void 0;
+const mongoose_1 = __webpack_require__(/*! @nestjs/mongoose */ "@nestjs/mongoose");
+const common_1 = __webpack_require__(/*! ../types/common */ "./libs/common/src/types/common.ts");
+let TournamentLocation = class TournamentLocation {
+};
+exports.TournamentLocation = TournamentLocation;
+__decorate([
+    (0, mongoose_1.Prop)({ required: true }),
+    __metadata("design:type", String)
+], TournamentLocation.prototype, "name", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ required: true }),
+    __metadata("design:type", String)
+], TournamentLocation.prototype, "address", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ required: true }),
+    __metadata("design:type", String)
+], TournamentLocation.prototype, "city", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ required: true }),
+    __metadata("design:type", String)
+], TournamentLocation.prototype, "country", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({
+        type: {
+            type: String,
+            default: 'Point',
+        },
+        coordinates: {
+            type: [Number],
+            default: [0, 0],
+        },
+    }),
+    __metadata("design:type", typeof (_a = typeof common_1.LocationCoordinates !== "undefined" && common_1.LocationCoordinates) === "function" ? _a : Object)
+], TournamentLocation.prototype, "location", void 0);
+exports.TournamentLocation = TournamentLocation = __decorate([
+    (0, mongoose_1.Schema)()
+], TournamentLocation);
+exports.TournamentLocationSchema = mongoose_1.SchemaFactory.createForClass(TournamentLocation);
+
+
+/***/ }),
+
+/***/ "./libs/common/src/schemas/tournament-match.schema.ts":
+/*!************************************************************!*\
+  !*** ./libs/common/src/schemas/tournament-match.schema.ts ***!
+  \************************************************************/
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+var __metadata = (this && this.__metadata) || function (k, v) {
+    if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+};
+var _a, _b;
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.TournamentMatchSchema = exports.TournamentMatch = void 0;
+const mongoose_1 = __webpack_require__(/*! @nestjs/mongoose */ "@nestjs/mongoose");
+const mongoose_2 = __webpack_require__(/*! mongoose */ "mongoose");
+const tournament_location_schema_1 = __webpack_require__(/*! ./tournament-location.schema */ "./libs/common/src/schemas/tournament-location.schema.ts");
+let TournamentMatch = class TournamentMatch {
+};
+exports.TournamentMatch = TournamentMatch;
+__decorate([
+    (0, mongoose_1.Prop)({ type: mongoose_2.Types.ObjectId, ref: 'Team' }),
+    __metadata("design:type", String)
+], TournamentMatch.prototype, "homeTeam", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ type: mongoose_2.Types.ObjectId, ref: 'Team' }),
+    __metadata("design:type", String)
+], TournamentMatch.prototype, "awayTeam", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ default: null }),
+    __metadata("design:type", Number)
+], TournamentMatch.prototype, "homeScore", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ default: null }),
+    __metadata("design:type", Number)
+], TournamentMatch.prototype, "awayScore", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ type: Object }),
+    __metadata("design:type", typeof (_a = typeof tournament_location_schema_1.TournamentLocation !== "undefined" && tournament_location_schema_1.TournamentLocation) === "function" ? _a : Object)
+], TournamentMatch.prototype, "location", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ default: Date.now }),
+    __metadata("design:type", typeof (_b = typeof Date !== "undefined" && Date) === "function" ? _b : Object)
+], TournamentMatch.prototype, "scheduledDate", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ default: false }),
+    __metadata("design:type", Boolean)
+], TournamentMatch.prototype, "completed", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ default: '' }),
+    __metadata("design:type", String)
+], TournamentMatch.prototype, "stage", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ default: '' }),
+    __metadata("design:type", String)
+], TournamentMatch.prototype, "group", void 0);
+exports.TournamentMatch = TournamentMatch = __decorate([
+    (0, mongoose_1.Schema)()
+], TournamentMatch);
+exports.TournamentMatchSchema = mongoose_1.SchemaFactory.createForClass(TournamentMatch);
+
+
+/***/ }),
+
+/***/ "./libs/common/src/schemas/tournament.schema.ts":
+/*!******************************************************!*\
+  !*** ./libs/common/src/schemas/tournament.schema.ts ***!
+  \******************************************************/
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+var __metadata = (this && this.__metadata) || function (k, v) {
+    if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+};
+var _a, _b, _c;
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.TournamentSchema = exports.Tournament = void 0;
+const mongoose_1 = __webpack_require__(/*! @nestjs/mongoose */ "@nestjs/mongoose");
+const global_interface_1 = __webpack_require__(/*! ../typings/global.interface */ "./libs/common/src/typings/global.interface.ts");
+const mongoose_2 = __webpack_require__(/*! mongoose */ "mongoose");
+const abstract_schema_1 = __webpack_require__(/*! ./abstract.schema */ "./libs/common/src/schemas/abstract.schema.ts");
+let Tournament = class Tournament extends abstract_schema_1.AbstractDocument {
+};
+exports.Tournament = Tournament;
+__decorate([
+    (0, mongoose_1.Prop)({ required: true }),
+    __metadata("design:type", String)
+], Tournament.prototype, "name", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ default: '' }),
+    __metadata("design:type", String)
+], Tournament.prototype, "description", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ type: [Object] }),
+    __metadata("design:type", Array)
+], Tournament.prototype, "locations", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ default: 0 }),
+    __metadata("design:type", Number)
+], Tournament.prototype, "prizeMoney", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ required: true, unique: true, match: /^[a-zA-Z0-9_-]+$/ }),
+    __metadata("design:type", String)
+], Tournament.prototype, "tag", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ default: 0 }),
+    __metadata("design:type", Number)
+], Tournament.prototype, "registrationFee", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ default: global_interface_1.TournamentStatus.REGISTRATION }),
+    __metadata("design:type", String)
+], Tournament.prototype, "status", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ default: global_interface_1.TournamentFormat.UCL_CLASSIC }),
+    __metadata("design:type", String)
+], Tournament.prototype, "format", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ default: 32 }),
+    __metadata("design:type", Number)
+], Tournament.prototype, "maxTeams", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ type: [{ type: mongoose_2.Types.ObjectId, ref: 'Team' }] }),
+    __metadata("design:type", Array)
+], Tournament.prototype, "registeredTeams", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ type: [Object] }),
+    __metadata("design:type", Array)
+], Tournament.prototype, "groups", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ type: [Object] }),
+    __metadata("design:type", Array)
+], Tournament.prototype, "matches", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ type: mongoose_2.Types.ObjectId, ref: 'User', required: true }),
+    __metadata("design:type", String)
+], Tournament.prototype, "organizer", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ default: Date.now }),
+    __metadata("design:type", typeof (_a = typeof Date !== "undefined" && Date) === "function" ? _a : Object)
+], Tournament.prototype, "registrationDeadline", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ default: Date.now }),
+    __metadata("design:type", typeof (_b = typeof Date !== "undefined" && Date) === "function" ? _b : Object)
+], Tournament.prototype, "startDate", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ default: Date.now }),
+    __metadata("design:type", typeof (_c = typeof Date !== "undefined" && Date) === "function" ? _c : Object)
+], Tournament.prototype, "endDate", void 0);
+exports.Tournament = Tournament = __decorate([
+    (0, mongoose_1.Schema)({ timestamps: true })
+], Tournament);
+exports.TournamentSchema = mongoose_1.SchemaFactory.createForClass(Tournament);
+
+
+/***/ }),
+
 /***/ "./libs/common/src/schemas/user.schema.ts":
 /*!************************************************!*\
   !*** ./libs/common/src/schemas/user.schema.ts ***!
@@ -796,12 +1132,26 @@ var WINNING_DECIDER;
 
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.UploadType = void 0;
+exports.TournamentFormat = exports.TournamentStatus = exports.UploadType = void 0;
 var UploadType;
 (function (UploadType) {
     UploadType["PITCH"] = "pitches";
     UploadType["USER_AVATAR"] = "users";
 })(UploadType || (exports.UploadType = UploadType = {}));
+var TournamentStatus;
+(function (TournamentStatus) {
+    TournamentStatus["REGISTRATION"] = "registration";
+    TournamentStatus["GROUP_STAGE"] = "group_stage";
+    TournamentStatus["KNOCKOUT_PHASE"] = "knockout_phase";
+    TournamentStatus["COMPLETED"] = "completed";
+})(TournamentStatus || (exports.TournamentStatus = TournamentStatus = {}));
+var TournamentFormat;
+(function (TournamentFormat) {
+    TournamentFormat["UCL_CLASSIC"] = "ucl_classic";
+    TournamentFormat["SWISS"] = "swiss";
+    TournamentFormat["KNOCKOUT"] = "knockout";
+    TournamentFormat["LEAGUE"] = "league";
+})(TournamentFormat || (exports.TournamentFormat = TournamentFormat = {}));
 
 
 /***/ }),
@@ -1012,6 +1362,7 @@ const sessions_module_1 = __webpack_require__(/*! ./sessions/sessions.module */ 
 const matches_module_1 = __webpack_require__(/*! ./matches/matches.module */ "./src/matches/matches.module.ts");
 const locations_module_1 = __webpack_require__(/*! ./locations/locations.module */ "./src/locations/locations.module.ts");
 const schedule_1 = __webpack_require__(/*! @nestjs/schedule */ "@nestjs/schedule");
+const tournaments_module_1 = __webpack_require__(/*! ./tournaments/tournaments.module */ "./src/tournaments/tournaments.module.ts");
 let RootCronService = class RootCronService {
     handleCron() {
     }
@@ -1054,6 +1405,7 @@ exports.AppModule = AppModule = __decorate([
             sets_module_1.SetsModule,
             matches_module_1.MatchesModule,
             locations_module_1.LocationsModule,
+            tournaments_module_1.TournamentsModule,
         ],
         controllers: [app_controller_1.AppController],
         providers: [app_service_1.AppService, RootCronService],
@@ -2994,6 +3346,980 @@ exports.SetsService = SetsService = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [typeof (_a = typeof sets_repository_1.SetRepository !== "undefined" && sets_repository_1.SetRepository) === "function" ? _a : Object, typeof (_b = typeof sessions_repository_1.SessionRepository !== "undefined" && sessions_repository_1.SessionRepository) === "function" ? _b : Object])
 ], SetsService);
+
+
+/***/ }),
+
+/***/ "./src/tournaments/teams.repository.ts":
+/*!*********************************************!*\
+  !*** ./src/tournaments/teams.repository.ts ***!
+  \*********************************************/
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+var __metadata = (this && this.__metadata) || function (k, v) {
+    if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+};
+var __param = (this && this.__param) || function (paramIndex, decorator) {
+    return function (target, key) { decorator(target, key, paramIndex); }
+};
+var _a;
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.TeamRepository = void 0;
+const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
+const common_2 = __webpack_require__(/*! @app/common */ "./libs/common/src/index.ts");
+const mongoose_1 = __webpack_require__(/*! @nestjs/mongoose */ "@nestjs/mongoose");
+const mongoose_2 = __webpack_require__(/*! mongoose */ "mongoose");
+let TeamRepository = class TeamRepository extends common_2.AbstractRepository {
+    constructor(TeamModel) {
+        super(TeamModel);
+        this.logger = new common_1.Logger(common_2.Team.name);
+    }
+};
+exports.TeamRepository = TeamRepository;
+exports.TeamRepository = TeamRepository = __decorate([
+    (0, common_1.Injectable)(),
+    __param(0, (0, mongoose_1.InjectModel)(common_2.Team.name)),
+    __metadata("design:paramtypes", [typeof (_a = typeof mongoose_2.Model !== "undefined" && mongoose_2.Model) === "function" ? _a : Object])
+], TeamRepository);
+
+
+/***/ }),
+
+/***/ "./src/tournaments/teams.service.ts":
+/*!******************************************!*\
+  !*** ./src/tournaments/teams.service.ts ***!
+  \******************************************/
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+var __metadata = (this && this.__metadata) || function (k, v) {
+    if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+};
+var _a, _b;
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.TeamsService = void 0;
+const users_repository_1 = __webpack_require__(/*! src/users/users.repository */ "./src/users/users.repository.ts");
+const teams_repository_1 = __webpack_require__(/*! ./teams.repository */ "./src/tournaments/teams.repository.ts");
+const common_1 = __webpack_require__(/*! @app/common */ "./libs/common/src/index.ts");
+const common_2 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
+let TeamsService = class TeamsService {
+    constructor(userRepository, teamRepository) {
+        this.userRepository = userRepository;
+        this.teamRepository = teamRepository;
+    }
+    async create(dto) {
+        const captain = await this.userRepository.findOne({
+            _id: dto.captain
+        });
+        if (!captain) {
+            throw new common_1.CustomHttpException('Captain user not found', common_2.HttpStatus.NOT_FOUND);
+        }
+        if (dto.players && dto.players.length > 0) {
+            const playerCount = await this.userRepository.findRaw()
+                .countDocuments({
+                _id: { $in: dto.players }
+            });
+            if (playerCount !== dto.players.length) {
+                throw new common_1.CustomHttpException('One or more player users not found', common_2.HttpStatus.NOT_FOUND);
+            }
+        }
+        const team = await this.teamRepository.create({
+            ...dto,
+            players: dto.players || [],
+        });
+        if (!team.players.includes(captain._id.toString())) {
+            const updatedTeam = await this.teamRepository.findOneAndUpdate({ _id: team._id }, { $push: { players: captain._id.toString() } });
+            return updatedTeam;
+        }
+        return team;
+    }
+    async findAll() {
+        return this.teamRepository.findRaw()
+            .find()
+            .populate('captain', 'username email')
+            .populate('players', 'username email')
+            .exec();
+    }
+    async findOne(id) {
+        const team = await this.teamRepository.findRaw().findById(id)
+            .populate('captain', 'username email')
+            .populate('players', 'username email')
+            .exec();
+        if (!team) {
+            throw new common_1.CustomHttpException(`Team with ID ${id} not found`, common_2.HttpStatus.NOT_FOUND);
+        }
+        return team;
+    }
+    async update(id, updateTeamDto) {
+        const team = await this.teamRepository.findOne({
+            _id: id
+        });
+        if (!team) {
+            throw new common_1.CustomHttpException(`Team with ID ${id} not found`, common_2.HttpStatus.NOT_FOUND);
+        }
+        if (updateTeamDto.captain) {
+            const captain = await this.userRepository.findOne({
+                _id: updateTeamDto.captain
+            });
+            if (!captain) {
+                throw new common_1.CustomHttpException('Captain user not found', common_2.HttpStatus.NOT_FOUND);
+            }
+        }
+        if (updateTeamDto.players && updateTeamDto.players.length > 0) {
+            const playerCount = await this.userRepository.findRaw().countDocuments({
+                _id: { $in: updateTeamDto.players },
+            });
+            if (playerCount !== updateTeamDto.players.length) {
+                throw new common_1.CustomHttpException('One or more player users not found', common_2.HttpStatus.NOT_FOUND);
+            }
+        }
+        const updatedTeam = await this.teamRepository.findRaw()
+            .findByIdAndUpdate(id, updateTeamDto, { new: true })
+            .populate('captain', 'username email')
+            .populate('players', 'username email')
+            .exec();
+        return updatedTeam;
+    }
+    async remove(id) {
+        const result = await this.teamRepository.findRaw().deleteOne({ _id: id }).exec();
+        if (result.deletedCount === 0) {
+            throw new common_1.CustomHttpException(`Team with ID ${id} not found`, common_2.HttpStatus.NOT_FOUND);
+        }
+    }
+    async addPlayer(teamId, userId) {
+        const team = await this.teamRepository.findOne({
+            _id: teamId
+        });
+        if (!team) {
+            throw new common_1.CustomHttpException(`Team with ID ${teamId} not found`, common_2.HttpStatus.NOT_FOUND);
+        }
+        const user = await this.userRepository.findOne({
+            _id: userId
+        });
+        if (!user) {
+            throw new common_1.CustomHttpException(`User with ID ${userId} not found`, common_2.HttpStatus.NOT_FOUND);
+        }
+        if (team.players.includes(userId)) {
+            throw new common_1.CustomHttpException('Player already in team', common_2.HttpStatus.BAD_REQUEST);
+        }
+        const updatedTeam = await this.teamRepository.findOneAndUpdate({ _id: team._id }, { $push: { players: userId } });
+        return updatedTeam;
+    }
+    async removePlayer(teamId, userId) {
+        const team = await this.teamRepository.findOne({
+            _id: teamId
+        });
+        if (!team) {
+            throw new common_1.CustomHttpException(`Team with ID ${teamId} not found`, common_2.HttpStatus.NOT_FOUND);
+        }
+        if (team.captain.toString() === userId) {
+            throw new common_1.CustomHttpException('Cannot remove captain from team', common_2.HttpStatus.BAD_REQUEST);
+        }
+        return await this.teamRepository.findOneAndUpdate({ _id: team._id }, {
+            $pull: { players: userId }
+        });
+    }
+    async getTeamsByUserId(userId) {
+        return this.teamRepository.findRaw().find({
+            $or: [
+                { captain: userId },
+                { players: userId }
+            ]
+        })
+            .populate('captain', 'username email')
+            .populate('players', 'username email')
+            .exec();
+    }
+};
+exports.TeamsService = TeamsService;
+exports.TeamsService = TeamsService = __decorate([
+    (0, common_2.Injectable)(),
+    __metadata("design:paramtypes", [typeof (_a = typeof users_repository_1.UserRepository !== "undefined" && users_repository_1.UserRepository) === "function" ? _a : Object, typeof (_b = typeof teams_repository_1.TeamRepository !== "undefined" && teams_repository_1.TeamRepository) === "function" ? _b : Object])
+], TeamsService);
+
+
+/***/ }),
+
+/***/ "./src/tournaments/tournaments.module.ts":
+/*!***********************************************!*\
+  !*** ./src/tournaments/tournaments.module.ts ***!
+  \***********************************************/
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.TournamentsModule = void 0;
+const common_1 = __webpack_require__(/*! @app/common */ "./libs/common/src/index.ts");
+const common_2 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
+const mongoose_1 = __webpack_require__(/*! @nestjs/mongoose */ "@nestjs/mongoose");
+const teams_repository_1 = __webpack_require__(/*! ./teams.repository */ "./src/tournaments/teams.repository.ts");
+const users_repository_1 = __webpack_require__(/*! src/users/users.repository */ "./src/users/users.repository.ts");
+const teams_service_1 = __webpack_require__(/*! ./teams.service */ "./src/tournaments/teams.service.ts");
+const tournaments_service_1 = __webpack_require__(/*! ./tournaments.service */ "./src/tournaments/tournaments.service.ts");
+const tournaments_repository_1 = __webpack_require__(/*! ./tournaments.repository */ "./src/tournaments/tournaments.repository.ts");
+let TournamentsModule = class TournamentsModule {
+};
+exports.TournamentsModule = TournamentsModule;
+exports.TournamentsModule = TournamentsModule = __decorate([
+    (0, common_2.Module)({
+        imports: [
+            mongoose_1.MongooseModule.forFeature([
+                { name: common_1.User.name, schema: common_1.UserSchema },
+                { name: common_1.Tournament.name, schema: common_1.TournamentSchema },
+                { name: common_1.Team.name, schema: common_1.TeamSchema },
+            ]),
+        ],
+        controllers: [],
+        providers: [
+            teams_repository_1.TeamRepository,
+            users_repository_1.UserRepository,
+            tournaments_repository_1.TournamentRepository,
+            teams_service_1.TeamsService,
+            tournaments_service_1.TournamentsService
+        ],
+        exports: [teams_service_1.TeamsService, tournaments_service_1.TournamentsService],
+    })
+], TournamentsModule);
+
+
+/***/ }),
+
+/***/ "./src/tournaments/tournaments.repository.ts":
+/*!***************************************************!*\
+  !*** ./src/tournaments/tournaments.repository.ts ***!
+  \***************************************************/
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+var __metadata = (this && this.__metadata) || function (k, v) {
+    if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+};
+var __param = (this && this.__param) || function (paramIndex, decorator) {
+    return function (target, key) { decorator(target, key, paramIndex); }
+};
+var _a;
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.TournamentRepository = void 0;
+const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
+const common_2 = __webpack_require__(/*! @app/common */ "./libs/common/src/index.ts");
+const mongoose_1 = __webpack_require__(/*! @nestjs/mongoose */ "@nestjs/mongoose");
+const mongoose_2 = __webpack_require__(/*! mongoose */ "mongoose");
+let TournamentRepository = class TournamentRepository extends common_2.AbstractRepository {
+    constructor(TournamentModel) {
+        super(TournamentModel);
+        this.logger = new common_1.Logger(common_2.Tournament.name);
+    }
+};
+exports.TournamentRepository = TournamentRepository;
+exports.TournamentRepository = TournamentRepository = __decorate([
+    (0, common_1.Injectable)(),
+    __param(0, (0, mongoose_1.InjectModel)(common_2.Tournament.name)),
+    __metadata("design:paramtypes", [typeof (_a = typeof mongoose_2.Model !== "undefined" && mongoose_2.Model) === "function" ? _a : Object])
+], TournamentRepository);
+
+
+/***/ }),
+
+/***/ "./src/tournaments/tournaments.service.ts":
+/*!************************************************!*\
+  !*** ./src/tournaments/tournaments.service.ts ***!
+  \************************************************/
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+var __metadata = (this && this.__metadata) || function (k, v) {
+    if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+};
+var _a, _b, _c;
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.TournamentsService = void 0;
+const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
+const tournaments_repository_1 = __webpack_require__(/*! ./tournaments.repository */ "./src/tournaments/tournaments.repository.ts");
+const teams_repository_1 = __webpack_require__(/*! ./teams.repository */ "./src/tournaments/teams.repository.ts");
+const users_repository_1 = __webpack_require__(/*! src/users/users.repository */ "./src/users/users.repository.ts");
+const common_2 = __webpack_require__(/*! @app/common */ "./libs/common/src/index.ts");
+let TournamentsService = class TournamentsService {
+    constructor(tournamentRepository, teamRepository, userRepository) {
+        this.tournamentRepository = tournamentRepository;
+        this.teamRepository = teamRepository;
+        this.userRepository = userRepository;
+    }
+    async create(createTournamentDto) {
+        const organizer = await this.userRepository.findOne({ _id: createTournamentDto.organizer });
+        if (!organizer) {
+            throw new common_2.CustomHttpException('Organizer user not found', common_1.HttpStatus.NOT_FOUND);
+        }
+        const existingTournament = await this.tournamentRepository.findOne({ tag: createTournamentDto.tag });
+        if (existingTournament) {
+            throw new common_2.CustomHttpException(`Tournament with tag ${createTournamentDto.tag} already exists`, common_1.HttpStatus.CONFLICT);
+        }
+        const tournament = await this.tournamentRepository.create({
+            ...createTournamentDto,
+            registeredTeams: [],
+            groups: [],
+            matches: []
+        });
+        return tournament;
+    }
+    async findOne(id) {
+        const tournament = await this.tournamentRepository.findRaw().findById(id)
+            .populate('organizer', 'username email')
+            .populate('registeredTeams')
+            .populate({
+            path: 'groups.teams',
+            model: 'Team',
+        })
+            .populate({
+            path: 'groups.standings.team',
+            model: 'Team',
+        })
+            .populate({
+            path: 'matches.homeTeam',
+            model: 'Team',
+        })
+            .populate({
+            path: 'matches.awayTeam',
+            model: 'Team',
+        })
+            .exec();
+        if (!tournament) {
+            throw new common_2.CustomHttpException(`Tournament with ID ${id} not found`, common_1.HttpStatus.NOT_FOUND);
+        }
+        return tournament;
+    }
+    async findByTag(tag) {
+        const tournament = await this.tournamentRepository.findRaw().findOne({ tag })
+            .populate('organizer', 'username email')
+            .populate('registeredTeams')
+            .populate({
+            path: 'groups.teams',
+            model: 'Team',
+        })
+            .populate({
+            path: 'groups.standings.team',
+            model: 'Team',
+        })
+            .populate({
+            path: 'matches.homeTeam',
+            model: 'Team',
+        })
+            .populate({
+            path: 'matches.awayTeam',
+            model: 'Team',
+        })
+            .exec();
+        if (!tournament) {
+            throw new common_2.CustomHttpException(`Tournament with tag ${tag} not found`, common_1.HttpStatus.NOT_FOUND);
+        }
+        return tournament;
+    }
+    async update(id, updateTournamentDto) {
+        const tournament = await this.tournamentRepository.findOne({
+            _id: id
+        });
+        if (!tournament) {
+            throw new common_2.CustomHttpException(`Tournament with ID ${id} not found`, common_1.HttpStatus.NOT_FOUND);
+        }
+        if (updateTournamentDto.tag && updateTournamentDto.tag !== tournament.tag) {
+            const existingTournament = await this.tournamentRepository.findOne({ tag: updateTournamentDto.tag });
+            if (existingTournament) {
+                throw new common_2.CustomHttpException(`Tournament with tag ${updateTournamentDto.tag} already exists`, common_1.HttpStatus.CONFLICT);
+            }
+        }
+        const updatedTournament = await this.tournamentRepository.findRaw()
+            .findByIdAndUpdate(id, updateTournamentDto, { new: true })
+            .populate('organizer', 'username email')
+            .populate('registeredTeams')
+            .exec();
+        return updatedTournament;
+    }
+    async remove(id) {
+        const result = await this.tournamentRepository.findRaw().deleteOne({ _id: id }).exec();
+        if (result.deletedCount === 0) {
+            throw new common_2.CustomHttpException(`Tournament with ID ${id} not found`, common_1.HttpStatus.NOT_FOUND);
+        }
+    }
+    async registerTeam(tournamentId, registerTeamDto) {
+        const tournament = await this.tournamentRepository.findOne({
+            _id: tournamentId
+        });
+        if (!tournament) {
+            throw new common_2.CustomHttpException(`Tournament with ID ${tournamentId} not found`, common_1.HttpStatus.NOT_FOUND);
+        }
+        if (tournament.status !== common_2.TournamentStatus.REGISTRATION) {
+            throw new common_2.CustomHttpException('Tournament is not in registration phase', common_1.HttpStatus.BAD_REQUEST);
+        }
+        if (tournament.registeredTeams.length >= tournament.maxTeams) {
+            throw new common_2.CustomHttpException('Tournament is full', common_1.HttpStatus.BAD_REQUEST);
+        }
+        const team = await this.teamRepository.findOne({
+            _id: registerTeamDto.teamId
+        });
+        if (!team) {
+            throw new common_2.CustomHttpException(`Team with ID ${registerTeamDto.teamId} not found`, common_1.HttpStatus.NOT_FOUND);
+        }
+        if (tournament.registeredTeams.some(teamId => teamId.toString() === registerTeamDto.teamId)) {
+            throw new common_2.CustomHttpException('Team is already registered for this tournament', common_1.HttpStatus.BAD_REQUEST);
+        }
+        return await this.tournamentRepository.findRaw().findByIdAndUpdate(tournamentId, { $push: { registeredTeams: tournament.registeredTeams } })
+            .populate('organizer', 'username email')
+            .populate('registeredTeams')
+            .exec();
+    }
+    async unregisterTeam(tournamentId, teamId) {
+        const tournament = await this.tournamentRepository.findOne({
+            _id: tournamentId
+        });
+        if (!tournament) {
+            throw new common_2.CustomHttpException(`Tournament with ID ${tournamentId} not found`, common_1.HttpStatus.NOT_FOUND);
+        }
+        if (tournament.status !== common_2.TournamentStatus.REGISTRATION) {
+            throw new common_2.CustomHttpException('Tournament is not in registration phase', common_1.HttpStatus.BAD_REQUEST);
+        }
+        if (!tournament.registeredTeams.some(registeredTeamId => registeredTeamId.toString() === teamId)) {
+            throw new common_2.CustomHttpException('Team is not registered for this tournament', common_1.HttpStatus.BAD_REQUEST);
+        }
+        tournament.registeredTeams = tournament.registeredTeams.filter(registeredTeamId => registeredTeamId.toString() !== teamId);
+        return this.tournamentRepository.findRaw().findByIdAndUpdate(tournamentId, { $pull: { registeredTeams: teamId } }, { new: true })
+            .populate('organizer', 'username email')
+            .populate('registeredTeams')
+            .exec();
+    }
+    async startTournament(tournamentId) {
+        const tournament = await this.tournamentRepository.findOne({ _id: tournamentId });
+        if (!tournament) {
+            throw new common_2.CustomHttpException(`Tournament with ID ${tournamentId} not found`, common_1.HttpStatus.NOT_FOUND);
+        }
+        if (tournament.status !== common_2.TournamentStatus.REGISTRATION) {
+            throw new common_2.CustomHttpException('Tournament is not in registration phase', common_1.HttpStatus.BAD_REQUEST);
+        }
+        if (tournament.format === common_2.TournamentFormat.UCL_CLASSIC) {
+            if (tournament.registeredTeams.length < 16) {
+                throw new common_2.CustomHttpException('Tournament needs at least 16 teams to start', common_1.HttpStatus.BAD_REQUEST);
+            }
+            if (tournament.registeredTeams.length > 32) {
+                throw new common_2.CustomHttpException('Tournament can have at most 32 teams', common_1.HttpStatus.BAD_REQUEST);
+            }
+        }
+        const teamsWithDetails = await this.teamRepository.find({
+            _id: { $in: tournament.registeredTeams }
+        });
+        switch (tournament.format) {
+            case common_2.TournamentFormat.UCL_CLASSIC:
+                await this.setupUCLClassicFormat(tournament, teamsWithDetails);
+                break;
+            default:
+                throw new common_2.CustomHttpException(`Tournament format ${tournament.format} not supported yet`, common_1.HttpStatus.BAD_REQUEST);
+        }
+        tournament.status = common_2.TournamentStatus.GROUP_STAGE;
+        return this.tournamentRepository.findRaw().findByIdAndUpdate(tournamentId, {
+            status: tournament.status,
+            groups: tournament.groups,
+            matches: tournament.matches
+        }, { new: true })
+            .populate('organizer', 'username email')
+            .populate('registeredTeams')
+            .populate({
+            path: 'groups.teams',
+            model: 'Team',
+        })
+            .populate({
+            path: 'matches.homeTeam',
+            model: 'Team',
+        })
+            .populate({
+            path: 'matches.awayTeam',
+            model: 'Team',
+        })
+            .exec();
+    }
+    async setupUCLClassicFormat(tournament, teams) {
+        const numTeams = teams.length;
+        const numGroups = Math.min(8, Math.floor(numTeams / 4));
+        const teamsPerGroup = Math.ceil(numTeams / numGroups);
+        const groups = [];
+        const groupNames = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+        const shuffledTeams = [...teams];
+        for (let i = shuffledTeams.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [shuffledTeams[i], shuffledTeams[j]] = [shuffledTeams[j], shuffledTeams[i]];
+        }
+        let teamIndex = 0;
+        for (let i = 0; i < numGroups; i++) {
+            const group = {
+                name: groupNames[i],
+                teams: [],
+                standings: []
+            };
+            for (let j = 0; j < teamsPerGroup && teamIndex < shuffledTeams.length; j++) {
+                group.teams.push(shuffledTeams[teamIndex]._id.toString());
+                group.standings.push({
+                    team: shuffledTeams[teamIndex]._id.toString(),
+                    played: 0,
+                    won: 0,
+                    drawn: 0,
+                    lost: 0,
+                    goalsFor: 0,
+                    goalsAgainst: 0,
+                    points: 0
+                });
+                teamIndex++;
+            }
+            groups.push(group);
+        }
+        const matches = [];
+        const now = new Date();
+        for (const group of groups) {
+            for (let i = 0; i < group.teams.length; i++) {
+                for (let j = i + 1; j < group.teams.length; j++) {
+                    const homeMatch = {
+                        homeTeam: group.teams[i],
+                        awayTeam: group.teams[j],
+                        homeScore: null,
+                        awayScore: null,
+                        location: tournament.locations.length > 0 ? tournament.locations[0] : {
+                            name: 'Default Location',
+                            address: 'TBD',
+                            city: 'TBD',
+                            country: 'TBD',
+                            location: { type: 'Point', coordinates: [0, 0] }
+                        },
+                        scheduledDate: new Date(now.getTime() + (matches.length * 24 * 60 * 60 * 1000)),
+                        completed: false,
+                        stage: 'group_stage',
+                        group: group.name
+                    };
+                    const awayMatch = {
+                        homeTeam: group.teams[j],
+                        awayTeam: group.teams[i],
+                        homeScore: null,
+                        awayScore: null,
+                        location: tournament.locations.length > 0 ?
+                            tournament.locations[Math.min(1, tournament.locations.length - 1)] : {
+                            name: 'Default Location',
+                            address: 'TBD',
+                            city: 'TBD',
+                            country: 'TBD',
+                            location: { type: 'Point', coordinates: [0, 0] }
+                        },
+                        scheduledDate: new Date(now.getTime() + ((matches.length + 1) * 24 * 60 * 60 * 1000)),
+                        completed: false,
+                        stage: 'group_stage',
+                        group: group.name
+                    };
+                    matches.push(homeMatch, awayMatch);
+                }
+            }
+        }
+        tournament.groups = groups;
+        tournament.matches = matches;
+    }
+    async updateMatchResult(tournamentId, matchIndex, updateMatchResultDto) {
+        const tournament = await this.tournamentRepository.findOne({
+            _id: tournamentId
+        });
+        if (!tournament) {
+            throw new common_2.CustomHttpException(`Tournament with ID ${tournamentId} not found`, common_1.HttpStatus.NOT_FOUND);
+        }
+        if (matchIndex < 0 || matchIndex >= tournament.matches.length) {
+            throw new common_2.CustomHttpException(`Match index ${matchIndex} not found in tournament`, common_1.HttpStatus.NOT_FOUND);
+        }
+        const match = tournament.matches[matchIndex];
+        if (match.completed) {
+            throw new common_2.CustomHttpException('Match is already completed', common_1.HttpStatus.BAD_REQUEST);
+        }
+        match.homeScore = updateMatchResultDto.homeScore;
+        match.awayScore = updateMatchResultDto.awayScore;
+        match.completed = true;
+        tournament.matches[matchIndex] = match;
+        if (match.stage === 'group_stage') {
+            await this.updateGroupStandings(tournament, match);
+        }
+        if (match.stage !== 'group_stage') {
+            await this.processKnockoutMatchResult(tournament, matchIndex);
+        }
+        await this.checkAndAdvanceTournamentStage(tournament);
+        return this.tournamentRepository.findRaw().findByIdAndUpdate(tournamentId, {
+            groups: tournament.groups,
+            matches: tournament.matches,
+            status: tournament.status
+        }, { new: true })
+            .populate('organizer', 'username email')
+            .populate('registeredTeams')
+            .populate({
+            path: 'groups.teams',
+            model: 'Team',
+        })
+            .populate({
+            path: 'groups.standings.team',
+            model: 'Team',
+        })
+            .populate({
+            path: 'matches.homeTeam',
+            model: 'Team',
+        })
+            .populate({
+            path: 'matches.awayTeam',
+            model: 'Team',
+        })
+            .exec();
+    }
+    async updateGroupStandings(tournament, match) {
+        const groupIndex = tournament.groups.findIndex(g => g.name === match.group);
+        if (groupIndex === -1)
+            return;
+        const group = tournament.groups[groupIndex];
+        const homeTeamIndex = group.standings.findIndex(s => s.team.toString() === match.homeTeam.toString());
+        if (homeTeamIndex !== -1) {
+            const homeStanding = group.standings[homeTeamIndex];
+            homeStanding.played += 1;
+            homeStanding.goalsFor += match.homeScore;
+            homeStanding.goalsAgainst += match.awayScore;
+            if (match.homeScore > match.awayScore) {
+                homeStanding.won += 1;
+                homeStanding.points += 3;
+            }
+            else if (match.homeScore === match.awayScore) {
+                homeStanding.drawn += 1;
+                homeStanding.points += 1;
+            }
+            else {
+                homeStanding.lost += 1;
+            }
+            group.standings[homeTeamIndex] = homeStanding;
+        }
+        const awayTeamIndex = group.standings.findIndex(s => s.team.toString() === match.awayTeam.toString());
+        if (awayTeamIndex !== -1) {
+            const awayStanding = group.standings[awayTeamIndex];
+            awayStanding.played += 1;
+            awayStanding.goalsFor += match.awayScore;
+            awayStanding.goalsAgainst += match.homeScore;
+            if (match.awayScore > match.homeScore) {
+                awayStanding.won += 1;
+                awayStanding.points += 3;
+            }
+            else if (match.awayScore === match.homeScore) {
+                awayStanding.drawn += 1;
+                awayStanding.points += 1;
+            }
+            else {
+                awayStanding.lost += 1;
+            }
+            group.standings[awayTeamIndex] = awayStanding;
+        }
+        group.standings.sort((a, b) => {
+            if (a.points !== b.points) {
+                return b.points - a.points;
+            }
+            const aGoalDiff = a.goalsFor - a.goalsAgainst;
+            const bGoalDiff = b.goalsFor - b.goalsAgainst;
+            if (aGoalDiff !== bGoalDiff) {
+                return bGoalDiff - aGoalDiff;
+            }
+            return b.goalsFor - a.goalsFor;
+        });
+        tournament.groups[groupIndex] = group;
+    }
+    async processKnockoutMatchResult(tournament, matchIndex) {
+        const match = tournament.matches[matchIndex];
+        let winner;
+        if (match.homeScore > match.awayScore) {
+            winner = match.homeTeam.toString();
+        }
+        else if (match.awayScore > match.homeScore) {
+            winner = match.awayTeam.toString();
+        }
+        else {
+            winner = Math.random() > 0.5 ? match.homeTeam.toString() : match.awayTeam.toString();
+        }
+        switch (match.stage) {
+            case 'round_of_16':
+                this.addWinnerToQuarterFinals(tournament, winner, matchIndex);
+                break;
+            case 'quarter_final':
+                this.addWinnerToSemiFinals(tournament, winner, matchIndex);
+                break;
+            case 'semi_final':
+                this.addWinnerToFinal(tournament, winner, matchIndex);
+                break;
+            case 'final':
+                tournament.status = common_2.TournamentStatus.COMPLETED;
+                break;
+        }
+    }
+    addWinnerToQuarterFinals(tournament, winnerTeamId, matchIndex) {
+        const quarterFinalMatchIndex = Math.floor(matchIndex / 2);
+        const isFirstMatchOfPair = matchIndex % 2 === 0;
+        const existingMatchIndex = tournament.matches.findIndex(m => m.stage === 'quarter_final' && m.homeTeam === null && m.awayTeam === null);
+        if (existingMatchIndex !== -1) {
+            if (isFirstMatchOfPair) {
+                tournament.matches[existingMatchIndex].homeTeam = winnerTeamId;
+            }
+            else {
+                tournament.matches[existingMatchIndex].awayTeam = winnerTeamId;
+            }
+        }
+        else {
+            const newMatch = {
+                homeTeam: isFirstMatchOfPair ? winnerTeamId : null,
+                awayTeam: isFirstMatchOfPair ? null : winnerTeamId,
+                homeScore: null,
+                awayScore: null,
+                location: tournament.locations.length > 0 ?
+                    tournament.locations[Math.min(1, tournament.locations.length - 1)] : {
+                    name: 'Default Location',
+                    address: 'TBD',
+                    city: 'TBD',
+                    country: 'TBD',
+                    location: { type: 'Point', coordinates: [0, 0] }
+                },
+                scheduledDate: new Date(Date.now() + (tournament.matches.length * 24 * 60 * 60 * 1000)),
+                completed: false,
+                stage: 'quarter_final',
+                group: ''
+            };
+            tournament.matches.push(newMatch);
+        }
+    }
+    addWinnerToSemiFinals(tournament, winnerTeamId, matchIndex) {
+        const semiFinalMatchIndex = Math.floor(matchIndex / 2);
+        const isFirstMatchOfPair = matchIndex % 2 === 0;
+        const existingMatchIndex = tournament.matches.findIndex(m => m.stage === 'semi_final' &&
+            ((isFirstMatchOfPair && m.homeTeam === null) || (!isFirstMatchOfPair && m.awayTeam === null)));
+        if (existingMatchIndex !== -1) {
+            if (isFirstMatchOfPair) {
+                tournament.matches[existingMatchIndex].homeTeam = winnerTeamId;
+            }
+            else {
+                tournament.matches[existingMatchIndex].awayTeam = winnerTeamId;
+            }
+        }
+        else {
+            const newMatch = {
+                homeTeam: isFirstMatchOfPair ? winnerTeamId : null,
+                awayTeam: isFirstMatchOfPair ? null : winnerTeamId,
+                homeScore: null,
+                awayScore: null,
+                location: tournament.locations.length > 0 ?
+                    tournament.locations[Math.min(1, tournament.locations.length - 1)] : {
+                    name: 'Default Location',
+                    address: 'TBD',
+                    city: 'TBD',
+                    country: 'TBD',
+                    location: { type: 'Point', coordinates: [0, 0] }
+                },
+                scheduledDate: new Date(Date.now() + (tournament.matches.length * 24 * 60 * 60 * 1000)),
+                completed: false,
+                stage: 'semi_final',
+                group: ''
+            };
+            tournament.matches.push(newMatch);
+        }
+    }
+    addWinnerToFinal(tournament, winnerTeamId, matchIndex) {
+        const isFirstSemiFinal = matchIndex % 2 === 0;
+        const finalMatchIndex = tournament.matches.findIndex(m => m.stage === 'final');
+        if (finalMatchIndex !== -1) {
+            if (isFirstSemiFinal) {
+                tournament.matches[finalMatchIndex].homeTeam = winnerTeamId;
+            }
+            else {
+                tournament.matches[finalMatchIndex].awayTeam = winnerTeamId;
+            }
+        }
+        else {
+            const newMatch = {
+                homeTeam: isFirstSemiFinal ? winnerTeamId : null,
+                awayTeam: isFirstSemiFinal ? null : winnerTeamId,
+                homeScore: null,
+                awayScore: null,
+                location: tournament.locations.length > 0 ?
+                    tournament.locations[Math.min(1, tournament.locations.length - 1)] : {
+                    name: 'Default Location',
+                    address: 'TBD',
+                    city: 'TBD',
+                    country: 'TBD',
+                    location: { type: 'Point', coordinates: [0, 0] }
+                },
+                scheduledDate: new Date(Date.now() + (tournament.matches.length * 24 * 60 * 60 * 1000)),
+                completed: false,
+                stage: 'final',
+                group: ''
+            };
+            tournament.matches.push(newMatch);
+        }
+    }
+    async checkAndAdvanceTournamentStage(tournament) {
+        const groupStageMatches = tournament.matches.filter(m => m.stage === 'group_stage');
+        const groupStageCompleted = groupStageMatches.every(m => m.completed);
+        if (groupStageCompleted && tournament.status === common_2.TournamentStatus.GROUP_STAGE) {
+            await this.createKnockoutPhase(tournament);
+            tournament.status = common_2.TournamentStatus.KNOCKOUT_PHASE;
+        }
+        const round16Matches = tournament.matches.filter(m => m.stage === 'round_of_16');
+        const quarterFinalMatches = tournament.matches.filter(m => m.stage === 'quarter_final');
+        const semiFinalMatches = tournament.matches.filter(m => m.stage === 'semi_final');
+        const finalMatch = tournament.matches.find(m => m.stage === 'final');
+        if (finalMatch && finalMatch.completed) {
+            tournament.status = common_2.TournamentStatus.COMPLETED;
+        }
+    }
+    async createKnockoutPhase(tournament) {
+        const qualifiedTeams = [];
+        for (const group of tournament.groups) {
+            if (group.standings.length >= 2) {
+                qualifiedTeams.push(group.standings[0].team);
+                qualifiedTeams.push(group.standings[1].team);
+            }
+        }
+        while (qualifiedTeams.length < 16 && tournament.registeredTeams.length > 0) {
+            const randomTeam = tournament.registeredTeams[Math.floor(Math.random() * tournament.registeredTeams.length)];
+            if (!qualifiedTeams.includes(randomTeam)) {
+                qualifiedTeams.push(randomTeam);
+            }
+        }
+        const shuffledTeams = [...qualifiedTeams];
+        for (let i = shuffledTeams.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [shuffledTeams[i], shuffledTeams[j]] = [shuffledTeams[j], shuffledTeams[i]];
+        }
+        for (let i = 0; i < shuffledTeams.length; i += 2) {
+            if (i + 1 < shuffledTeams.length) {
+                const homeMatch = {
+                    homeTeam: shuffledTeams[i],
+                    awayTeam: shuffledTeams[i + 1],
+                    homeScore: null,
+                    awayScore: null,
+                    location: tournament.locations.length > 0 ?
+                        tournament.locations[Math.min(1, tournament.locations.length - 1)] : {
+                        name: 'Default Location',
+                        address: 'TBD',
+                        city: 'TBD',
+                        country: 'TBD',
+                        location: { type: 'Point', coordinates: [0, 0] }
+                    },
+                    scheduledDate: new Date(Date.now() + (tournament.matches.length * 24 * 60 * 60 * 1000)),
+                    completed: false,
+                    stage: 'round_of_16',
+                    group: ''
+                };
+                const awayMatch = {
+                    homeTeam: shuffledTeams[i + 1],
+                    awayTeam: shuffledTeams[i],
+                    homeScore: null,
+                    awayScore: null,
+                    location: tournament.locations.length > 0 ?
+                        tournament.locations[Math.min(1, tournament.locations.length - 1)] : {
+                        name: 'Default Location',
+                        address: 'TBD',
+                        city: 'TBD',
+                        country: 'TBD',
+                        location: { type: 'Point', coordinates: [0, 0] }
+                    },
+                    scheduledDate: new Date(Date.now() + ((tournament.matches.length + 1) * 24 * 60 * 60 * 1000)),
+                    completed: false,
+                    stage: 'round_of_16',
+                    group: ''
+                };
+                tournament.matches.push(homeMatch, awayMatch);
+            }
+        }
+    }
+    async getTournamentsByOrganizerId(organizerId) {
+        return this.tournamentRepository.findRaw().find({ organizer: organizerId })
+            .populate('organizer', 'username email')
+            .populate('registeredTeams')
+            .exec();
+    }
+    async getTournamentsByTeamId(teamId) {
+        return this.tournamentRepository.findRaw().find({ registeredTeams: teamId })
+            .populate('organizer', 'username email')
+            .populate('registeredTeams')
+            .exec();
+    }
+    async getUpcomingMatches(tournamentId, teamId) {
+        const tournament = await this.tournamentRepository.findOne({
+            _id: tournamentId
+        });
+        if (!tournament) {
+            throw new common_2.CustomHttpException(`Tournament with ID ${tournamentId} not found`, common_1.HttpStatus.NOT_FOUND);
+        }
+        let matches = tournament.matches.filter(match => !match.completed);
+        if (teamId) {
+            matches = matches.filter(match => match.homeTeam?.toString() === teamId ||
+                match.awayTeam?.toString() === teamId);
+        }
+        matches.sort((a, b) => a.scheduledDate.getTime() - b.scheduledDate.getTime());
+        return matches;
+    }
+    async getCompletedMatches(tournamentId, teamId) {
+        const tournament = await this.tournamentRepository.findOne({
+            _id: tournamentId
+        });
+        if (!tournament) {
+            throw new common_2.CustomHttpException(`Tournament with ID ${tournamentId} not found`, common_1.HttpStatus.NOT_FOUND);
+        }
+        let matches = tournament.matches.filter(match => match.completed);
+        if (teamId) {
+            matches = matches.filter(match => match.homeTeam?.toString() === teamId ||
+                match.awayTeam?.toString() === teamId);
+        }
+        matches.sort((a, b) => b.scheduledDate.getTime() - a.scheduledDate.getTime());
+        return matches;
+    }
+    async getGroupStandings(tournamentId, groupName) {
+        const tournament = await this.tournamentRepository.findOne({
+            _id: tournamentId
+        });
+        if (!tournament) {
+            throw new common_2.CustomHttpException(`Tournament with ID ${tournamentId} not found`, common_1.HttpStatus.NOT_FOUND);
+        }
+        if (groupName) {
+            const group = tournament.groups.find(g => g.name === groupName);
+            if (!group) {
+                throw new common_2.CustomHttpException(`Group ${groupName} not found in tournament`, common_1.HttpStatus.NOT_FOUND);
+            }
+            return [group];
+        }
+        return tournament.groups;
+    }
+};
+exports.TournamentsService = TournamentsService;
+exports.TournamentsService = TournamentsService = __decorate([
+    (0, common_1.Injectable)(),
+    __metadata("design:paramtypes", [typeof (_a = typeof tournaments_repository_1.TournamentRepository !== "undefined" && tournaments_repository_1.TournamentRepository) === "function" ? _a : Object, typeof (_b = typeof teams_repository_1.TeamRepository !== "undefined" && teams_repository_1.TeamRepository) === "function" ? _b : Object, typeof (_c = typeof users_repository_1.UserRepository !== "undefined" && users_repository_1.UserRepository) === "function" ? _c : Object])
+], TournamentsService);
 
 
 /***/ }),
