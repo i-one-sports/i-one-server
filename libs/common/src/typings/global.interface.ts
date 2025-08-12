@@ -43,3 +43,17 @@ export enum UploadType {
   USER_AVATAR = 'users',
   // RESOURCE_AVATAR = 'resources'
 }
+
+export enum TournamentStatus {
+  REGISTRATION = 'registration',
+  GROUP_STAGE = 'group_stage',
+  KNOCKOUT_PHASE = 'knockout_phase',
+  COMPLETED = 'completed',
+}
+
+export enum TournamentFormat {
+  UCL_CLASSIC = 'ucl_classic',
+  SWISS = 'swiss',
+  KNOCKOUT = 'knockout',
+  LEAGUE = 'league',
+}
