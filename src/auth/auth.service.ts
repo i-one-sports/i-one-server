@@ -14,14 +14,14 @@ export class AuthService {
 
   async login(user: User, response: Response): Promise<void> {
     console.log(user);
-    // const payload: TokenPayload = {
-    //   userId: user._id as any,
-    // };
+    const payload: TokenPayload = {
+      userId: user._id as any,
+    };
 
     const expires = new Date(
       Date.now() + Number(this.configService.get('USER_JWT_EXPIRATION')) * 1000,
     );
-    const token = this.jwtService.sign(user);
+    const token = this.jwtService.sign(payload);
 
     response.cookie('Authentication', token, {
       httpOnly: true,
@@ -31,9 +31,11 @@ export class AuthService {
     });
 
     response.json({
-      message: "Login Successful",
-      user: user
-    })
+      message: "Login successful",
+      user
+    });
+
+    response.send()
   }
 
   logout(response: Response): void {
