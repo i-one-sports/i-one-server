@@ -1,10 +1,8 @@
 import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
 import { TournamentFormat, TournamentStatus } from "../typings/global.interface";
 import { Types } from "mongoose";
-import { Team } from "./team.schema";
 import { Group } from "./group.schema";
 import { TournamentMatch } from "./tournament-match.schema";
-import { User } from "./user.schema";
 import { TournamentLocation } from "./tournament-location.schema";
 import { AbstractDocument } from "./abstract.schema";
 
