@@ -698,7 +698,7 @@ __decorate([
     __metadata("design:type", String)
 ], Set.prototype, "name", void 0);
 __decorate([
-    (0, mongoose_1.Prop)({ type: mongoose_2.Types.ObjectId, ref: 'User' }),
+    (0, mongoose_1.Prop)({ type: [{ type: mongoose_2.Types.ObjectId, ref: 'User' }] }),
     __metadata("design:type", Array)
 ], Set.prototype, "players", void 0);
 exports.Set = Set = __decorate([
@@ -1585,8 +1585,11 @@ let AuthService = class AuthService {
     }
     async login(user, response) {
         console.log(user);
+        const payload = {
+            userId: user._id,
+        };
         const expires = new Date(Date.now() + Number(this.configService.get('USER_JWT_EXPIRATION')) * 1000);
-        const token = this.jwtService.sign(user);
+        const token = this.jwtService.sign(payload);
         response.cookie('Authentication', token, {
             httpOnly: true,
             expires,
@@ -1594,9 +1597,10 @@ let AuthService = class AuthService {
             secure: true,
         });
         response.json({
-            message: "Login Successful",
-            user: user
+            message: "Login successful",
+            user
         });
+        response.send();
     }
     logout(response) {
         response.cookie('Authentication', '', {
@@ -3275,7 +3279,6 @@ let SetsService = class SetsService {
             const player = availablePlayers[i];
             const setIndex = i % createdSets.length;
             const pickedSet = createdSets[setIndex];
-            console.log(pickedSet);
             await this.setRepository.findOneAndUpdate({ _id: pickedSet._id }, { $push: { players: player } });
         }
     }
@@ -3285,7 +3288,9 @@ let SetsService = class SetsService {
             if (!session) {
                 throw new common_2.CustomHttpException('Session not found', common_1.HttpStatus.NOT_FOUND);
             }
-            const existingSets = await this.setRepository.find({ session: sessionId });
+            const existingSets = await this.setRepository.find({
+                session: sessionId,
+            });
             const usedNames = existingSets.map((set) => set.name);
             const availableNames = this.setNames.filter((name) => !usedNames.includes(name));
             if (availableNames.length < session.setNumber) {
@@ -3294,7 +3299,9 @@ let SetsService = class SetsService {
             const count = await this.setRepository
                 .findRaw()
                 .countDocuments({ session: sessionId });
-            const setExists = await this.setRepository.findOne({ session: sessionId });
+            const setExists = await this.setRepository.findOne({
+                session: sessionId,
+            });
             if (setExists) {
                 throw new common_2.CustomHttpException('Set already created', common_1.HttpStatus.BAD_REQUEST);
             }
@@ -3312,10 +3319,10 @@ let SetsService = class SetsService {
             });
             const createdSets = await this.setRepository.insertMany(setData);
             await this.allocateMembers(session, createdSets);
-            56;
+            const updatedSets = await this.setRepository.findAndPopulate({ session: new mongoose_1.Types.ObjectId(sessionId) }, ['players']);
             return {
                 message: 'Sets created successfully',
-                sets: createdSets,
+                sets: updatedSets,
             };
         }
         catch (error) {

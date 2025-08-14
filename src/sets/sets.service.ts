@@ -52,78 +52,86 @@ export class SetsService {
       const setIndex = i % createdSets.length;
       const pickedSet = createdSets[setIndex];
 
-      console.log(pickedSet)
-
       await this.setRepository.findOneAndUpdate(
         { _id: pickedSet._id },
         { $push: { players: player } },
-
       );
     }
   }
 
   async createSet(sessionId: string) {
-   try {
-     const session = await this.sessionRepository.findOne({ _id: sessionId });
-    if (!session) {
-      throw new CustomHttpException('Session not found', HttpStatus.NOT_FOUND);
-    }
+    try {
+      const session = await this.sessionRepository.findOne({ _id: sessionId });
+      if (!session) {
+        throw new CustomHttpException(
+          'Session not found',
+          HttpStatus.NOT_FOUND,
+        );
+      }
 
-    const existingSets = await this.setRepository.find({ session: sessionId });
-    const usedNames = existingSets.map((set) => set.name);
-    const availableNames = this.setNames.filter(
-      (name) => !usedNames.includes(name),
-    );
-
-    if (availableNames.length < session.setNumber) {
-      throw new CustomHttpException(
-        'Not enough unique names available for the session',
-        HttpStatus.BAD_REQUEST,
+      const existingSets = await this.setRepository.find({
+        session: sessionId,
+      });
+      const usedNames = existingSets.map((set) => set.name);
+      const availableNames = this.setNames.filter(
+        (name) => !usedNames.includes(name),
       );
-    }
 
-    const count = await this.setRepository
-      .findRaw()
-      .countDocuments({ session: sessionId });
+      if (availableNames.length < session.setNumber) {
+        throw new CustomHttpException(
+          'Not enough unique names available for the session',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
 
-      const setExists = await this.setRepository.findOne({session: sessionId})
+      const count = await this.setRepository
+        .findRaw()
+        .countDocuments({ session: sessionId });
 
-
-    if (setExists) {
-      throw new CustomHttpException(
-        'Set already created',
-        HttpStatus.BAD_REQUEST,
-      );
-    }
-
-
-
-    const setData = Array(session.setNumber)
-      .fill(null)
-      .map(() => {
-        const randomIndex = Math.floor(Math.random() * availableNames.length);
-        const randomName = availableNames.splice(randomIndex, 1)[0];
-        return {
-          _id: new Types.ObjectId(),
-          session: session._id,
-          name: randomName,
-          players: [],
-        };
+      const setExists = await this.setRepository.findOne({
+        session: sessionId,
       });
 
-    const createdSets = await this.setRepository.insertMany(setData);
-    await this.allocateMembers(session, createdSets);56
+      if (setExists) {
+        throw new CustomHttpException(
+          'Set already created',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
 
-    return {
-      message: 'Sets created successfully',
-      sets: createdSets,
-    };
+      const setData = Array(session.setNumber)
+        .fill(null)
+        .map(() => {
+          const randomIndex = Math.floor(Math.random() * availableNames.length);
+          const randomName = availableNames.splice(randomIndex, 1)[0];
+          return {
+            _id: new Types.ObjectId(),
+            session: session._id,
+            name: randomName,
+            players: [],
+          };
+        });
 
-   } catch (error:any) {
-    throw new CustomHttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR)
-    console.log(error)
-   } 
-   }
+      const createdSets = await this.setRepository.insertMany(setData);
+      await this.allocateMembers(session, createdSets);
+
+      const updatedSets = await this.setRepository.findAndPopulate(
+        { session: new Types.ObjectId(sessionId) },
+        ['players'],
+      );
+
+      return {
+        message: 'Sets created successfully',
+        sets: updatedSets,
+      };
+    } catch (error: any) {
+      throw new CustomHttpException(
+        error.message,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+      console.log(error);
+    }
+  }
 
   async viewAllSets() {
     return this.setRepository.findAndPopulate({}, ['players']);
