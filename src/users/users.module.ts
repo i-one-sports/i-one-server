@@ -8,10 +8,13 @@ import { AuthService } from '../auth/auth.service';
 import { UserLocalStrategy } from '../auth/strategy/local.strategy';
 import { UsersJwtStrategy } from '../auth/strategy/jwt.strategy';
 import { JwtService } from '@nestjs/jwt';
+import { StatsService } from 'src/stats/stats.service';
+import { StatsModule } from 'src/stats/stats.module';
 
 @Module({
   imports: [
     MongooseModule.forFeature([{ name: User.name, schema: UserSchema }]),
+    StatsModule,
   ],
   controllers: [UsersController],
   providers: [
@@ -22,7 +25,7 @@ import { JwtService } from '@nestjs/jwt';
     UsersJwtStrategy,
     JwtService,
     MailerService,
-  ],
+      ],
   exports: [UsersService],
 })
 export class UsersModule {}

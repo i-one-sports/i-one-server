@@ -18,6 +18,8 @@ export class UsersController {
     return this.usersService.registerUser(request);
   }
 
+ 
+
   @Post('forget-password')
   async forgetPassword(@Body() data: ForgotPasswordDto) {
     return this.usersService.forgetPassword(data);
@@ -39,5 +41,10 @@ export class UsersController {
     @CurrentUser() user: User
   ) {
     return this.usersService.getUser(user._id.toString())
+  }
+  @UseGuards(JwtAuthGuard)
+  @Get('profile')
+  async getProfile(@CurrentUser() user: User) {
+    return this.usersService.getProfile(user._id.toString());
   }
 }

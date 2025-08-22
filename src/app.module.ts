@@ -13,6 +13,7 @@ import { MatchesModule } from './matches/matches.module';
 import { LocationsModule } from './locations/locations.module';
 import { Cron, ScheduleModule } from '@nestjs/schedule';
 import { TournamentsModule } from './tournaments/tournaments.module';
+import { StatsModule } from './stats/stats.module';
 
 
 @Injectable()
@@ -49,6 +50,7 @@ class RootCronService {
     MatchesModule,
     LocationsModule,
     TournamentsModule,
+    StatsModule,
   ],
   controllers: [AppController],
   providers: [AppService, RootCronService],

@@ -7,6 +7,7 @@ import {
   IsNumber,
   MinLength,
   IsBoolean,
+  IsDateString,
 } from 'class-validator';
 
 export class registerUserRequest {
@@ -49,6 +50,14 @@ export class registerUserRequest {
   @IsBoolean()
   @IsNotEmpty()
   isOwner: boolean
+
+  @IsNumber()
+  @IsNotEmpty()
+  height: number;
+
+  @IsDateString()
+  @IsNotEmpty()
+  dateOfBirth: Date;
 }
 
 export class ForgotPasswordDto {

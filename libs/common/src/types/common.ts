@@ -13,3 +13,8 @@ export enum MATCH_TYPE {
 export enum WINNING_DECIDER{
   PENALTY = "penalties"
 }
+
+export enum STATS{
+  GOALS = "goals",
+  ASSISTS = "assists",
+}

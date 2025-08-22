@@ -709,6 +709,63 @@ exports.SetSchema = mongoose_1.SchemaFactory.createForClass(Set);
 
 /***/ }),
 
+/***/ "./libs/common/src/schemas/stats.schema.ts":
+/*!*************************************************!*\
+  !*** ./libs/common/src/schemas/stats.schema.ts ***!
+  \*************************************************/
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+var __metadata = (this && this.__metadata) || function (k, v) {
+    if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.StatSchema = exports.Stat = void 0;
+const mongoose_1 = __webpack_require__(/*! @nestjs/mongoose */ "@nestjs/mongoose");
+const abstract_schema_1 = __webpack_require__(/*! ./abstract.schema */ "./libs/common/src/schemas/abstract.schema.ts");
+const mongoose_2 = __webpack_require__(/*! @nestjs/mongoose */ "@nestjs/mongoose");
+const mongoose_3 = __webpack_require__(/*! mongoose */ "mongoose");
+let Stat = class Stat extends abstract_schema_1.AbstractDocument {
+};
+exports.Stat = Stat;
+__decorate([
+    (0, mongoose_2.Prop)({ type: mongoose_3.Types.ObjectId, ref: 'User' }),
+    __metadata("design:type", String)
+], Stat.prototype, "userId", void 0);
+__decorate([
+    (0, mongoose_2.Prop)(),
+    __metadata("design:type", Number)
+], Stat.prototype, "seasonStart", void 0);
+__decorate([
+    (0, mongoose_2.Prop)(),
+    __metadata("design:type", Number)
+], Stat.prototype, "seasonEnd", void 0);
+__decorate([
+    (0, mongoose_2.Prop)({ default: 0 }),
+    __metadata("design:type", Number)
+], Stat.prototype, "totalMatches", void 0);
+__decorate([
+    (0, mongoose_2.Prop)({ default: 0 }),
+    __metadata("design:type", Number)
+], Stat.prototype, "goals", void 0);
+__decorate([
+    (0, mongoose_2.Prop)({ default: 0 }),
+    __metadata("design:type", Number)
+], Stat.prototype, "assists", void 0);
+exports.Stat = Stat = __decorate([
+    (0, mongoose_1.Schema)({ timestamps: true, versionKey: false })
+], Stat);
+exports.StatSchema = mongoose_1.SchemaFactory.createForClass(Stat);
+
+
+/***/ }),
+
 /***/ "./libs/common/src/schemas/team.schema.ts":
 /*!************************************************!*\
   !*** ./libs/common/src/schemas/team.schema.ts ***!
@@ -1013,7 +1070,7 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
-var _a, _b;
+var _a, _b, _c;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.UserSchema = exports.User = void 0;
 const mongoose_1 = __webpack_require__(/*! @nestjs/mongoose */ "@nestjs/mongoose");
@@ -1032,9 +1089,17 @@ __decorate([
     __metadata("design:type", String)
 ], User.prototype, "lastName", void 0);
 __decorate([
+    (0, mongoose_1.Prop)(Number),
+    __metadata("design:type", Number)
+], User.prototype, "height", void 0);
+__decorate([
     (0, mongoose_1.Prop)({ type: String, unique: true }),
     __metadata("design:type", String)
 ], User.prototype, "email", void 0);
+__decorate([
+    (0, mongoose_1.Prop)(Date),
+    __metadata("design:type", typeof (_a = typeof Date !== "undefined" && Date) === "function" ? _a : Object)
+], User.prototype, "dateOfBirth", void 0);
 __decorate([
     (0, mongoose_1.Prop)(String),
     __metadata("design:type", String)
@@ -1073,7 +1138,7 @@ __decorate([
 ], User.prototype, "otp", void 0);
 __decorate([
     (0, mongoose_1.Prop)({ type: Date, default: null }),
-    __metadata("design:type", typeof (_a = typeof Date !== "undefined" && Date) === "function" ? _a : Object)
+    __metadata("design:type", typeof (_b = typeof Date !== "undefined" && Date) === "function" ? _b : Object)
 ], User.prototype, "otpExpiration", void 0);
 __decorate([
     (0, mongoose_1.Prop)({ type: Boolean, default: null }),
@@ -1090,7 +1155,7 @@ __decorate([
             default: [0, 0],
         },
     }),
-    __metadata("design:type", typeof (_b = typeof common_1.LocationCoordinates !== "undefined" && common_1.LocationCoordinates) === "function" ? _b : Object)
+    __metadata("design:type", typeof (_c = typeof common_1.LocationCoordinates !== "undefined" && common_1.LocationCoordinates) === "function" ? _c : Object)
 ], User.prototype, "location", void 0);
 exports.User = User = __decorate([
     (0, mongoose_1.Schema)({ timestamps: true })
@@ -1109,7 +1174,7 @@ exports.UserSchema.index({ location: '2dsphere' });
 
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.WINNING_DECIDER = exports.MATCH_TYPE = void 0;
+exports.STATS = exports.WINNING_DECIDER = exports.MATCH_TYPE = void 0;
 var MATCH_TYPE;
 (function (MATCH_TYPE) {
     MATCH_TYPE["TOURNAMENT"] = "tournament";
@@ -1120,6 +1185,11 @@ var WINNING_DECIDER;
 (function (WINNING_DECIDER) {
     WINNING_DECIDER["PENALTY"] = "penalties";
 })(WINNING_DECIDER || (exports.WINNING_DECIDER = WINNING_DECIDER = {}));
+var STATS;
+(function (STATS) {
+    STATS["GOALS"] = "goals";
+    STATS["ASSISTS"] = "assists";
+})(STATS || (exports.STATS = STATS = {}));
 
 
 /***/ }),
@@ -1363,6 +1433,7 @@ const matches_module_1 = __webpack_require__(/*! ./matches/matches.module */ "./
 const locations_module_1 = __webpack_require__(/*! ./locations/locations.module */ "./src/locations/locations.module.ts");
 const schedule_1 = __webpack_require__(/*! @nestjs/schedule */ "@nestjs/schedule");
 const tournaments_module_1 = __webpack_require__(/*! ./tournaments/tournaments.module */ "./src/tournaments/tournaments.module.ts");
+const stats_module_1 = __webpack_require__(/*! ./stats/stats.module */ "./src/stats/stats.module.ts");
 let RootCronService = class RootCronService {
     handleCron() {
     }
@@ -1406,6 +1477,7 @@ exports.AppModule = AppModule = __decorate([
             matches_module_1.MatchesModule,
             locations_module_1.LocationsModule,
             tournaments_module_1.TournamentsModule,
+            stats_module_1.StatsModule,
         ],
         controllers: [app_controller_1.AppController],
         providers: [app_service_1.AppService, RootCronService],
@@ -3357,6 +3429,190 @@ exports.SetsService = SetsService = __decorate([
 
 /***/ }),
 
+/***/ "./src/stats/stats.controller.ts":
+/*!***************************************!*\
+  !*** ./src/stats/stats.controller.ts ***!
+  \***************************************/
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.StatsController = void 0;
+const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
+let StatsController = class StatsController {
+};
+exports.StatsController = StatsController;
+exports.StatsController = StatsController = __decorate([
+    (0, common_1.Controller)('stats')
+], StatsController);
+
+
+/***/ }),
+
+/***/ "./src/stats/stats.module.ts":
+/*!***********************************!*\
+  !*** ./src/stats/stats.module.ts ***!
+  \***********************************/
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.StatsModule = void 0;
+const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
+const stats_controller_1 = __webpack_require__(/*! ./stats.controller */ "./src/stats/stats.controller.ts");
+const stats_service_1 = __webpack_require__(/*! ./stats.service */ "./src/stats/stats.service.ts");
+const stats_repository_1 = __webpack_require__(/*! ./stats.repository */ "./src/stats/stats.repository.ts");
+const mongoose_1 = __webpack_require__(/*! @nestjs/mongoose */ "@nestjs/mongoose");
+const stats_schema_1 = __webpack_require__(/*! @app/common/schemas/stats.schema */ "./libs/common/src/schemas/stats.schema.ts");
+let StatsModule = class StatsModule {
+};
+exports.StatsModule = StatsModule;
+exports.StatsModule = StatsModule = __decorate([
+    (0, common_1.Module)({
+        imports: [mongoose_1.MongooseModule.forFeature([{ name: stats_schema_1.Stat.name, schema: stats_schema_1.StatSchema }])],
+        controllers: [stats_controller_1.StatsController],
+        providers: [stats_service_1.StatsService, stats_repository_1.StatsRepository],
+        exports: [stats_service_1.StatsService, stats_repository_1.StatsRepository]
+    })
+], StatsModule);
+
+
+/***/ }),
+
+/***/ "./src/stats/stats.repository.ts":
+/*!***************************************!*\
+  !*** ./src/stats/stats.repository.ts ***!
+  \***************************************/
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+var __metadata = (this && this.__metadata) || function (k, v) {
+    if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+};
+var __param = (this && this.__param) || function (paramIndex, decorator) {
+    return function (target, key) { decorator(target, key, paramIndex); }
+};
+var StatsRepository_1;
+var _a;
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.StatsRepository = void 0;
+const common_1 = __webpack_require__(/*! @app/common */ "./libs/common/src/index.ts");
+const stats_schema_1 = __webpack_require__(/*! @app/common/schemas/stats.schema */ "./libs/common/src/schemas/stats.schema.ts");
+const common_2 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
+const mongoose_1 = __webpack_require__(/*! @nestjs/mongoose */ "@nestjs/mongoose");
+const mongoose_2 = __webpack_require__(/*! mongoose */ "mongoose");
+let StatsRepository = StatsRepository_1 = class StatsRepository extends common_1.AbstractRepository {
+    constructor(StatModel) {
+        super(StatModel);
+        this.logger = new common_2.Logger(StatsRepository_1.name);
+    }
+};
+exports.StatsRepository = StatsRepository;
+exports.StatsRepository = StatsRepository = StatsRepository_1 = __decorate([
+    (0, common_2.Injectable)(),
+    __param(0, (0, mongoose_1.InjectModel)(stats_schema_1.Stat.name)),
+    __metadata("design:paramtypes", [typeof (_a = typeof mongoose_2.Model !== "undefined" && mongoose_2.Model) === "function" ? _a : Object])
+], StatsRepository);
+
+
+/***/ }),
+
+/***/ "./src/stats/stats.service.ts":
+/*!************************************!*\
+  !*** ./src/stats/stats.service.ts ***!
+  \************************************/
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+var __metadata = (this && this.__metadata) || function (k, v) {
+    if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+};
+var _a;
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.StatsService = void 0;
+const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
+const stats_repository_1 = __webpack_require__(/*! ./stats.repository */ "./src/stats/stats.repository.ts");
+const common_2 = __webpack_require__(/*! @app/common */ "./libs/common/src/index.ts");
+let StatsService = class StatsService {
+    constructor(statsRepository) {
+        this.statsRepository = statsRepository;
+    }
+    async getStats(userId) {
+        try {
+            return this.statsRepository.findOne({ userId });
+        }
+        catch (error) {
+            throw new common_2.CustomHttpException(`cannot get user stats ${JSON.stringify(error)}`, common_1.HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+    async initializeStat(userId) {
+        try {
+            const startDate = new Date().getFullYear();
+            const endDate = startDate + 1;
+            const dateData = {
+                startDate,
+                endDate,
+            };
+            const stats = await this.statsRepository.create({
+                userId,
+                ...dateData,
+            });
+            return stats;
+        }
+        catch (error) {
+            throw new common_2.CustomHttpException(`cannot initialise user stats ${JSON.stringify(error)}`, common_1.HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+    async createStat(stats) {
+        try {
+            return this.statsRepository.create(stats);
+        }
+        catch (error) {
+            throw new common_2.CustomHttpException(`cannot create user stats ${JSON.stringify(error)}`, common_1.HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+    async updateGoals(userId, updateData) {
+        try {
+            return this.statsRepository.findOneAndUpdate();
+        }
+        catch (error) {
+            throw new common_2.CustomHttpException(`cannot update user stats ${JSON.stringify(error)}`, common_1.HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+};
+exports.StatsService = StatsService;
+exports.StatsService = StatsService = __decorate([
+    (0, common_1.Injectable)(),
+    __metadata("design:paramtypes", [typeof (_a = typeof stats_repository_1.StatsRepository !== "undefined" && stats_repository_1.StatsRepository) === "function" ? _a : Object])
+], StatsService);
+
+
+/***/ }),
+
 /***/ "./src/tournaments/teams.repository.ts":
 /*!*********************************************!*\
   !*** ./src/tournaments/teams.repository.ts ***!
@@ -4347,7 +4603,7 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
-var _a;
+var _a, _b;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.ResetPasswordDto = exports.VerifyOtpDto = exports.ForgotPasswordDto = exports.registerUserRequest = void 0;
 const common_1 = __webpack_require__(/*! @app/common */ "./libs/common/src/index.ts");
@@ -4405,6 +4661,16 @@ __decorate([
     (0, class_validator_1.IsNotEmpty)(),
     __metadata("design:type", Boolean)
 ], registerUserRequest.prototype, "isOwner", void 0);
+__decorate([
+    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", Number)
+], registerUserRequest.prototype, "height", void 0);
+__decorate([
+    (0, class_validator_1.IsDateString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", typeof (_b = typeof Date !== "undefined" && Date) === "function" ? _b : Object)
+], registerUserRequest.prototype, "dateOfBirth", void 0);
 class ForgotPasswordDto {
 }
 exports.ForgotPasswordDto = ForgotPasswordDto;
@@ -4466,7 +4732,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
-var _a, _b, _c, _d, _e, _f;
+var _a, _b, _c, _d, _e, _f, _g;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.UsersController = void 0;
 const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
@@ -4492,6 +4758,9 @@ let UsersController = class UsersController {
     }
     async getUser(user) {
         return this.usersService.getUser(user._id.toString());
+    }
+    async getProfile(user) {
+        return this.usersService.getProfile(user._id.toString());
     }
 };
 exports.UsersController = UsersController;
@@ -4531,6 +4800,14 @@ __decorate([
     __metadata("design:paramtypes", [typeof (_f = typeof common_2.User !== "undefined" && common_2.User) === "function" ? _f : Object]),
     __metadata("design:returntype", Promise)
 ], UsersController.prototype, "getUser", null);
+__decorate([
+    (0, common_1.UseGuards)(jwt_guard_1.JwtAuthGuard),
+    (0, common_1.Get)('profile'),
+    __param(0, (0, common_2.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [typeof (_g = typeof common_2.User !== "undefined" && common_2.User) === "function" ? _g : Object]),
+    __metadata("design:returntype", Promise)
+], UsersController.prototype, "getProfile", null);
 exports.UsersController = UsersController = __decorate([
     (0, common_1.Controller)('user'),
     __metadata("design:paramtypes", [typeof (_a = typeof users_service_1.UsersService !== "undefined" && users_service_1.UsersService) === "function" ? _a : Object])
@@ -4564,6 +4841,7 @@ const auth_service_1 = __webpack_require__(/*! ../auth/auth.service */ "./src/au
 const local_strategy_1 = __webpack_require__(/*! ../auth/strategy/local.strategy */ "./src/auth/strategy/local.strategy.ts");
 const jwt_strategy_1 = __webpack_require__(/*! ../auth/strategy/jwt.strategy */ "./src/auth/strategy/jwt.strategy.ts");
 const jwt_1 = __webpack_require__(/*! @nestjs/jwt */ "@nestjs/jwt");
+const stats_module_1 = __webpack_require__(/*! src/stats/stats.module */ "./src/stats/stats.module.ts");
 let UsersModule = class UsersModule {
 };
 exports.UsersModule = UsersModule;
@@ -4571,6 +4849,7 @@ exports.UsersModule = UsersModule = __decorate([
     (0, common_1.Module)({
         imports: [
             mongoose_1.MongooseModule.forFeature([{ name: common_2.User.name, schema: common_2.UserSchema }]),
+            stats_module_1.StatsModule,
         ],
         controllers: [users_controller_1.UsersController],
         providers: [
@@ -4649,7 +4928,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 var UsersService_1;
-var _a, _b;
+var _a, _b, _c;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.UsersService = void 0;
 const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
@@ -4657,13 +4936,15 @@ const users_repository_1 = __webpack_require__(/*! ./users.repository */ "./src/
 const common_2 = __webpack_require__(/*! @app/common */ "./libs/common/src/index.ts");
 const bcrypt = __webpack_require__(/*! bcrypt */ "bcrypt");
 const crypto = __webpack_require__(/*! crypto */ "crypto");
+const stats_service_1 = __webpack_require__(/*! src/stats/stats.service */ "./src/stats/stats.service.ts");
 let UsersService = UsersService_1 = class UsersService {
-    constructor(usersRepository, mailService) {
+    constructor(usersRepository, mailService, statsService) {
         this.usersRepository = usersRepository;
         this.mailService = mailService;
+        this.statsService = statsService;
         this.logger = new common_1.Logger(UsersService_1.name);
     }
-    async registerUser({ firstName, lastName, nickname, email, password, phoneNumber, address, position, location, isOwner }) {
+    async registerUser({ firstName, lastName, nickname, email, password, phoneNumber, address, position, location, isOwner, }) {
         const formattedPhone = (0, common_2.internationalisePhoneNumber)(phoneNumber);
         await this.checkExistingUser(phoneNumber, email, nickname);
         const payload = {
@@ -4676,10 +4957,11 @@ let UsersService = UsersService_1 = class UsersService {
             location,
             position,
             isOwner,
-            nickname
+            nickname,
         };
         try {
             const user = await this.usersRepository.create(payload);
+            await this.statsService.initializeStat(user._id.toString());
             return user;
         }
         catch (error) {
@@ -4688,7 +4970,7 @@ let UsersService = UsersService_1 = class UsersService {
     }
     async getUser(id) {
         return await this.usersRepository.findOne({
-            _id: id
+            _id: id,
         });
     }
     async forgetPassword(data) {
@@ -4802,7 +5084,7 @@ let UsersService = UsersService_1 = class UsersService {
 exports.UsersService = UsersService;
 exports.UsersService = UsersService = UsersService_1 = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [typeof (_a = typeof users_repository_1.UserRepository !== "undefined" && users_repository_1.UserRepository) === "function" ? _a : Object, typeof (_b = typeof common_2.MailerService !== "undefined" && common_2.MailerService) === "function" ? _b : Object])
+    __metadata("design:paramtypes", [typeof (_a = typeof users_repository_1.UserRepository !== "undefined" && users_repository_1.UserRepository) === "function" ? _a : Object, typeof (_b = typeof common_2.MailerService !== "undefined" && common_2.MailerService) === "function" ? _b : Object, typeof (_c = typeof stats_service_1.StatsService !== "undefined" && stats_service_1.StatsService) === "function" ? _c : Object])
 ], UsersService);
 
 

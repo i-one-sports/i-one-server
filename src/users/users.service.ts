@@ -19,6 +19,7 @@ import {
 } from '@app/common';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
+import { StatsService } from 'src/stats/stats.service';
 
 @Injectable()
 export class UsersService {
@@ -27,6 +28,7 @@ export class UsersService {
   constructor(
     private readonly usersRepository: UserRepository,
     private readonly mailService: MailerService,
+    private readonly statsService: StatsService,
   ) {}
   async registerUser({
     firstName,
@@ -38,7 +40,7 @@ export class UsersService {
     address,
     position,
     location,
-    isOwner
+    isOwner,
   }: registerUserRequest) {
     const formattedPhone = internationalisePhoneNumber(phoneNumber);
     await this.checkExistingUser(phoneNumber, email, nickname);
@@ -53,10 +55,11 @@ export class UsersService {
       location,
       position,
       isOwner,
-      nickname
+      nickname,
     };
     try {
       const user = await this.usersRepository.create(payload);
+      await this.statsService.initializeStat(user._id.toString());
       return user;
     } catch (error) {
       throw new CustomHttpException(
@@ -68,8 +71,8 @@ export class UsersService {
 
   async getUser(id: string) {
     return await this.usersRepository.findOne({
-      _id: id
-    })
+      _id: id,
+    });
   }
 
   async forgetPassword(data: ForgotPasswordDto) {
@@ -236,7 +239,7 @@ export class UsersService {
     const user: User = await this.usersRepository.findOne({
       email: email.toLowerCase(),
     });
-    console.log(user)
+    console.log(user);
     if (user === null) {
       throw new CustomHttpException(
         'User with email is not found',

@@ -18,7 +18,7 @@ export class User extends AbstractDocument {
   email: string;
 
   @Prop(Date)
-  dob: Date;
+  dateOfBirth: Date;
 
   @Prop(String)
   nickname: string;
