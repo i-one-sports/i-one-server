@@ -11,8 +11,14 @@ export class User extends AbstractDocument {
   @Prop(String)
   lastName: string;
 
+  @Prop(Number)
+  height: number;
+
   @Prop({ type: String, unique: true })
   email: string;
+
+  @Prop(Date)
+  dob: Date;
 
   @Prop(String)
   nickname: string;
