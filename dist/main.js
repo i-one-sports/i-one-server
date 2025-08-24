@@ -3429,6 +3429,89 @@ exports.SetsService = SetsService = __decorate([
 
 /***/ }),
 
+/***/ "./src/stats/dto/stats.dto.ts":
+/*!************************************!*\
+  !*** ./src/stats/dto/stats.dto.ts ***!
+  \************************************/
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+var __metadata = (this && this.__metadata) || function (k, v) {
+    if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+};
+var _a;
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.updateStatsDto = exports.statsQueryDto = exports.StatsDto = void 0;
+const common_1 = __webpack_require__(/*! @app/common */ "./libs/common/src/index.ts");
+const class_validator_1 = __webpack_require__(/*! class-validator */ "class-validator");
+class StatsDto {
+}
+exports.StatsDto = StatsDto;
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], StatsDto.prototype, "userId", void 0);
+__decorate([
+    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", Number)
+], StatsDto.prototype, "seasonStart", void 0);
+__decorate([
+    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", Number)
+], StatsDto.prototype, "seasonEnd", void 0);
+__decorate([
+    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", Number)
+], StatsDto.prototype, "totalMatches", void 0);
+__decorate([
+    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", Number)
+], StatsDto.prototype, "goals", void 0);
+__decorate([
+    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", Number)
+], StatsDto.prototype, "assists", void 0);
+class statsQueryDto {
+}
+exports.statsQueryDto = statsQueryDto;
+__decorate([
+    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", Number)
+], statsQueryDto.prototype, "seasonStart", void 0);
+__decorate([
+    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", Number)
+], statsQueryDto.prototype, "seasonEnd", void 0);
+class updateStatsDto {
+}
+exports.updateStatsDto = updateStatsDto;
+__decorate([
+    (0, class_validator_1.IsEnum)(common_1.STATS, { message: 'Invalid stats type' }),
+    __metadata("design:type", typeof (_a = typeof common_1.STATS !== "undefined" && common_1.STATS) === "function" ? _a : Object)
+], updateStatsDto.prototype, "statsType", void 0);
+__decorate([
+    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", Number)
+], updateStatsDto.prototype, "value", void 0);
+
+
+/***/ }),
+
 /***/ "./src/stats/stats.controller.ts":
 /*!***************************************!*\
   !*** ./src/stats/stats.controller.ts ***!
@@ -3442,14 +3525,63 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
     else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
     return c > 3 && r && Object.defineProperty(target, key, r), r;
 };
+var __metadata = (this && this.__metadata) || function (k, v) {
+    if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+};
+var __param = (this && this.__param) || function (paramIndex, decorator) {
+    return function (target, key) { decorator(target, key, paramIndex); }
+};
+var _a, _b, _c, _d, _e, _f, _g;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.StatsController = void 0;
 const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
+const stats_service_1 = __webpack_require__(/*! ./stats.service */ "./src/stats/stats.service.ts");
+const stats_dto_1 = __webpack_require__(/*! ./dto/stats.dto */ "./src/stats/dto/stats.dto.ts");
+const common_2 = __webpack_require__(/*! @app/common */ "./libs/common/src/index.ts");
+const jwt_guard_1 = __webpack_require__(/*! src/auth/guards/jwt.guard */ "./src/auth/guards/jwt.guard.ts");
 let StatsController = class StatsController {
+    constructor(statsService) {
+        this.statsService = statsService;
+    }
+    async overallUserStats(user) {
+        return this.statsService.overallUserStats(user._id.toString());
+    }
+    async getUserStatsBySeason(user, query) {
+        return this.statsService.getUserStatsBySeason(user._id.toString(), query);
+    }
+    async updateStats(user, query, updateData) {
+        return this.statsService.updateStats(user._id.toString(), query, updateData);
+    }
 };
 exports.StatsController = StatsController;
+__decorate([
+    (0, common_1.Get)(':userId'),
+    __param(0, (0, common_2.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [typeof (_b = typeof common_2.User !== "undefined" && common_2.User) === "function" ? _b : Object]),
+    __metadata("design:returntype", Promise)
+], StatsController.prototype, "overallUserStats", null);
+__decorate([
+    (0, common_1.Get)('season'),
+    __param(0, (0, common_2.CurrentUser)()),
+    __param(1, (0, common_1.Query)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [typeof (_c = typeof common_2.User !== "undefined" && common_2.User) === "function" ? _c : Object, typeof (_d = typeof stats_dto_1.statsQueryDto !== "undefined" && stats_dto_1.statsQueryDto) === "function" ? _d : Object]),
+    __metadata("design:returntype", Promise)
+], StatsController.prototype, "getUserStatsBySeason", null);
+__decorate([
+    (0, common_1.Patch)('update'),
+    __param(0, (0, common_2.CurrentUser)()),
+    __param(1, (0, common_1.Query)()),
+    __param(2, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [typeof (_e = typeof common_2.User !== "undefined" && common_2.User) === "function" ? _e : Object, typeof (_f = typeof stats_dto_1.statsQueryDto !== "undefined" && stats_dto_1.statsQueryDto) === "function" ? _f : Object, typeof (_g = typeof stats_dto_1.updateStatsDto !== "undefined" && stats_dto_1.updateStatsDto) === "function" ? _g : Object]),
+    __metadata("design:returntype", Promise)
+], StatsController.prototype, "updateStats", null);
 exports.StatsController = StatsController = __decorate([
-    (0, common_1.Controller)('stats')
+    (0, common_1.Controller)('stats'),
+    (0, common_1.UseGuards)(jwt_guard_1.JwtAuthGuard),
+    __metadata("design:paramtypes", [typeof (_a = typeof stats_service_1.StatsService !== "undefined" && stats_service_1.StatsService) === "function" ? _a : Object])
 ], StatsController);
 
 
@@ -3561,9 +3693,17 @@ let StatsService = class StatsService {
     constructor(statsRepository) {
         this.statsRepository = statsRepository;
     }
-    async getStats(userId) {
+    async overallUserStats(userId) {
         try {
             return this.statsRepository.findOne({ userId });
+        }
+        catch (error) {
+            throw new common_2.CustomHttpException(`cannot get user stats ${JSON.stringify(error)}`, common_1.HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+    async getUserStatsBySeason(userId, query) {
+        try {
+            return this.statsRepository.findOne({ userId, ...query });
         }
         catch (error) {
             throw new common_2.CustomHttpException(`cannot get user stats ${JSON.stringify(error)}`, common_1.HttpStatus.INTERNAL_SERVER_ERROR);
@@ -3574,8 +3714,8 @@ let StatsService = class StatsService {
             const startDate = new Date().getFullYear();
             const endDate = startDate + 1;
             const dateData = {
-                startDate,
-                endDate,
+                seasonStart: startDate,
+                seasonEnd: endDate,
             };
             const stats = await this.statsRepository.create({
                 userId,
@@ -3595,9 +3735,11 @@ let StatsService = class StatsService {
             throw new common_2.CustomHttpException(`cannot create user stats ${JSON.stringify(error)}`, common_1.HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
-    async updateGoals(userId, updateData) {
+    async updateStats(userId, query, updateData) {
         try {
-            return this.statsRepository.findOneAndUpdate();
+            return this.statsRepository.findOneAndUpdate({ userId, ...query }, {
+                $inc: { [updateData.statsType]: updateData.value },
+            });
         }
         catch (error) {
             throw new common_2.CustomHttpException(`cannot update user stats ${JSON.stringify(error)}`, common_1.HttpStatus.INTERNAL_SERVER_ERROR);
