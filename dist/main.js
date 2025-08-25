@@ -2353,6 +2353,7 @@ const matches_repository_1 = __webpack_require__(/*! ./matches.repository */ "./
 const sets_repository_1 = __webpack_require__(/*! ../sets/sets.repository */ "./src/sets/sets.repository.ts");
 const common_2 = __webpack_require__(/*! @app/common */ "./libs/common/src/index.ts");
 const sessions_repository_1 = __webpack_require__(/*! src/sessions/sessions.repository */ "./src/sessions/sessions.repository.ts");
+const mongoose_1 = __webpack_require__(/*! mongoose */ "mongoose");
 let MatchesService = class MatchesService {
     constructor(matchRepository, setRepository, sessionRepository) {
         this.matchRepository = matchRepository;
@@ -2360,7 +2361,9 @@ let MatchesService = class MatchesService {
         this.sessionRepository = sessionRepository;
     }
     async viewSetForSession(sessionId) {
-        return await this.setRepository.find({ session: sessionId });
+        return await this.setRepository.find({
+            session: new mongoose_1.Types.ObjectId(sessionId),
+        });
     }
     async matchUp(sessionId) {
         const sets = await this.viewSetForSession(sessionId);
@@ -3177,7 +3180,7 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], SetsController.prototype, "createSet", null);
 __decorate([
-    (0, common_1.Get)('sets/:sessionId'),
+    (0, common_1.Get)(':sessionId'),
     __param(0, (0, common_1.Param)('sessionId')),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [String]),

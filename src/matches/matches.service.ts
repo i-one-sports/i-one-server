@@ -4,7 +4,7 @@ import { SetRepository } from '../sets/sets.repository';
 import { CustomHttpException, MatchI } from '@app/common';
 import { Set } from '@app/common';
 import { SessionRepository } from 'src/sessions/sessions.repository';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { Session } from 'inspector/promises';
 
 @Injectable()
@@ -16,7 +16,9 @@ export class MatchesService {
   ) {}
 
   private async viewSetForSession(sessionId: string): Promise<Set[]> {
-    return await this.setRepository.find({ session: sessionId });
+    return await this.setRepository.find({
+      session: new Types.ObjectId(sessionId),
+    });
   }
 
   async matchUp(sessionId: string) {

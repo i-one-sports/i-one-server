@@ -12,7 +12,7 @@ export class SetsController {
     return await this.setsService.createSet(sessionId);
   }
 
-  @Get('sets/:sessionId')
+  @Get(':sessionId')
   async viewSetForSession(@Param('sessionId') sessionId: string) {
     return await this.setsService.viewSetForSession(sessionId);
   }
