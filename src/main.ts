@@ -11,7 +11,6 @@ async function bootstrap() {
     app.enableCors({
     origin: [
       'http://localhost:4500',
-      'http://172.20.10.5:4500',
       'https://i-one-sports.com',
       'http://172.20.10.5:4500',
       'http://172.20.10.6:4500'
