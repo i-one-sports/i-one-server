@@ -15,9 +15,12 @@
 **Base URL**: `https://i-one-server-v1.onrender.com/i-one`
 
 ### Authentication Flow
-1. User logs in using `/auth/user/login` endpoint
-2. Server responds with an HTTP-only cookie containing JWT token
-3. For subsequent requests, include the JWT token in the `Authorization` header as `Bearer <token>`
+1. User logs in using `/user/login` endpoint
+2. Server responds with an HTTP-only cookie containing the session token
+3. For subsequent requests, the browser automatically includes the cookie
+4. The server validates the session on each request
+
+> **Note**: The API uses HTTP-only cookies for authentication. No need to manually handle tokens - the browser will handle authentication automatically after login.
 
 ## Authentication Endpoints
 
@@ -138,12 +141,11 @@ Content-Type: application/json
 **Description**: Logs out the current user by clearing the authentication cookie.
 
 **Headers**:
-- `Authorization`: `Bearer <jwt-token>`
+- `Content-Type`: `application/json`
 
 **Example Request**:
 ```http
 GET /user/logout
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
 **Success Response**:
@@ -166,12 +168,11 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 **Description**: Retrieves the authenticated user's profile information.
 
 **Headers**:
-- `Authorization`: `Bearer <jwt-token>`
+- `Content-Type`: `application/json`
 
 **Example Request**:
 ```http
 GET /user/profile
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
 **Success Response**:
@@ -307,8 +308,7 @@ Content-Type: application/json
 **Description**: Registers a new sports location (for owners only).
 
 **Headers**:
-- `Authorization`: `Bearer <jwt-token>`
-- `Content-Type**: `application/json`
+- `Content-Type`: `application/json`
 
 **Request Body**:
 ```typescript
@@ -326,7 +326,6 @@ interface CreateLocationDto {
 **Example Request**:
 ```http
 POST /location/register
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 Content-Type: application/json
 
 {
@@ -364,7 +363,6 @@ Content-Type: application/json
 **Description**: Uploads a photo for a specific location's pitch.
 
 **Headers**:
-- `Authorization`: `Bearer <jwt-token>`
 - `Content-Type`: `multipart/form-data`
 
 **Path Parameters**:
@@ -376,7 +374,6 @@ Content-Type: application/json
 **Example Request**:
 ```http
 POST /location/pitch/507f1f77bcf86cd799439013
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 Content-Type: multipart/form-data; boundary=----WebKitFormBoundary
 
 ------WebKitFormBoundary
@@ -408,12 +405,11 @@ Content-Type: image/jpeg
 - `maxDistance?`: number - (Optional) Maximum distance in meters (default: 5000)
 
 **Headers**:
-- `Authorization`: `Bearer <jwt-token>`
+- `Content-Type`: `application/json`
 
 **Example Request**:
 ```http
 GET /location/nearby?longitude=3.42158&latitude=6.45306&maxDistance=10000
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
 **Success Response**:
@@ -442,12 +438,11 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 **Description**: Retrieves the location owned by the authenticated user (for owners only).
 
 **Headers**:
-- `Authorization`: `Bearer <jwt-token>`
+- `Content-Type`: `application/json`
 
 **Example Request**:
 ```http
 GET /location
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
 **Success Response**:
@@ -467,12 +462,11 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 - `lng`: number - Longitude of the location
 
 **Headers**:
-- `Authorization`: `Bearer <jwt-token>`
+- `Content-Type`: `application/json`
 
 **Example Request**:
 ```http
 GET /sessions/nearby-sessions?lat=6.5244&lng=3.3792
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
 **Success Response**:
@@ -486,12 +480,11 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 **Description**: Retrieves all sessions.
 
 **Headers**:
-- `Authorization`: `Bearer <jwt-token>`
+- `Content-Type`: `application/json`
 
 **Example Request**:
 ```http
 GET /sessions/all
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
 **Success Response**:
@@ -505,184 +498,6 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 **Description**: Starts a new session at the specified location.
 
 **Headers**:
-- `Authorization`: `Bearer <jwt-token>`
-- `Content-Type`: `application/json`
-
-**Request Body**:
-```typescript
-{
-  locationId: string;  // ID of the location
-}
-```
-
-**Example Request**:
-```http
-POST /sessions/start
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-Content-Type: application/json
-
-{
-  "locationId": "loc_12345"
-}
-```
-
-### 4. Create Session
-
-**Endpoint**: `POST /sessions/create/:sessionId`
-
-**Description**: Creates a session with the given ID and details.
-
-**Path Parameters**:
-- `sessionId`: string - The ID for the new session
-
-**Headers**:
-- `Authorization`: `Bearer <jwt-token>`
-- `Content-Type**: `application/json`
-
-**Request Body**:
-```typescript
-{
-  setNumber: number;           // Number of sets in the session
-  playersPerTeam: number;      // Number of players per team
-  timeDuration: number;        // Total duration in minutes
-  minsPerSet: number;          // Minutes per set
-  startTime: string;           // ISO date string
-  winningDecider: string;      // How to determine the winner
-}
-```
-
-**Example Request**:
-```http
-POST /sessions/create/sess_12345
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-Content-Type: application/json
-
-{
-  "setNumber": 3,
-  "playersPerTeam": 5,
-  "timeDuration": 90,
-  "minsPerSet": 30,
-  "startTime": "2023-10-01T15:00:00.000Z",
-  "winningDecider": "most_sets"
-}
-```
-
-### 5. Join Session
-
-**Endpoint**: `POST /sessions/join/:sessionId`
-
-**Description**: Join an existing session.
-
-**Path Parameters**:
-- `sessionId`: string - ID of the session to join
-
-**Headers**:
-- `Authorization**: `Bearer <jwt-token>`
-
-**Example Request**:
-```http
-POST /sessions/join/sess_12345
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-```
-
-### 6. View Session
-
-**Endpoint**: `GET /sessions/:sessionId`
-
-**Description**: Get details of a specific session.
-
-**Path Parameters**:
-- `sessionId`: string - ID of the session
-
-**Headers**:
-- `Authorization`: `Bearer <jwt-token>`
-
-**Example Request**:
-```http
-GET /sessions/sess_12345
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-```
-
-### 7. View Session Members
-
-**Endpoint**: `GET /sessions/members/:sessionId`
-
-**Description**: Get list of members in a session.
-
-**Path Parameters**:
-- `sessionId`: string - ID of the session
-
-**Headers**:
-- `Authorization`: `Bearer <jwt-token>`
-
-### 8. Leave Session
-
-**Endpoint**: `DELETE /sessions/leave/:sessionId`
-
-**Description**: Leave a session.
-
-**Path Parameters**:
-- `sessionId`: string - ID of the session to leave
-
-**Headers**:
-- `Authorization`: `Bearer <jwt-token>`
-
-### 9. End Session
-
-**Endpoint**: `POST /sessions/end/:sessionId`
-
-**Description**: End a session.
-
-**Path Parameters**:
-- `sessionId`: string - ID of the session to end
-
-**Headers**:
-- `Authorization**: `Bearer <jwt-token>`
-
-### 10. Delete Session
-
-**Endpoint**: `DELETE /sessions/delete/:sessionId`
-
-**Description**: Delete a session.
-
-**Path Parameters**:
-- `sessionId`: string - ID of the session to delete
-
-**Headers**:
-- `Authorization**: `Bearer <jwt-token>`
-
-### 11. Reschedule Session
-
-**Endpoint**: `PATCH /sessions/reschedule/:sessionId`
-
-**Description**: Reschedule a session.
-
-**Path Parameters**:
-- `sessionId`: string - ID of the session to reschedule
-
-**Headers**:
-- `Authorization**: `Bearer <jwt-token>`
-- `Content-Type**: `application/json`
-
-**Request Body**:
-```typescript
-{
-  startTime: string;    // New start time (ISO date string)
-  timeDuration: number; // New duration in minutes
-}
-```
-
-**Example Request**:
-```http
-PATCH /api/sessions/reschedule/sess_12345
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-Content-Type: application/json
-
-{
-  "startTime": "2023-10-02T16:00:00.000Z",
-  "timeDuration": 120
-}
-```
 - `Content-Type`: `application/json`
 
 **Request Body**:
@@ -693,9 +508,8 @@ interface StartSessionRequest {
 ```
 
 **Example Request**:
-```http 
-POST /api/sessions/start
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```http
+POST /sessions/start
 Content-Type: application/json
 
 {
@@ -718,6 +532,159 @@ Content-Type: application/json
   }
   ```
 
+### 4. Create Session
+
+**Endpoint**: `POST /sessions/create/:sessionId`
+
+**Description**: Creates a session with the given ID and details.
+
+**Path Parameters**:
+- `sessionId`: string - The ID for the new session
+
+**Headers**:
+- `Content-Type`: `application/json`
+
+**Request Body**:
+```typescript
+{
+  setNumber: number;           // Number of sets in the session
+  playersPerTeam: number;      // Number of players per team
+  timeDuration: number;        // Total duration in minutes
+  minsPerSet: number;          // Minutes per set
+  startTime: string;           // ISO date string
+  winningDecider: string;      // How to determine the winner
+}
+```
+
+**Example Request**:
+```http
+POST /sessions/create/sess_12345
+Content-Type: application/json
+
+{
+  "setNumber": 3,
+  "playersPerTeam": 5,
+  "timeDuration": 90,
+  "minsPerSet": 30,
+  "startTime": "2023-10-01T15:00:00.000Z",
+  "winningDecider": "most_sets"
+}
+```
+
+### 5. Join Session
+
+**Endpoint**: `POST /sessions/join/:sessionId`
+
+**Description**: Join an existing session.
+
+**Path Parameters**:
+- `sessionId`: string - ID of the session to join
+
+**Headers**:
+- `Content-Type`: `application/json`
+
+**Example Request**:
+```http
+POST /sessions/join/sess_12345
+```
+
+### 6. View Session
+
+**Endpoint**: `GET /sessions/:sessionId`
+
+**Description**: Get details of a specific session.
+
+**Path Parameters**:
+- `sessionId`: string - ID of the session
+
+**Headers**:
+- `Content-Type`: `application/json`
+
+**Example Request**:
+```http
+GET /sessions/sess_12345
+```
+
+### 7. View Session Members
+
+**Endpoint**: `GET /sessions/members/:sessionId`
+
+**Description**: Get list of members in a session.
+
+**Path Parameters**:
+- `sessionId`: string - ID of the session
+
+**Headers**:
+- `Content-Type`: `application/json`
+
+### 8. Leave Session
+
+**Endpoint**: `DELETE /sessions/leave/:sessionId`
+
+**Description**: Leave a session.
+
+**Path Parameters**:
+- `sessionId`: string - ID of the session to leave
+
+**Headers**:
+- `Content-Type`: `application/json`
+
+### 9. End Session
+
+**Endpoint**: `POST /sessions/end/:sessionId`
+
+**Description**: End a session.
+
+**Path Parameters**:
+- `sessionId`: string - ID of the session to end
+
+**Headers**:
+- `Content-Type`: `application/json`
+
+### 10. Delete Session
+
+**Endpoint**: `DELETE /sessions/delete/:sessionId`
+
+**Description**: Delete a session.
+
+**Path Parameters**:
+- `sessionId`: string - ID of the session to delete
+
+**Headers**:
+- `Content-Type`: `application/json`
+
+### 11. Reschedule Session
+
+**Endpoint**: `PATCH /sessions/reschedule/:sessionId`
+
+**Description**: Reschedule a session.
+
+**Path Parameters**:
+- `sessionId`: string - ID of the session to reschedule
+
+**Headers**:
+- `Content-Type`: `application/json`
+
+**Request Body**:
+```typescript
+{
+  startTime: string;    // New start time (ISO date string)
+  timeDuration: number; // New duration in minutes
+}
+```
+
+**Example Request**:
+```http
+PATCH /sessions/reschedule/sess_12345
+Content-Type: application/json
+Cookie: auth-token=<token>
+
+{
+  "startTime": "2023-10-01T16:00:00.000Z",
+  "timeDuration": 120
+}
+```
+
 ## Sets Management
 
 ### 1. Create a Set
@@ -730,7 +697,7 @@ Content-Type: application/json
 - `sessionId`: string - ID of the session
 
 **Headers**:
-- `Authorization`: `Bearer <jwt-token>`
+- `Content-Type`: `application/json`
 
 **Request Body**:
 ```typescript
@@ -743,8 +710,7 @@ interface CreateSetRequest {
 
 **Example Request**:
 ```http
-POST /api/sets/create/507f1f77bcf86cd799439014
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+POST /sets/create/507f1f77bcf86cd799439014
 Content-Type: application/json
 
 {
@@ -780,12 +746,11 @@ Content-Type: application/json
 - `sessionId`: string - ID of the session
 
 **Headers**:
-- `Authorization`: `Bearer <jwt-token>`
+- `Content-Type`: `application/json`
 
 **Example Request**:
 ```http
-GET /api/sets/507f1f77bcf86cd799439014
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+GET /sets/507f1f77bcf86cd799439014
 ```
 
 **Success Response**:
