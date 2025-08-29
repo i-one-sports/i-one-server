@@ -687,53 +687,52 @@ Cookie: auth-token=<token>
 
 ## Sets Management
 
-### 1. Create a Set
+### 1. Create Sets for Session
 
 **Endpoint**: `POST /sets/create/:sessionId`
 
-**Description**: Creates a new set for a session.
+**Description**: Creates sets for a session. The number of sets created is determined by the session's `setNumber` property. Set names are automatically assigned from a predefined list of team names.
 
 **Path Parameters**:
-- `sessionId`: string - ID of the session
+- `sessionId` (required): The ID of the session to create sets for
 
 **Headers**:
 - `Content-Type`: `application/json`
+- `Cookie`: `auth-token=<token>`
 
-**Request Body**:
-```typescript
-interface CreateSetRequest {
-  name?: string;           // Optional name for the set
-  targetScore?: number;    // Target score to win the set (default: 21)
-  winByTwo?: boolean;      // Whether to win by 2 points (default: true)
-}
-```
+**Request Body**: None
 
 **Example Request**:
 ```http
 POST /sets/create/507f1f77bcf86cd799439014
 Content-Type: application/json
-
-{
-  "name": "First Set",
-  "targetScore": 21,
-  "winByTwo": true
-}
+Cookie: auth-token=<token>
 ```
 
 **Success Response**:
 - **Status Code**: 201 Created
-- **Body**:
+- **Body**: Array of created sets with auto-assigned team names
   ```json
-  {
-    "_id": "507f1f77bcf86cd799439015",
-    "sessionId": "507f1f77bcf86cd799439014",
-    "name": "First Set",
-    "targetScore": 21,
-    "winByTwo": true,
-    "status": "in_progress",
-    "createdAt": "2023-10-01T15:05:00.000Z",
-    "updatedAt": "2023-10-01T15:05:00.000Z"
-  }
+  [
+    {
+      "_id": "507f1f77bcf86cd799439015",
+      "session": "507f1f77bcf86cd799439014",
+      "name": "Team 7",
+      "players": ["user1_id", "user2_id"],
+      "status": "pending",
+      "createdAt": "2023-10-01T15:00:00.000Z",
+      "updatedAt": "2023-10-01T15:00:00.000Z"
+    },
+    {
+      "_id": "507f1f77bcf86cd799439016",
+      "session": "507f1f77bcf86cd799439014",
+      "name": "Royal Knights",
+      "players": ["user3_id", "user4_id"],
+      "status": "pending",
+      "createdAt": "2023-10-01T15:00:00.000Z",
+      "updatedAt": "2023-10-01T15:00:00.000Z"
+    }
+  ]
   ```
 
 ### 2. View Set for Session
