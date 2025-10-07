@@ -36,32 +36,32 @@ export class SetsService {
   ) {}
 
   private async allocateMembers(
-    session: Session,
-    createdSets: Set[],
-  ): Promise<void> {
-    const members = session.members;
-    const pickedMembers = createdSets.flatMap((set) => set.players);
-    const availablePlayers = members.filter(
-      (member) => !pickedMembers.includes(member),
-    );
+  session: Session,
+  createdSets: Set[],
+): Promise<void> {
+  const members = session.members || [];
+  const pickedMembers = createdSets.flatMap((set) => (set.players || [])).map(String);
+  const availablePlayers = members
+    .map(String)
+    .filter((m) => !pickedMembers.includes(m));
 
-    if (availablePlayers.length === 0) return;
+  if (availablePlayers.length === 0) return;
 
-    for (let i = 0; i < members.length; i++) {
-      const player = availablePlayers[i];
-      const setIndex = i % createdSets.length;
-      const pickedSet = createdSets[setIndex];
+  const ops = availablePlayers.map((player, i) => ({
+    updateOne: {
+      filter: { _id: createdSets[i % createdSets.length]._id },
+      update: { $addToSet: { players: new Types.ObjectId(player) } },
+    },
+  }));  
 
-      await this.setRepository.findOneAndUpdate(
-        { _id: pickedSet._id },
-        { $push: { players: player } },
-      );
-    }
+  if (ops.length > 0) {
+    await this.setRepository.findRaw().bulkWrite(ops, { ordered: false });
   }
+}
 
   async createSet(sessionId: string) {
     try {
-      const session = await this.sessionRepository.findOne({ _id: sessionId });
+      const session: Session = await this.sessionRepository.findOne({ _id: sessionId });
       if (!session) {
         throw new CustomHttpException(
           'Session not found',
@@ -84,19 +84,10 @@ export class SetsService {
         );
       }
 
-      const count = await this.setRepository
-        .findRaw()
-        .countDocuments({ session: sessionId });
+      const count = await this.setRepository.findRaw().countDocuments({ session: sessionId });
 
-      const setExists = await this.setRepository.findOne({
-        session: sessionId,
-      });
-
-      if (setExists) {
-        throw new CustomHttpException(
-          'Set already created',
-          HttpStatus.BAD_REQUEST,
-        );
+      if (count > 0) {
+        throw new CustomHttpException('Set already created', HttpStatus.BAD_REQUEST);
       }
 
       const setData = Array(session.setNumber)
@@ -106,7 +97,7 @@ export class SetsService {
           const randomName = availableNames.splice(randomIndex, 1)[0];
           return {
             _id: new Types.ObjectId(),
-            session: session._id,
+            session: sessionId,
             name: randomName,
             players: [],
           };
@@ -125,11 +116,12 @@ export class SetsService {
         sets: updatedSets,
       };
     } catch (error: any) {
+      console.error('Error creating sets:', error);
       throw new CustomHttpException(
         error.message,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
-      console.log(error);
+      
     }
   }
 

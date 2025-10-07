@@ -11,8 +11,6 @@ export class SessionRepository extends AbstractRepository<Session> {
     super(SessionModel);
   }
 
-  async updateAllSessions(){
-      
-  }
+
 
 }
