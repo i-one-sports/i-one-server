@@ -30,24 +30,21 @@
 
 **Description**: Registers a new user in the system.
 
-**Request Body**:
+**Request Body** (matches `registerUserRequest` DTO):
 ```typescript
-interface RegisterUserRequest {
-  firstName: string;       // User's first name
-  lastName: string;        // User's last name
-  email: string;           // User's email address
-  nickname: string;        // User's nickname
-  password: string;        // User's password
-  address: string;         // Physical address
-  phoneNumber: string;     // Nigerian phone number format
-  position: string;        // Playing position (e.g., 'MF', 'ST', 'CB', 'GK')
-  location: {              // User's location coordinates
-    type: 'Point';
-    coordinates: [number, number]; // [longitude, latitude]
-  };
-  isOwner: boolean;        // Whether the user is a location owner
-  height: number;          // User's height in centimeters
-  dateOfBirth: string;     // ISO date string (e.g., '1990-01-01T00:00:00.000Z')
+interface registerUserRequest {
+  firstName: string;
+  lastName: string;
+  email: string;
+  nickname: string;
+  password: string;
+  address: string;
+  phoneNumber: string; // expects NG phone format
+  position: string; // e.g., 'MF', 'ST', 'CB', 'GK'
+  location: { type: 'Point'; coordinates: [number, number] };
+  isOwner: boolean;
+  height: number;
+  dateOfBirth: string; // ISO date string
 }
 ```
 
@@ -65,10 +62,7 @@ Content-Type: application/json
   "address": "123 Main St, Lagos",
   "phoneNumber": "+2348012345678",
   "position": "ST",
-  "location": {
-    "type": "Point",
-    "coordinates": [3.3792, 6.5244]  // [longitude, latitude] for Lagos
-  },
+  "location": { "type": "Point", "coordinates": [3.3792, 6.5244] },
   "isOwner": false,
   "height": 180,
   "dateOfBirth": "1990-01-01T00:00:00.000Z"
@@ -77,87 +71,47 @@ Content-Type: application/json
 
 **Success Response**:
 - **Status Code**: 201 Created
-- **Body**:
-  ```json
-  {
-    "message": "User registered successfully",
-    "user": {
-      "_id": "507f1f77bcf86cd799439011",
-      "email": "john.doe@example.com",
-      "firstName": "John",
-      "lastName": "Doe",
-      "nickname": "johndoe",
-      "isVerified": false,
-      "createdAt": "2023-10-01T12:00:00.000Z"
-    }
-  }
-  ```
+- **Body**: Same minimal user info as before (id, email, createdAt, etc.)
 
 ### 2. User Login
 
 **Endpoint**: `POST /auth/user/login`
 
-**Description**: Authenticates a user and returns a JWT token in an HTTP-only cookie.
+**Description**: Authenticates a user using the `LocalGuard` and sets an HTTP-only cookie on success.
 
 **Request Body**:
 ```typescript
-interface LoginRequest {
-  email: string;      // User's email address
-  password: string;   // User's password
-}
+interface LoginRequest { email: string; password: string }
 ```
 
 **Example Request**:
 ```http
-POST /user/login
+POST /auth/user/login
 Content-Type: application/json
 
-{
-  "email": "user@example.com",
-  "password": "securePassword123"
-}
+{ "email": "user@example.com", "password": "securePassword123" }
 ```
 
 **Success Response**:
 - **Status Code**: 200 OK
-- **Headers**:
-  - `Set-Cookie`: `Authentication=<jwt-token>; HttpOnly; Path=/; Max-Age=3600`
-- **Body**:
-  ```json
-  {
-    "message": "Login successful",
-    "user": {
-      "_id": "507f1f77bcf86cd799439011",
-      "email": "user@example.com",
-      "name": "John Doe"
-    }
-  }
-  ```
+- **Headers**: `Set-Cookie: Authentication=<jwt-token>; HttpOnly; Path=/;` (server sets cookie)
+- **Body**: A small user object is returned on success.
 
-### 2. User Logout
+### 3. User Logout
 
 **Endpoint**: `GET /auth/user/logout`
 
-**Description**: Logs out the current user by clearing the authentication cookie.
-
-**Headers**:
-- `Content-Type`: `application/json`
+**Description**: Clears the authentication cookie.
 
 **Example Request**:
 ```http
-GET /user/logout
+GET /auth/user/logout
 ```
 
 **Success Response**:
 - **Status Code**: 200 OK
-- **Headers**:
-  - `Set-Cookie`: `Authentication=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT`
-- **Body**:
-  ```json
-  {
-    "message": "Logout successful"
-  }
-  ```
+- **Headers**: `Set-Cookie` clearing the Authentication cookie
+- **Body**: { "message": "Logout successful" }
 
 ## User Management
 
@@ -193,6 +147,24 @@ GET /user/profile
     "updatedAt": "2023-10-01T12:00:00.000Z"
   }
   ```
+
+### 0. Get Current User
+
+**Endpoint**: `GET /user`
+
+**Description**: Returns the authenticated user's basic record (requires authentication cookie).
+
+**Headers**:
+- `Content-Type`: `application/json`
+
+**Example Request**:
+```http
+GET /user
+```
+
+**Success Response**:
+- **Status Code**: 200 OK
+- **Body**: User object similar to `/user/profile` response.
 
 ### 2. Forgot Password
 
@@ -301,66 +273,92 @@ Content-Type: application/json
 
 ## Location Management
 
+### Overview
+
+The Location feature manages sports locations (pitches). The implementation exposes endpoints under the `/location` prefix. The runtime model (schema) stores the following important fields on a `Location` document:
+
+- `name` (string)
+- `address` (string)
+- `booked` (boolean, default false)
+- `pitchPhoto` (string, optional)
+- `location` (GeoJSON Point { type: 'Point', coordinates: [lng, lat] })
+- `friendly` (boolean, default true)
+- `tournament` (boolean, default true)
+- `tournamentFee` (number, optional)
+- timestamps: `createdAt`, `updatedAt`
+
+The controller and DTOs to note are `POST /location/register` (owner-only), `GET /location/nearby`, `GET /location/all`, `GET /location` (owner's location), and `POST /location/pitch/:locationId` (upload photo).
+
 ### 1. Register Location
 
 **Endpoint**: `POST /location/register`
 
-**Description**: Registers a new sports location (for owners only).
+**Description**: Register a new sports location. This route is guarded with an owner check in the controller (only users with owner privileges may call it).
 
 **Headers**:
 - `Content-Type`: `application/json`
+- Requires authentication cookie (HTTP-only)
 
-**Request Body**:
+**Request Body** (matches `CreateLocationDto`):
 ```typescript
 interface CreateLocationDto {
-  name: string;                     // Name of the location
-  address: string;                  // Physical address
-  location: {                       // GeoJSON Point for the location
+  name: string;                     // required
+  address: string;                  // required
+  location: {                       // required: GeoJSON Point
     type: 'Point';
     coordinates: [number, number];  // [longitude, latitude]
   };
-  pitchPhoto?: string;              // URL of the pitch photo (optional)
+  pitchPhoto?: string;              // optional URL
+  friendly?: boolean;               // optional (defaults to true)
+  tournament?: boolean;             // optional (defaults to true)
 }
 ```
+
+**Behavior / Notes**:
+- The service checks for an existing location very close to the provided coordinates and will return 409 Conflict if an existing location is found.
+- The server currently stores `name`, `address`, `location`, `pitchPhoto` and uses schema defaults for `friendly` and `tournament`.
 
 **Example Request**:
 ```http
 POST /location/register
 Content-Type: application/json
+Cookie: Authentication=<jwt-cookie>
 
 {
   "name": "Lagos Sports Complex",
   "address": "123 Sports Avenue, Victoria Island, Lagos",
   "location": {
     "type": "Point",
-    "coordinates": [3.42158, 6.45306]  // [longitude, latitude] for Victoria Island
-  }
+    "coordinates": [3.42158, 6.45306]
+  },
+  "pitchPhoto": "https://example.com/pitches/lagos.jpg"
 }
 ```
 
 **Success Response**:
 - **Status Code**: 201 Created
-- **Body**:
+- **Body** (Location document):
   ```json
   {
     "_id": "507f1f77bcf86cd799439013",
     "name": "Lagos Sports Complex",
     "address": "123 Sports Avenue, Victoria Island, Lagos",
-    "location": {
-      "type": "Point",
-      "coordinates": [3.42158, 6.45306]
-    },
-    "ownerId": "507f1f77bcf86cd799439011",
+    "booked": false,
+    "pitchPhoto": "https://example.com/pitches/lagos.jpg",
+    "location": { "type": "Point", "coordinates": [3.42158, 6.45306] },
+    "friendly": true,
+    "tournament": true,
+    "tournamentFee": null,
     "createdAt": "2023-10-01T12:00:00.000Z",
     "updatedAt": "2023-10-01T12:00:00.000Z"
   }
   ```
 
-### 2. Upload Location Photo
+### 2. Upload Location Pitch Photo
 
 **Endpoint**: `POST /location/pitch/:locationId`
 
-**Description**: Uploads a photo for a specific location's pitch.
+**Description**: Uploads a photo for a specific location's pitch. The controller uses a memory-storage multer interceptor and delegates to `AwsService.upload`. Returns the uploaded file URL.
 
 **Headers**:
 - `Content-Type`: `multipart/form-data`
@@ -371,7 +369,7 @@ Content-Type: application/json
 **Form Data**:
 - `file`: File - Image file to upload (JPG, PNG, etc.)
 
-**Example Request**:
+**Example Request** (multipart/form-data):
 ```http
 POST /location/pitch/507f1f77bcf86cd799439013
 Content-Type: multipart/form-data; boundary=----WebKitFormBoundary
@@ -388,66 +386,65 @@ Content-Type: image/jpeg
 - **Status Code**: 200 OK
 - **Body**:
   ```json
-  {
-    "pitchPhoto": "https://your-s3-bucket.s3.amazonaws.com/pitches/507f1f77bcf86cd799439013.jpg"
-  }
+  { "pitchPhoto": "https://your-s3-bucket.s3.amazonaws.com/pitches/507f1f77bcf86cd799439013.jpg" }
   ```
 
-### 3. Get Nearby Locations
+### 3. View All Locations
 
-**Endpoint**: `GET /location/nearby`
+**Endpoint**: `GET /location/all`
 
-**Description**: Finds locations near the specified coordinates.
-
-**Query Parameters**:
-- `longitude`: string - Longitude of the center point
-- `latitude`: string - Latitude of the center point
-- `maxDistance?`: number - (Optional) Maximum distance in meters (default: 5000)
+**Description**: Returns all location documents.
 
 **Headers**:
 - `Content-Type`: `application/json`
 
+**Success Response**:
+- **Status Code**: 200 OK
+- **Body**: Array of Location documents (same shape as register response)
+
+### 4. Get Nearby Locations
+
+**Endpoint**: `GET /location/nearby`
+
+**Description**: Finds locations near the specified coordinates. Note: the controller expects query parameters named `lng` and `lat` (not `longitude`/`latitude`).
+
+**Query Parameters**:
+- `lng`: number - Longitude of the center point (required)
+- `lat`: number - Latitude of the center point (required)
+- `maxDistance?`: number - (Optional) Maximum distance in meters (the current implementation ignores this parameter; the service performs a `$near` query and returns matching documents sorted by distance)
+
 **Example Request**:
 ```http
-GET /location/nearby?longitude=3.42158&latitude=6.45306&maxDistance=10000
+GET /location/nearby?lng=3.42158&lat=6.45306
 ```
+
+**Success Response**:
+- **Status Code**: 200 OK
+- **Body**: Array of Location documents (same shape as register response). The raw documents do not include a computed `distance` field unless an aggregation is used; they are returned ordered by proximity.
+
+### 5. Get My Location (Owner)
+
+**Endpoint**: `GET /location`
+
+**Description**: Returns location information associated with the authenticated user. The controller reads the user's `locationInfo` and returns a compact response containing the stored `locationInfo`, `address`, and `coordinates`.
+
+**Headers**:
+- `Content-Type`: `application/json`
+- Requires authentication cookie (HTTP-only)
 
 **Success Response**:
 - **Status Code**: 200 OK
 - **Body**:
   ```json
-  [
-    {
-      "_id": "507f1f77bcf86cd799439013",
-      "name": "Lagos Sports Complex",
-      "address": "123 Sports Avenue, Victoria Island, Lagos",
-      "location": {
-        "type": "Point",
-        "coordinates": [3.42158, 6.45306]
-      },
-      "pitchPhoto": "https://your-s3-bucket.s3.amazonaws.com/pitches/507f1f77bcf86cd799439013.jpg",
-      "distance": 1.2  // Distance in meters
-    }
-  ]
+  {
+    "locationInfo": { /* user's stored location object */ },
+    "address": "123 Sports Avenue, Victoria Island, Lagos",
+    "coordinates": [3.42158, 6.45306]
+  }
   ```
 
-### 4. Get My Location (Owner)
-
-**Endpoint**: `GET /location`
-
-**Description**: Retrieves the location owned by the authenticated user (for owners only).
-
-**Headers**:
-- `Content-Type`: `application/json`
-
-**Example Request**:
-```http
-GET /location
-```
-
-**Success Response**:
-- **Status Code**: 200 OK
-- **Body**: Same as the location object in the register location response
+**Errors**:
+- 404 Not Found if the user is not found or has no location information
 
 ## Session Management
 
@@ -458,8 +455,8 @@ GET /location
 **Description**: Finds sessions near the specified coordinates.
 
 **Query Parameters**:
-- `lat`: number - Latitude of the location
-- `lng`: number - Longitude of the location
+- `lng`: number - Longitude of the location (controller reads `lng`)
+- `lat`: number - Latitude of the location (controller reads `lat`)
 
 **Headers**:
 - `Content-Type`: `application/json`
@@ -551,7 +548,7 @@ Content-Type: application/json
   playersPerTeam: number;      // Number of players per team
   timeDuration: number;        // Total duration in minutes
   minsPerSet: number;          // Minutes per set
-  startTime: string;           // ISO date string
+  startTime: string;           // ISO date string (ISO 8601)
   winningDecider: string;      // How to determine the winner
 }
 ```
@@ -775,6 +772,287 @@ GET /sets/507f1f77bcf86cd799439014
   ```
 
 ## Error Handling
+
+## Tournaments
+
+### 1. Create Tournament
+
+**Endpoint**: `POST /tournaments/create/:locationId`
+
+**Description**: Create a new tournament. The authenticated user becomes the organizer. The `locationId` is supplied as a path parameter or query parameter depending on the client (controller expects `locationId`).
+
+**Headers**:
+- `Content-Type`: `application/json`
+- Requires authentication cookie (HTTP-only)
+
+**Request Body** (matches `CreateTournamentDto`):
+```typescript
+interface CreateTournamentRequest {
+  name: string;                 // Tournament name
+  description?: string;         // Optional description
+  prizeMoney: number;           // Prize money (required)
+  format?: 'KNOCKOUT' | 'GROUPS' | string; // Optional format, defaults to KNOCKOUT
+  maxTeams?: number;            // Optional, defaults to 16
+  registrationDeadline: string; // ISO date string, required
+  startDate: string;            // ISO date string, required
+  durationDays: number;         // Number of days the tournament runs, required
+  registrationFee: number;      // Fee to register a team, required
+}
+```
+
+**Path / Query Parameters**:
+- `locationId`: string - ID of the `Location` where the tournament will be held (controller expects this value)
+
+**Example Request**:
+```http
+POST /tournaments/create/507f1f77bcf86cd799439013
+Content-Type: application/json
+Cookie: Authentication=<jwt-cookie>
+
+{
+  "name": "Lagos Cup 2025",
+  "description": "Annual Lagos tournament",
+  "prizeMoney": 500000,
+  "format": "KNOCKOUT",
+  "maxTeams": 16,
+  "registrationDeadline": "2025-11-01T00:00:00.000Z",
+  "startDate": "2025-11-10T09:00:00.000Z",
+  "durationDays": 7,
+  "registrationFee": 2000
+}
+```
+
+**Success Response**:
+- **Status Code**: 201 Created
+- **Body**:
+  ```json
+  {
+    "_id": "507f1f77bcf86cd799439099",
+    "name": "Lagos Cup 2025",
+    "description": "Annual Lagos tournament",
+    "prizeMoney": 500000,
+    "format": "KNOCKOUT",
+    "maxTeams": 16,
+    "registrationDeadline": "2025-11-01T00:00:00.000Z",
+    "startDate": "2025-11-10T09:00:00.000Z",
+    "durationDays": 7,
+    "registrationFee": 2000,
+    "code": "I-ONE-ABCDEFG",         // system generated
+    "status": "REGISTRATION",       // initial status
+    "organizer": "507f1f77bcf86cd799439011",
+    "location": "507f1f77bcf86cd799439013",
+    "registeredTeams": [],
+    "endDate": "2025-11-17T09:00:00.000Z"
+  }
+  ```
+
+**Notes & Validation**:
+- `prizeMoney`, `registrationDeadline`, `startDate`, `durationDays`, and `registrationFee` are required by the DTO.
+- The server generates a unique `code`, assigns the `organizer` from the authenticated user, and calculates `endDate` from `startDate + durationDays`.
+- `location` is stored by the server based on the provided `locationId` (this doc does not change the location design).
+- If `maxTeams` is omitted it defaults to 16.
+### Matches
+
+The Matches API manages match creation, starting, ending, and viewing details. Routes are under the `/match` prefix.
+
+#### 1. Create Matchups for Session
+
+**Endpoint**: `POST /match/matchup/:sessionId`
+
+**Description**: Generate matchups for a session (creates scheduled match documents for the session). The service determines match pairings based on session state.
+
+**Path Parameters**:
+- `sessionId`: string - ID of the session
+
+**Example Request**:
+```http
+POST /match/matchup/507f1f77bcf86cd799439014
+```
+
+**Success Response**:
+- **Status Code**: 201 Created
+- **Body**: Array of created Match documents
+
+#### 2. View Session Matchups
+
+**Endpoint**: `GET /match/matchups/:sessionId`
+
+**Description**: Returns matchups for the given session.
+
+**Example Request**:
+```http
+GET /match/matchups/507f1f77bcf86cd799439014
+```
+
+**Success Response**:
+- **Status Code**: 200 OK
+- **Body**: Array of match documents
+
+#### 3. Start a Match
+
+**Endpoint**: `POST /match/start/:matchId`
+
+**Description**: Mark a match as started.
+
+**Example Request**:
+```http
+POST /match/start/507f1f77bcf86cd799439050
+```
+
+**Success Response**:
+- **Status Code**: 200 OK
+- **Body**: Updated match document
+
+#### 4. View Match Details
+
+**Endpoint**: `GET /match/details/:matchId`
+
+**Description**: Retrieve details for a specific match.
+
+**Example Request**:
+```http
+GET /match/details/507f1f77bcf86cd799439050
+```
+
+**Success Response**:
+- **Status Code**: 200 OK
+- **Body**: Match document with details
+
+#### 5. End a Match
+
+**Endpoint**: `POST /match/end/:matchId`
+
+**Description**: Mark a match as ended and record results.
+
+**Example Request**:
+```http
+POST /match/end/507f1f77bcf86cd799439050
+```
+
+**Success Response**:
+- **Status Code**: 200 OK
+- **Body**: Finalized match document
+
+### Stats
+
+The Stats API exposes endpoints for getting and updating user statistics. The controller is guarded and typically operates on the authenticated user.
+
+#### 1. Overall User Stats
+
+**Endpoint**: `GET /stats/:userId`
+
+**Description**: In the current implementation this endpoint returns statistics for the authenticated user (the controller reads the current user via `@CurrentUser()`); the path parameter is not used. It returns an aggregated overview for the current user.
+
+**Example Request**:
+```http
+GET /stats/507f1f77bcf86cd799439011
+```
+
+**Success Response**:
+- **Status Code**: 200 OK
+- **Body**: Aggregated stats for the current user
+
+#### 2. Get User Stats By Season
+
+**Endpoint**: `GET /stats/season`
+
+**Query Parameters** (matches `statsQueryDto`):
+- `seasonStart`: number (required)
+- `seasonEnd`: number (required)
+
+**Description**: Returns stats for the authenticated user for the given season range.
+
+**Example Request**:
+```http
+GET /stats/season?seasonStart=202401&seasonEnd=202412
+```
+
+**Success Response**:
+- **Status Code**: 200 OK
+- **Body**: Stats for the specified season range
+
+#### 3. Update Stats
+
+**Endpoint**: `PATCH /stats/update`
+
+**Query Parameters**: (seasonStart, seasonEnd) — same as `statsQueryDto`.
+
+**Request Body** (matches `updateStatsDto`):
+```typescript
+interface updateStatsDto {
+  statsType: string; // enum STATS
+  value: number;
+}
+```
+
+**Description**: Update a specific stat for the authenticated user for the provided season range.
+
+**Example Request**:
+```http
+PATCH /stats/update?seasonStart=202401&seasonEnd=202412
+Content-Type: application/json
+
+{ "statsType": "GOALS", "value": 2 }
+```
+
+**Success Response**:
+- **Status Code**: 200 OK
+- **Body**: Updated stats object
+
+### Error Response Format
+
+## Captains
+
+### Overview
+
+Captains represent users assigned as the captain for a Team or a Set (session). The `Captain` document stores `userId` and either `teamId` or `sessionId`.
+
+### 1. Get Team/Set Captain
+
+**Endpoint**: `GET /captains/:id`
+
+**Description**: Returns the captain (user) for the specified team or set. The `:id` parameter is the Team ID or Set ID; the service searches for a Captain whose `teamId` or `setId` (sessionId) matches `:id` and returns the populated `userId` object.
+
+**Path Parameters**:
+- `id`: string - Team ID or Set ID
+
+**Example Request**:
+```http
+GET /captains/507f1f77bcf86cd799439020
+```
+
+**Success Response**:
+- **Status Code**: 200 OK
+- **Body**: The populated `userId` object (the captain user document). Example:
+  ```json
+  {
+    "_id": "507f1f77bcf86cd799439011",
+    "firstName": "John",
+    "lastName": "Doe",
+    "email": "john.doe@example.com"
+  }
+  ```
+
+**Errors**:
+- 404 Not Found if no captain exists for the provided id.
+
+### 2. Create Captain (DTO)
+
+There is no public POST endpoint currently in `CaptainsController`. Captains are created by calling `CaptainsService.createCaptain` from server code. If you want a public API to create captains, add a secure POST route that delegates to that service.
+
+`CreateCaptainDto` shape (used by the service):
+```typescript
+interface CreateCaptainDto {
+  userId: string;        // MongoId of user to be made captain (required)
+  sessionId?: string;    // MongoId of session/set (optional)
+  teamId?: string;       // MongoId of team (optional)
+}
+```
+
+**Service behavior / validation**:
+- The service prevents a user from being made captain for the same team or set more than once and will return 409 Conflict on duplicates.
+- The service returns the created Captain document on success.
+
 
 ### Error Response Format
 All error responses follow this format:
