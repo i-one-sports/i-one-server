@@ -2,7 +2,7 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { AbstractDocument } from './abstract.schema';
 import { LocationCoordinates } from '../types/common';
 
-@Schema()
+@Schema({ timestamps: true })
 export class Location extends AbstractDocument {
   @Prop({ required: true, type: String })
   name: string;
@@ -10,11 +10,11 @@ export class Location extends AbstractDocument {
   @Prop({ required: true, type: String })
   address: string;
 
-  @Prop({ type: Boolean, default: false})
-  booked: boolean
+  @Prop({ type: Boolean, default: false })
+  booked: boolean;
 
   @Prop()
-  pitchPhoto?: string
+  pitchPhoto?: string;
 
   @Prop({
     type: {
@@ -27,6 +27,15 @@ export class Location extends AbstractDocument {
     },
   })
   location: LocationCoordinates;
+
+  @Prop({ type: Boolean, default: true })
+  friendly: boolean;
+
+  @Prop({ type: Boolean, default: true })
+  tournament: boolean;
+
+  @Prop({ type: Number, required: false })
+  tournamentFee: number;
 }
 
 export const LocationSchema = SchemaFactory.createForClass(Location);

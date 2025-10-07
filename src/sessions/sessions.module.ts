@@ -16,6 +16,7 @@ import { UserRepository } from 'src/users/users.repository';
 import { LocationRepository } from 'src/locations/locations.repository';
 import { MatchRepository } from 'src/matches/matches.repository';
 import { SessionRepository } from './sessions.repository';
+import { CaptainsService } from 'src/captains/captains.service';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { SessionRepository } from './sessions.repository';
     UserRepository,
     LocationRepository,
     MatchRepository,
+    CaptainsService
   ],
   exports: [SessionsService],
 })

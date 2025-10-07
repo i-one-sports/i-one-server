@@ -3,6 +3,7 @@ import { LocationRepository } from './locations.repository';
 import { UserRepository } from '../users/users.repository';
 import { CustomHttpException, Location } from '@app/common';
 import { CreateLocationDto, ViewNearbyLocationsDto } from './dto/location.dto';
+import { handleError } from 'src/helpers/errorHandler';
 
 @Injectable()
 export class LocationsService {
@@ -33,7 +34,12 @@ export class LocationsService {
       );
     }
 
-    return await this.locationRepository.create({ name, address, location, pitchPhoto });
+    return await this.locationRepository.create({
+      name,
+      address,
+      location,
+      pitchPhoto,
+    });
   }
 
   async viewAllLocations(): Promise<Location[]> {
@@ -41,13 +47,12 @@ export class LocationsService {
   }
 
   async viewNearbyLocations(lng: number, lat: number) {
-
     return await this.locationRepository.find({
       'location.coordinates': {
         $near: {
           $geometry: {
             type: 'Point',
-            coordinates: [lng,lat],
+            coordinates: [lng, lat],
           },
           // $maxDistance: 5000,
         },
@@ -67,5 +72,22 @@ export class LocationsService {
     const coordinates = user.locationInfo.location.coordinates;
 
     return { locationInfo: location, address, coordinates };
+  }
+
+  async getLocationById(locationId: string): Promise<Location> {
+    try {
+      const location = await this.locationRepository.findOne({
+        _id: locationId,
+      });
+      if (!location) {
+        throw new CustomHttpException(
+          'Location not found',
+          HttpStatus.NOT_FOUND,
+        );
+      }
+      return location;
+    } catch (error: any) {
+      handleError(error, 'Failed to get location by ID');
+    }
   }
 }

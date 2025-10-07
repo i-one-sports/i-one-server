@@ -22,7 +22,7 @@ export class SetsController {
     return this.setsService.viewSingleSet(setId);
   }
 
-  @Get('sets')
+  @Get()
   async viewAllSets() {
     return this.setsService.viewAllSets();
   }

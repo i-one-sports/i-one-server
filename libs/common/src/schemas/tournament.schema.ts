@@ -1,10 +1,13 @@
-import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
-import { TournamentFormat, TournamentStatus } from "../typings/global.interface";
-import { Types } from "mongoose";
-import { Group } from "./group.schema";
-import { TournamentMatch } from "./tournament-match.schema";
-import { TournamentLocation } from "./tournament-location.schema";
-import { AbstractDocument } from "./abstract.schema";
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import {
+  TournamentFormat,
+  TournamentStatus,
+} from '../typings/global.interface';
+import { Types } from 'mongoose';
+import { Group } from './group.schema';
+import { TournamentMatch } from './tournament-match.schema';
+import { TournamentLocation } from './tournament-location.schema';
+import { AbstractDocument } from './abstract.schema';
 
 @Schema({ timestamps: true })
 export class Tournament extends AbstractDocument {
@@ -14,14 +17,14 @@ export class Tournament extends AbstractDocument {
   @Prop({ default: '' })
   description: string;
 
-  @Prop({ type: [Object] })
-  locations: TournamentLocation[];
+  @Prop({ type: Types.ObjectId, ref: 'Location', required: true })
+  location: string;
 
   @Prop({ default: 0 })
   prizeMoney: number;
 
   @Prop({ required: true, unique: true, match: /^[a-zA-Z0-9_-]+$/ })
-  tag: string;
+  code: string;
 
   @Prop({ default: 0 })
   registrationFee: number;
@@ -29,7 +32,7 @@ export class Tournament extends AbstractDocument {
   @Prop({ default: TournamentStatus.REGISTRATION })
   status: string;
 
-  @Prop({ default: TournamentFormat.UCL_CLASSIC })
+  @Prop({ default: TournamentFormat.KNOCKOUT })
   format: string;
 
   @Prop({ default: 32 })
@@ -49,6 +52,9 @@ export class Tournament extends AbstractDocument {
 
   @Prop({ default: Date.now })
   registrationDeadline: Date;
+
+  @Prop({type: Number, default: 1, required: true})
+  durationDays: number;
 
   @Prop({ default: Date.now })
   startDate: Date;

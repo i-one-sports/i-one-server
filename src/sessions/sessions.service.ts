@@ -7,6 +7,8 @@ import { CustomHttpException, Session, SessionI, User } from '@app/common';
 import { UpdateQuery, FilterQuery } from 'mongoose';
 import { createSessionRequest } from './dto/sessions.dto';
 import { MATCH_TYPE } from '@app/common';
+import { CaptainsService } from 'src/captains/captains.service';
+import { CreateCaptainDto } from 'src/captains/dto/captains.dto';
 
 @Injectable()
 export class SessionsService {
@@ -15,6 +17,7 @@ export class SessionsService {
     private readonly locationRepository: LocationRepository,
     private readonly matchRepository: MatchRepository,
     private readonly userRepository: UserRepository,
+    private readonly CaptainService: CaptainsService,
   ) {}
 
   async findNearbySessionMatches(lng: number, lat: number) {
@@ -138,6 +141,13 @@ export class SessionsService {
       },
     );
 
+    const captainDetails: CreateCaptainDto = {
+      userId: userId,
+      sessionId: session._id.toString(),
+    };
+
+    await this.CaptainService.createCaptain(captainDetails);
+
     return session;
   }
 
@@ -153,8 +163,6 @@ export class SessionsService {
     userId: string,
     sessionId: string,
   ) {
-    const user: User = await this.userRepository.findOne({ _id: userId });
-
     const session = await this.sessionRepository.findOne({ _id: sessionId });
     if (session === null) {
       throw new CustomHttpException(
@@ -163,7 +171,8 @@ export class SessionsService {
       );
     }
 
-    if (!user.isCaptain) {
+    const isCaptain = await this.CaptainService.isCaptain(userId, sessionId);
+    if (!isCaptain) {
       throw new CustomHttpException(
         'You are not a captain',
         HttpStatus.UNAUTHORIZED,

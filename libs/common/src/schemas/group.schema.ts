@@ -1,9 +1,9 @@
-import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
-import { Types } from "mongoose";
-import { Team } from "./team.schema";
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { Types } from 'mongoose';
+import { Team } from './team.schema';
 
 @Schema()
-export class Group{
+export class Group {
   @Prop({ required: true })
   name: string; // 'A', 'B', 'C', etc.
 

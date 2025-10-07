@@ -1,4 +1,10 @@
-import { IsNotEmpty, IsString, IsArray, IsOptional, IsMongoId } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsString,
+  IsArray,
+  IsOptional,
+  IsMongoId,
+} from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class CreateTeamDto {
@@ -16,16 +22,6 @@ export class CreateTeamDto {
   @IsOptional()
   @IsString()
   description?: string;
-
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsString()
-  country?: string;
-
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsString()
-  city?: string;
 
   @ApiProperty()
   @IsNotEmpty()

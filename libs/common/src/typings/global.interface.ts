@@ -57,3 +57,4 @@ export enum TournamentFormat {
   KNOCKOUT = 'knockout',
   LEAGUE = 'league',
 }
+

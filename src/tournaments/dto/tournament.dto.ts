@@ -1,6 +1,20 @@
-import { IsNotEmpty, IsString, IsNumber, IsArray, IsOptional, IsEnum, IsDate, IsMongoId, Matches } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsString,
+  IsNumber,
+  IsArray,
+  IsOptional,
+  IsEnum,
+  IsDate,
+  IsMongoId,
+  Matches,
+} from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
-import { TournamentStatus, TournamentFormat, LocationCoordinates } from '@app/common';
+import {
+  TournamentStatus,
+  TournamentFormat,
+  LocationCoordinates,
+} from '@app/common';
 import { Type } from 'class-transformer';
 
 export class TournamentLocationDto {
@@ -24,7 +38,7 @@ export class TournamentLocationDto {
   country: string;
 
   @ApiProperty({ required: false })
-  location: LocationCoordinates
+  location: LocationCoordinates;
 }
 
 export class CreateTournamentDto {
@@ -38,60 +52,52 @@ export class CreateTournamentDto {
   @IsString()
   description?: string;
 
-  @ApiProperty({ type: [TournamentLocationDto], required: false })
-  @IsOptional()
-  @IsArray()
-  @Type(() => TournamentLocationDto)
-  locations?: TournamentLocationDto[];
-
-  @ApiProperty({ required: false, default: 0 })
-  @IsOptional()
-  @IsNumber()
-  prizeMoney?: number;
-
-  @ApiProperty()
+  @ApiProperty({ required: true })
   @IsNotEmpty()
-  @IsString()
-  @Matches(/^[a-zA-Z0-9_-]+$/)
-  tag: string;
-
-  @ApiProperty({ required: false, default: 0 })
-  @IsOptional()
   @IsNumber()
-  registrationFee?: number;
+  prizeMoney: number;
 
-  @ApiProperty({ enum: TournamentFormat, default: TournamentFormat.UCL_CLASSIC })
+  @ApiProperty({ enum: TournamentFormat, default: TournamentFormat.KNOCKOUT })
   @IsOptional()
   @IsEnum(TournamentFormat)
   format?: TournamentFormat;
 
-  @ApiProperty({ required: false, default: 32 })
+  @ApiProperty({ required: false, default: 16 })
   @IsOptional()
   @IsNumber()
   maxTeams?: number;
 
-  @ApiProperty()
+
+  @ApiProperty({ required: true })
   @IsNotEmpty()
-  @IsMongoId()
-  organizer: string;
-
-  @ApiProperty({ required: false })
-  @IsOptional()
   @IsDate()
   @Type(() => Date)
-  registrationDeadline?: Date;
+  registrationDeadline: Date;
 
-  @ApiProperty({ required: false })
-  @IsOptional()
+  @ApiProperty({ required: true })
+  @IsNotEmpty()
   @IsDate()
   @Type(() => Date)
-  startDate?: Date;
+  startDate: Date;
 
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsDate()
-  @Type(() => Date)
-  endDate?: Date;
+  @ApiProperty({ required: true })
+  @IsNotEmpty()
+  @IsNumber()
+  durationDays: number;
+
+  @ApiProperty({ required: true })
+  @IsNotEmpty()
+  @IsNotEmpty()
+  registrationFee: number;
+
+  // System generated fields:
+  // - code
+  // - status
+  // - organizer
+  // - location
+  // - registeredTeams (starts empty)
+  // - endDate (calculated from startDate + durationDays)
+
 }
 
 export class UpdateTournamentDto {
@@ -105,12 +111,6 @@ export class UpdateTournamentDto {
   @IsString()
   description?: string;
 
-  @ApiProperty({ type: [TournamentLocationDto], required: false })
-  @IsOptional()
-  @IsArray()
-  @Type(() => TournamentLocationDto)
-  locations?: TournamentLocationDto[];
-
   @ApiProperty({ required: false })
   @IsOptional()
   @IsNumber()
@@ -118,19 +118,8 @@ export class UpdateTournamentDto {
 
   @ApiProperty({ required: false })
   @IsOptional()
-  @IsString()
-  @Matches(/^[a-zA-Z0-9_-]+$/)
-  tag?: string;
-
-  @ApiProperty({ required: false })
-  @IsOptional()
   @IsNumber()
   registrationFee?: number;
-
-  @ApiProperty({ enum: TournamentStatus, required: false })
-  @IsOptional()
-  @IsEnum(TournamentStatus)
-  status?: TournamentStatus;
 
   @ApiProperty({ required: false })
   @IsOptional()
@@ -146,9 +135,8 @@ export class UpdateTournamentDto {
 
   @ApiProperty({ required: false })
   @IsOptional()
-  @IsDate()
-  @Type(() => Date)
-  endDate?: Date;
+  @IsNumber()
+  durationDays?: number;
 }
 
 export class RegisterTeamDto {
