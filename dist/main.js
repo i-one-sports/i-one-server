@@ -403,6 +403,50 @@ exports.AbstractDocument = AbstractDocument = __decorate([
 
 /***/ }),
 
+/***/ "./libs/common/src/schemas/captains.schema.ts":
+/*!****************************************************!*\
+  !*** ./libs/common/src/schemas/captains.schema.ts ***!
+  \****************************************************/
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+var __metadata = (this && this.__metadata) || function (k, v) {
+    if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.CaptainSchema = exports.Captain = void 0;
+const mongoose_1 = __webpack_require__(/*! @nestjs/mongoose */ "@nestjs/mongoose");
+const abstract_schema_1 = __webpack_require__(/*! ./abstract.schema */ "./libs/common/src/schemas/abstract.schema.ts");
+const mongoose_2 = __webpack_require__(/*! mongoose */ "mongoose");
+let Captain = class Captain extends abstract_schema_1.AbstractDocument {
+};
+exports.Captain = Captain;
+__decorate([
+    (0, mongoose_1.Prop)({ type: mongoose_2.Types.ObjectId, ref: 'User', required: true }),
+    __metadata("design:type", String)
+], Captain.prototype, "userId", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ type: mongoose_2.Types.ObjectId, required: false, ref: 'Set' }),
+    __metadata("design:type", String)
+], Captain.prototype, "sessionId", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ type: mongoose_2.Types.ObjectId, ref: 'Team', required: false }),
+    __metadata("design:type", String)
+], Captain.prototype, "teamId", void 0);
+exports.Captain = Captain = __decorate([
+    (0, mongoose_1.Schema)()
+], Captain);
+exports.CaptainSchema = mongoose_1.SchemaFactory.createForClass(Captain);
+
+
+/***/ }),
+
 /***/ "./libs/common/src/schemas/group.schema.ts":
 /*!*************************************************!*\
   !*** ./libs/common/src/schemas/group.schema.ts ***!
@@ -500,8 +544,20 @@ __decorate([
     }),
     __metadata("design:type", typeof (_a = typeof common_1.LocationCoordinates !== "undefined" && common_1.LocationCoordinates) === "function" ? _a : Object)
 ], Location.prototype, "location", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ type: Boolean, default: true }),
+    __metadata("design:type", Boolean)
+], Location.prototype, "friendly", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ type: Boolean, default: true }),
+    __metadata("design:type", Boolean)
+], Location.prototype, "tournament", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ type: Number, required: false }),
+    __metadata("design:type", Number)
+], Location.prototype, "tournamentFee", void 0);
 exports.Location = Location = __decorate([
-    (0, mongoose_1.Schema)()
+    (0, mongoose_1.Schema)({ timestamps: true })
 ], Location);
 exports.LocationSchema = mongoose_1.SchemaFactory.createForClass(Location);
 exports.LocationSchema.index({ location: '2dsphere' });
@@ -991,9 +1047,9 @@ __decorate([
     __metadata("design:type", String)
 ], Tournament.prototype, "description", void 0);
 __decorate([
-    (0, mongoose_1.Prop)({ type: [Object] }),
-    __metadata("design:type", Array)
-], Tournament.prototype, "locations", void 0);
+    (0, mongoose_1.Prop)({ type: mongoose_2.Types.ObjectId, ref: 'Location', required: true }),
+    __metadata("design:type", String)
+], Tournament.prototype, "location", void 0);
 __decorate([
     (0, mongoose_1.Prop)({ default: 0 }),
     __metadata("design:type", Number)
@@ -1001,7 +1057,7 @@ __decorate([
 __decorate([
     (0, mongoose_1.Prop)({ required: true, unique: true, match: /^[a-zA-Z0-9_-]+$/ }),
     __metadata("design:type", String)
-], Tournament.prototype, "tag", void 0);
+], Tournament.prototype, "code", void 0);
 __decorate([
     (0, mongoose_1.Prop)({ default: 0 }),
     __metadata("design:type", Number)
@@ -1011,7 +1067,7 @@ __decorate([
     __metadata("design:type", String)
 ], Tournament.prototype, "status", void 0);
 __decorate([
-    (0, mongoose_1.Prop)({ default: global_interface_1.TournamentFormat.UCL_CLASSIC }),
+    (0, mongoose_1.Prop)({ default: global_interface_1.TournamentFormat.KNOCKOUT }),
     __metadata("design:type", String)
 ], Tournament.prototype, "format", void 0);
 __decorate([
@@ -1038,6 +1094,10 @@ __decorate([
     (0, mongoose_1.Prop)({ default: Date.now }),
     __metadata("design:type", typeof (_a = typeof Date !== "undefined" && Date) === "function" ? _a : Object)
 ], Tournament.prototype, "registrationDeadline", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ type: Number, default: 1, required: true }),
+    __metadata("design:type", Number)
+], Tournament.prototype, "durationDays", void 0);
 __decorate([
     (0, mongoose_1.Prop)({ default: Date.now }),
     __metadata("design:type", typeof (_b = typeof Date !== "undefined" && Date) === "function" ? _b : Object)
@@ -1120,10 +1180,6 @@ __decorate([
     (0, mongoose_1.Prop)(),
     __metadata("design:type", String)
 ], User.prototype, "position", void 0);
-__decorate([
-    (0, mongoose_1.Prop)({ default: false }),
-    __metadata("design:type", Boolean)
-], User.prototype, "isCaptain", void 0);
 __decorate([
     (0, mongoose_1.Prop)({ default: false }),
     __metadata("design:type", Boolean)
@@ -1434,6 +1490,7 @@ const locations_module_1 = __webpack_require__(/*! ./locations/locations.module 
 const schedule_1 = __webpack_require__(/*! @nestjs/schedule */ "@nestjs/schedule");
 const tournaments_module_1 = __webpack_require__(/*! ./tournaments/tournaments.module */ "./src/tournaments/tournaments.module.ts");
 const stats_module_1 = __webpack_require__(/*! ./stats/stats.module */ "./src/stats/stats.module.ts");
+const captains_module_1 = __webpack_require__(/*! ./captains/captains.module */ "./src/captains/captains.module.ts");
 let RootCronService = class RootCronService {
     handleCron() {
     }
@@ -1478,6 +1535,7 @@ exports.AppModule = AppModule = __decorate([
             locations_module_1.LocationsModule,
             tournaments_module_1.TournamentsModule,
             stats_module_1.StatsModule,
+            captains_module_1.CaptainsModule,
         ],
         controllers: [app_controller_1.AppController],
         providers: [app_service_1.AppService, RootCronService],
@@ -1825,6 +1883,221 @@ exports.UserLocalStrategy = UserLocalStrategy = __decorate([
 
 /***/ }),
 
+/***/ "./src/captains/captains.controller.ts":
+/*!*********************************************!*\
+  !*** ./src/captains/captains.controller.ts ***!
+  \*********************************************/
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+var __metadata = (this && this.__metadata) || function (k, v) {
+    if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+};
+var __param = (this && this.__param) || function (paramIndex, decorator) {
+    return function (target, key) { decorator(target, key, paramIndex); }
+};
+var _a;
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.CaptainsController = void 0;
+const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
+const captains_service_1 = __webpack_require__(/*! ./captains.service */ "./src/captains/captains.service.ts");
+let CaptainsController = class CaptainsController {
+    constructor(captainsService) {
+        this.captainsService = captainsService;
+    }
+    async getTeamCaptain(id) {
+        return this.captainsService.getTeamCaptain(id);
+    }
+};
+exports.CaptainsController = CaptainsController;
+__decorate([
+    (0, common_1.Get)(':id'),
+    __param(0, (0, common_1.Param)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", Promise)
+], CaptainsController.prototype, "getTeamCaptain", null);
+exports.CaptainsController = CaptainsController = __decorate([
+    (0, common_1.Controller)('captains'),
+    __metadata("design:paramtypes", [typeof (_a = typeof captains_service_1.CaptainsService !== "undefined" && captains_service_1.CaptainsService) === "function" ? _a : Object])
+], CaptainsController);
+
+
+/***/ }),
+
+/***/ "./src/captains/captains.module.ts":
+/*!*****************************************!*\
+  !*** ./src/captains/captains.module.ts ***!
+  \*****************************************/
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.CaptainsModule = void 0;
+const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
+const captains_service_1 = __webpack_require__(/*! ./captains.service */ "./src/captains/captains.service.ts");
+const mongoose_1 = __webpack_require__(/*! @nestjs/mongoose */ "@nestjs/mongoose");
+const captains_schema_1 = __webpack_require__(/*! @app/common/schemas/captains.schema */ "./libs/common/src/schemas/captains.schema.ts");
+const captains_controller_1 = __webpack_require__(/*! ./captains.controller */ "./src/captains/captains.controller.ts");
+const captains_repository_1 = __webpack_require__(/*! ./captains.repository */ "./src/captains/captains.repository.ts");
+let CaptainsModule = class CaptainsModule {
+};
+exports.CaptainsModule = CaptainsModule;
+exports.CaptainsModule = CaptainsModule = __decorate([
+    (0, common_1.Module)({
+        imports: [
+            mongoose_1.MongooseModule.forFeature([{ name: captains_schema_1.Captain.name, schema: captains_schema_1.CaptainSchema }]),
+        ],
+        providers: [captains_service_1.CaptainsService, captains_repository_1.CaptainRepository],
+        controllers: [captains_controller_1.CaptainsController],
+        exports: [captains_service_1.CaptainsService],
+    })
+], CaptainsModule);
+
+
+/***/ }),
+
+/***/ "./src/captains/captains.repository.ts":
+/*!*********************************************!*\
+  !*** ./src/captains/captains.repository.ts ***!
+  \*********************************************/
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+var __metadata = (this && this.__metadata) || function (k, v) {
+    if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+};
+var __param = (this && this.__param) || function (paramIndex, decorator) {
+    return function (target, key) { decorator(target, key, paramIndex); }
+};
+var CaptainRepository_1;
+var _a;
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.CaptainRepository = void 0;
+const common_1 = __webpack_require__(/*! @app/common */ "./libs/common/src/index.ts");
+const captains_schema_1 = __webpack_require__(/*! @app/common/schemas/captains.schema */ "./libs/common/src/schemas/captains.schema.ts");
+const common_2 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
+const mongoose_1 = __webpack_require__(/*! @nestjs/mongoose */ "@nestjs/mongoose");
+const mongoose_2 = __webpack_require__(/*! mongoose */ "mongoose");
+(0, common_2.Injectable)();
+let CaptainRepository = CaptainRepository_1 = class CaptainRepository extends common_1.AbstractRepository {
+    constructor(CaptainModel) {
+        super(CaptainModel);
+        this.logger = new common_2.Logger(CaptainRepository_1.name);
+    }
+};
+exports.CaptainRepository = CaptainRepository;
+exports.CaptainRepository = CaptainRepository = CaptainRepository_1 = __decorate([
+    __param(0, (0, mongoose_1.InjectModel)(captains_schema_1.Captain.name)),
+    __metadata("design:paramtypes", [typeof (_a = typeof mongoose_2.Model !== "undefined" && mongoose_2.Model) === "function" ? _a : Object])
+], CaptainRepository);
+
+
+/***/ }),
+
+/***/ "./src/captains/captains.service.ts":
+/*!******************************************!*\
+  !*** ./src/captains/captains.service.ts ***!
+  \******************************************/
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+var __metadata = (this && this.__metadata) || function (k, v) {
+    if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+};
+var _a;
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.CaptainsService = void 0;
+const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
+const captains_repository_1 = __webpack_require__(/*! ./captains.repository */ "./src/captains/captains.repository.ts");
+const common_2 = __webpack_require__(/*! @app/common */ "./libs/common/src/index.ts");
+const errorHandler_1 = __webpack_require__(/*! src/helpers/errorHandler */ "./src/helpers/errorHandler.ts");
+let CaptainsService = class CaptainsService {
+    constructor(captainRepository) {
+        this.captainRepository = captainRepository;
+    }
+    async isCaptain(userId, id) {
+        const exists = await this.captainRepository.findOne({
+            userId: userId,
+            $or: [{ teamId: id }, { sessionId: id }],
+        });
+        if (exists) {
+            return true;
+        }
+        return false;
+    }
+    async createCaptain(data) {
+        try {
+            const captainedTeams = await this.captainRepository.find({
+                userId: data.userId,
+            });
+            const isAlreadyCaptain = captainedTeams.some((captain) => {
+                if (data.teamId) {
+                    return captain.teamId?.toString() === data.teamId;
+                }
+                else if (data.sessionId) {
+                    return captain.sessionId?.toString() === data.sessionId;
+                }
+                return false;
+            });
+            if (isAlreadyCaptain) {
+                throw new common_2.CustomHttpException('User is already a captain for the specified team or set.', common_1.HttpStatus.CONFLICT);
+            }
+            const newCaptain = await this.captainRepository.create(data);
+            return newCaptain;
+        }
+        catch (error) {
+            (0, errorHandler_1.handleError)(error, 'Failed to create captain.');
+        }
+    }
+    async getTeamCaptain(id) {
+        try {
+            const captain = await this.captainRepository.findAndPopulate({
+                $or: [{ teamId: id }, { setId: id }],
+            }, ['userId']);
+            if (!captain || captain.length === 0) {
+                throw new common_2.CustomHttpException('Captain not found. ', common_1.HttpStatus.NOT_FOUND);
+            }
+            return captain[0].userId;
+        }
+        catch (error) {
+            (0, errorHandler_1.handleError)(error, 'Failed to retrieve captain.');
+        }
+    }
+};
+exports.CaptainsService = CaptainsService;
+exports.CaptainsService = CaptainsService = __decorate([
+    (0, common_1.Injectable)(),
+    __metadata("design:paramtypes", [typeof (_a = typeof captains_repository_1.CaptainRepository !== "undefined" && captains_repository_1.CaptainRepository) === "function" ? _a : Object])
+], CaptainsService);
+
+
+/***/ }),
+
 /***/ "./src/database/database.module.ts":
 /*!*****************************************!*\
   !*** ./src/database/database.module.ts ***!
@@ -1864,18 +2137,81 @@ exports.DatabaseModule = DatabaseModule = __decorate([
 
 /***/ }),
 
+/***/ "./src/helpers/errorHandler.ts":
+/*!*************************************!*\
+  !*** ./src/helpers/errorHandler.ts ***!
+  \*************************************/
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.handleError = void 0;
+const common_1 = __webpack_require__(/*! @app/common */ "./libs/common/src/index.ts");
+const common_2 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
+const handleError = (error, message) => {
+    if (error instanceof common_1.CustomHttpException) {
+        throw error;
+    }
+    console.error('Unhandled service error:', error);
+    throw new common_1.CustomHttpException(message, common_2.HttpStatus.INTERNAL_SERVER_ERROR);
+};
+exports.handleError = handleError;
+
+
+/***/ }),
+
 /***/ "./src/locations/dto/location.dto.ts":
 /*!*******************************************!*\
   !*** ./src/locations/dto/location.dto.ts ***!
   \*******************************************/
-/***/ ((__unused_webpack_module, exports) => {
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+var __metadata = (this && this.__metadata) || function (k, v) {
+    if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+};
+var _a;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.ViewNearbyLocationsDto = exports.CreateLocationDto = void 0;
+const common_1 = __webpack_require__(/*! @app/common */ "./libs/common/src/index.ts");
+const class_validator_1 = __webpack_require__(/*! class-validator */ "class-validator");
 class CreateLocationDto {
 }
 exports.CreateLocationDto = CreateLocationDto;
+__decorate([
+    (0, class_validator_1.IsNotEmpty)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], CreateLocationDto.prototype, "name", void 0);
+__decorate([
+    (0, class_validator_1.IsNotEmpty)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], CreateLocationDto.prototype, "address", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], CreateLocationDto.prototype, "pitchPhoto", void 0);
+__decorate([
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", typeof (_a = typeof common_1.LocationCoordinates !== "undefined" && common_1.LocationCoordinates) === "function" ? _a : Object)
+], CreateLocationDto.prototype, "location", void 0);
+__decorate([
+    (0, class_validator_1.IsBoolean)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", Boolean)
+], CreateLocationDto.prototype, "friendly", void 0);
+__decorate([
+    (0, class_validator_1.IsBoolean)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", Boolean)
+], CreateLocationDto.prototype, "tournament", void 0);
 class ViewNearbyLocationsDto {
 }
 exports.ViewNearbyLocationsDto = ViewNearbyLocationsDto;
@@ -2094,6 +2430,7 @@ const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
 const locations_repository_1 = __webpack_require__(/*! ./locations.repository */ "./src/locations/locations.repository.ts");
 const users_repository_1 = __webpack_require__(/*! ../users/users.repository */ "./src/users/users.repository.ts");
 const common_2 = __webpack_require__(/*! @app/common */ "./libs/common/src/index.ts");
+const errorHandler_1 = __webpack_require__(/*! src/helpers/errorHandler */ "./src/helpers/errorHandler.ts");
 let LocationsService = class LocationsService {
     constructor(locationRepository, userRepository) {
         this.locationRepository = locationRepository;
@@ -2115,7 +2452,12 @@ let LocationsService = class LocationsService {
         if (alreadyExists) {
             throw new common_2.CustomHttpException('Location already registered', common_1.HttpStatus.CONFLICT);
         }
-        return await this.locationRepository.create({ name, address, location, pitchPhoto });
+        return await this.locationRepository.create({
+            name,
+            address,
+            location,
+            pitchPhoto,
+        });
     }
     async viewAllLocations() {
         return await this.locationRepository.find({});
@@ -2141,6 +2483,20 @@ let LocationsService = class LocationsService {
         const address = user.locationInfo.address;
         const coordinates = user.locationInfo.location.coordinates;
         return { locationInfo: location, address, coordinates };
+    }
+    async getLocationById(locationId) {
+        try {
+            const location = await this.locationRepository.findOne({
+                _id: locationId,
+            });
+            if (!location) {
+                throw new common_2.CustomHttpException('Location not found', common_1.HttpStatus.NOT_FOUND);
+            }
+            return location;
+        }
+        catch (error) {
+            (0, errorHandler_1.handleError)(error, 'Failed to get location by ID');
+        }
     }
 };
 exports.LocationsService = LocationsService;
@@ -2697,6 +3053,7 @@ const users_repository_1 = __webpack_require__(/*! src/users/users.repository */
 const locations_repository_1 = __webpack_require__(/*! src/locations/locations.repository */ "./src/locations/locations.repository.ts");
 const matches_repository_1 = __webpack_require__(/*! src/matches/matches.repository */ "./src/matches/matches.repository.ts");
 const sessions_repository_1 = __webpack_require__(/*! ./sessions.repository */ "./src/sessions/sessions.repository.ts");
+const captains_module_1 = __webpack_require__(/*! src/captains/captains.module */ "./src/captains/captains.module.ts");
 let SessionsModule = class SessionsModule {
 };
 exports.SessionsModule = SessionsModule;
@@ -2709,6 +3066,7 @@ exports.SessionsModule = SessionsModule = __decorate([
                 { name: common_1.Location.name, schema: common_1.LocationSchema },
                 { name: common_1.Match.name, schema: common_1.MatchSchema },
             ]),
+            captains_module_1.CaptainsModule,
         ],
         controllers: [sessions_controller_1.SessionsController],
         providers: [
@@ -2786,7 +3144,7 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
-var _a, _b, _c, _d;
+var _a, _b, _c, _d, _e;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.SessionsService = void 0;
 const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
@@ -2796,12 +3154,14 @@ const matches_repository_1 = __webpack_require__(/*! ../matches/matches.reposito
 const users_repository_1 = __webpack_require__(/*! ../users/users.repository */ "./src/users/users.repository.ts");
 const common_2 = __webpack_require__(/*! @app/common */ "./libs/common/src/index.ts");
 const common_3 = __webpack_require__(/*! @app/common */ "./libs/common/src/index.ts");
+const captains_service_1 = __webpack_require__(/*! src/captains/captains.service */ "./src/captains/captains.service.ts");
 let SessionsService = class SessionsService {
-    constructor(sessionRepository, locationRepository, matchRepository, userRepository) {
+    constructor(sessionRepository, locationRepository, matchRepository, userRepository, CaptainService) {
         this.sessionRepository = sessionRepository;
         this.locationRepository = locationRepository;
         this.matchRepository = matchRepository;
         this.userRepository = userRepository;
+        this.CaptainService = CaptainService;
     }
     async findNearbySessionMatches(lng, lat) {
         try {
@@ -2901,15 +3261,20 @@ let SessionsService = class SessionsService {
         await this.locationRepository.findOneAndUpdate({ _id: locationId }, {
             booked: true,
         });
+        const captainDetails = {
+            userId: userId,
+            sessionId: session._id.toString(),
+        };
+        await this.CaptainService.createCaptain(captainDetails);
         return session;
     }
     async createSession({ setNumber, playersPerTeam, timeDuration, minsPerSet, startTime, winningDecider, }, userId, sessionId) {
-        const user = await this.userRepository.findOne({ _id: userId });
         const session = await this.sessionRepository.findOne({ _id: sessionId });
         if (session === null) {
             throw new common_2.CustomHttpException('Session does not exist', common_1.HttpStatus.NOT_FOUND);
         }
-        if (!user.isCaptain) {
+        const isCaptain = await this.CaptainService.isCaptain(userId, sessionId);
+        if (!isCaptain) {
             throw new common_2.CustomHttpException('You are not a captain', common_1.HttpStatus.UNAUTHORIZED);
         }
         const addedStopTime = new Date(new Date(startTime).getTime() + timeDuration * 60000);
@@ -3123,7 +3488,7 @@ let SessionsService = class SessionsService {
 exports.SessionsService = SessionsService;
 exports.SessionsService = SessionsService = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [typeof (_a = typeof sessions_repository_1.SessionRepository !== "undefined" && sessions_repository_1.SessionRepository) === "function" ? _a : Object, typeof (_b = typeof locations_repository_1.LocationRepository !== "undefined" && locations_repository_1.LocationRepository) === "function" ? _b : Object, typeof (_c = typeof matches_repository_1.MatchRepository !== "undefined" && matches_repository_1.MatchRepository) === "function" ? _c : Object, typeof (_d = typeof users_repository_1.UserRepository !== "undefined" && users_repository_1.UserRepository) === "function" ? _d : Object])
+    __metadata("design:paramtypes", [typeof (_a = typeof sessions_repository_1.SessionRepository !== "undefined" && sessions_repository_1.SessionRepository) === "function" ? _a : Object, typeof (_b = typeof locations_repository_1.LocationRepository !== "undefined" && locations_repository_1.LocationRepository) === "function" ? _b : Object, typeof (_c = typeof matches_repository_1.MatchRepository !== "undefined" && matches_repository_1.MatchRepository) === "function" ? _c : Object, typeof (_d = typeof users_repository_1.UserRepository !== "undefined" && users_repository_1.UserRepository) === "function" ? _d : Object, typeof (_e = typeof captains_service_1.CaptainsService !== "undefined" && captains_service_1.CaptainsService) === "function" ? _e : Object])
 ], SessionsService);
 
 
@@ -3194,7 +3559,7 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], SetsController.prototype, "viewSingleSet", null);
 __decorate([
-    (0, common_1.Get)('sets'),
+    (0, common_1.Get)(),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", []),
     __metadata("design:returntype", Promise)
@@ -3828,17 +4193,16 @@ let TeamsService = class TeamsService {
         this.userRepository = userRepository;
         this.teamRepository = teamRepository;
     }
-    async create(dto) {
+    async create(dto, id) {
         const captain = await this.userRepository.findOne({
-            _id: dto.captain
+            _id: dto.captain,
         });
         if (!captain) {
             throw new common_1.CustomHttpException('Captain user not found', common_2.HttpStatus.NOT_FOUND);
         }
         if (dto.players && dto.players.length > 0) {
-            const playerCount = await this.userRepository.findRaw()
-                .countDocuments({
-                _id: { $in: dto.players }
+            const playerCount = await this.userRepository.findRaw().countDocuments({
+                _id: { $in: dto.players },
             });
             if (playerCount !== dto.players.length) {
                 throw new common_1.CustomHttpException('One or more player users not found', common_2.HttpStatus.NOT_FOUND);
@@ -3855,14 +4219,17 @@ let TeamsService = class TeamsService {
         return team;
     }
     async findAll() {
-        return this.teamRepository.findRaw()
+        return this.teamRepository
+            .findRaw()
             .find()
             .populate('captain', 'username email')
             .populate('players', 'username email')
             .exec();
     }
     async findOne(id) {
-        const team = await this.teamRepository.findRaw().findById(id)
+        const team = await this.teamRepository
+            .findRaw()
+            .findById(id)
             .populate('captain', 'username email')
             .populate('players', 'username email')
             .exec();
@@ -3873,14 +4240,14 @@ let TeamsService = class TeamsService {
     }
     async update(id, updateTeamDto) {
         const team = await this.teamRepository.findOne({
-            _id: id
+            _id: id,
         });
         if (!team) {
             throw new common_1.CustomHttpException(`Team with ID ${id} not found`, common_2.HttpStatus.NOT_FOUND);
         }
         if (updateTeamDto.captain) {
             const captain = await this.userRepository.findOne({
-                _id: updateTeamDto.captain
+                _id: updateTeamDto.captain,
             });
             if (!captain) {
                 throw new common_1.CustomHttpException('Captain user not found', common_2.HttpStatus.NOT_FOUND);
@@ -3894,7 +4261,8 @@ let TeamsService = class TeamsService {
                 throw new common_1.CustomHttpException('One or more player users not found', common_2.HttpStatus.NOT_FOUND);
             }
         }
-        const updatedTeam = await this.teamRepository.findRaw()
+        const updatedTeam = await this.teamRepository
+            .findRaw()
             .findByIdAndUpdate(id, updateTeamDto, { new: true })
             .populate('captain', 'username email')
             .populate('players', 'username email')
@@ -3902,20 +4270,23 @@ let TeamsService = class TeamsService {
         return updatedTeam;
     }
     async remove(id) {
-        const result = await this.teamRepository.findRaw().deleteOne({ _id: id }).exec();
+        const result = await this.teamRepository
+            .findRaw()
+            .deleteOne({ _id: id })
+            .exec();
         if (result.deletedCount === 0) {
             throw new common_1.CustomHttpException(`Team with ID ${id} not found`, common_2.HttpStatus.NOT_FOUND);
         }
     }
     async addPlayer(teamId, userId) {
         const team = await this.teamRepository.findOne({
-            _id: teamId
+            _id: teamId,
         });
         if (!team) {
             throw new common_1.CustomHttpException(`Team with ID ${teamId} not found`, common_2.HttpStatus.NOT_FOUND);
         }
         const user = await this.userRepository.findOne({
-            _id: userId
+            _id: userId,
         });
         if (!user) {
             throw new common_1.CustomHttpException(`User with ID ${userId} not found`, common_2.HttpStatus.NOT_FOUND);
@@ -3928,7 +4299,7 @@ let TeamsService = class TeamsService {
     }
     async removePlayer(teamId, userId) {
         const team = await this.teamRepository.findOne({
-            _id: teamId
+            _id: teamId,
         });
         if (!team) {
             throw new common_1.CustomHttpException(`Team with ID ${teamId} not found`, common_2.HttpStatus.NOT_FOUND);
@@ -3937,15 +4308,14 @@ let TeamsService = class TeamsService {
             throw new common_1.CustomHttpException('Cannot remove captain from team', common_2.HttpStatus.BAD_REQUEST);
         }
         return await this.teamRepository.findOneAndUpdate({ _id: team._id }, {
-            $pull: { players: userId }
+            $pull: { players: userId },
         });
     }
     async getTeamsByUserId(userId) {
-        return this.teamRepository.findRaw().find({
-            $or: [
-                { captain: userId },
-                { players: userId }
-            ]
+        return this.teamRepository
+            .findRaw()
+            .find({
+            $or: [{ captain: userId }, { players: userId }],
         })
             .populate('captain', 'username email')
             .populate('players', 'username email')
@@ -3984,6 +4354,7 @@ const users_repository_1 = __webpack_require__(/*! src/users/users.repository */
 const teams_service_1 = __webpack_require__(/*! ./teams.service */ "./src/tournaments/teams.service.ts");
 const tournaments_service_1 = __webpack_require__(/*! ./tournaments.service */ "./src/tournaments/tournaments.service.ts");
 const tournaments_repository_1 = __webpack_require__(/*! ./tournaments.repository */ "./src/tournaments/tournaments.repository.ts");
+const locations_module_1 = __webpack_require__(/*! src/locations/locations.module */ "./src/locations/locations.module.ts");
 let TournamentsModule = class TournamentsModule {
 };
 exports.TournamentsModule = TournamentsModule;
@@ -3995,6 +4366,7 @@ exports.TournamentsModule = TournamentsModule = __decorate([
                 { name: common_1.Tournament.name, schema: common_1.TournamentSchema },
                 { name: common_1.Team.name, schema: common_1.TeamSchema },
             ]),
+            locations_module_1.LocationsModule,
         ],
         controllers: [],
         providers: [
@@ -4002,7 +4374,7 @@ exports.TournamentsModule = TournamentsModule = __decorate([
             users_repository_1.UserRepository,
             tournaments_repository_1.TournamentRepository,
             teams_service_1.TeamsService,
-            tournaments_service_1.TournamentsService
+            tournaments_service_1.TournamentsService,
         ],
         exports: [teams_service_1.TeamsService, tournaments_service_1.TournamentsService],
     })
@@ -4069,7 +4441,7 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
-var _a, _b, _c;
+var _a, _b, _c, _d;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.TournamentsService = void 0;
 const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
@@ -4077,95 +4449,61 @@ const tournaments_repository_1 = __webpack_require__(/*! ./tournaments.repositor
 const teams_repository_1 = __webpack_require__(/*! ./teams.repository */ "./src/tournaments/teams.repository.ts");
 const users_repository_1 = __webpack_require__(/*! src/users/users.repository */ "./src/users/users.repository.ts");
 const common_2 = __webpack_require__(/*! @app/common */ "./libs/common/src/index.ts");
+const locations_service_1 = __webpack_require__(/*! src/locations/locations.service */ "./src/locations/locations.service.ts");
 let TournamentsService = class TournamentsService {
-    constructor(tournamentRepository, teamRepository, userRepository) {
+    constructor(tournamentRepository, teamRepository, locationService, userRepository) {
         this.tournamentRepository = tournamentRepository;
         this.teamRepository = teamRepository;
+        this.locationService = locationService;
         this.userRepository = userRepository;
     }
-    async create(createTournamentDto) {
-        const organizer = await this.userRepository.findOne({ _id: createTournamentDto.organizer });
-        if (!organizer) {
-            throw new common_2.CustomHttpException('Organizer user not found', common_1.HttpStatus.NOT_FOUND);
+    generateCode() {
+        const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+        let result = '';
+        for (let i = 0; i < 6; i++) {
+            result += characters.charAt(Math.floor(Math.random() * characters.length));
         }
-        const existingTournament = await this.tournamentRepository.findOne({ tag: createTournamentDto.tag });
-        if (existingTournament) {
-            throw new common_2.CustomHttpException(`Tournament with tag ${createTournamentDto.tag} already exists`, common_1.HttpStatus.CONFLICT);
+        return result;
+    }
+    async create(createTournamentDto, userId, locationId) {
+        const location = await this.locationService.getLocationById(locationId);
+        if (!location) {
+            throw new common_2.CustomHttpException(`Location with ID ${locationId} not found`, common_1.HttpStatus.NOT_FOUND);
         }
         const tournament = await this.tournamentRepository.create({
             ...createTournamentDto,
             registeredTeams: [],
-            groups: [],
-            matches: []
+            organizer: userId,
+            location: locationId,
+            code: this.generateCode(),
+            status: common_2.TournamentStatus.REGISTRATION,
+            endDate: new Date(createTournamentDto.startDate.getTime() +
+                createTournamentDto.durationDays * 24 * 60 * 60 * 1000),
         });
         return tournament;
     }
     async findOne(id) {
-        const tournament = await this.tournamentRepository.findRaw().findById(id)
+        const tournament = await this.tournamentRepository
+            .findRaw()
+            .findById(id)
             .populate('organizer', 'username email')
             .populate('registeredTeams')
-            .populate({
-            path: 'groups.teams',
-            model: 'Team',
-        })
-            .populate({
-            path: 'groups.standings.team',
-            model: 'Team',
-        })
-            .populate({
-            path: 'matches.homeTeam',
-            model: 'Team',
-        })
-            .populate({
-            path: 'matches.awayTeam',
-            model: 'Team',
-        })
+            .populate('location')
             .exec();
         if (!tournament) {
             throw new common_2.CustomHttpException(`Tournament with ID ${id} not found`, common_1.HttpStatus.NOT_FOUND);
-        }
-        return tournament;
-    }
-    async findByTag(tag) {
-        const tournament = await this.tournamentRepository.findRaw().findOne({ tag })
-            .populate('organizer', 'username email')
-            .populate('registeredTeams')
-            .populate({
-            path: 'groups.teams',
-            model: 'Team',
-        })
-            .populate({
-            path: 'groups.standings.team',
-            model: 'Team',
-        })
-            .populate({
-            path: 'matches.homeTeam',
-            model: 'Team',
-        })
-            .populate({
-            path: 'matches.awayTeam',
-            model: 'Team',
-        })
-            .exec();
-        if (!tournament) {
-            throw new common_2.CustomHttpException(`Tournament with tag ${tag} not found`, common_1.HttpStatus.NOT_FOUND);
         }
         return tournament;
     }
     async update(id, updateTournamentDto) {
         const tournament = await this.tournamentRepository.findOne({
-            _id: id
+            _id: id,
         });
         if (!tournament) {
             throw new common_2.CustomHttpException(`Tournament with ID ${id} not found`, common_1.HttpStatus.NOT_FOUND);
         }
-        if (updateTournamentDto.tag && updateTournamentDto.tag !== tournament.tag) {
-            const existingTournament = await this.tournamentRepository.findOne({ tag: updateTournamentDto.tag });
-            if (existingTournament) {
-                throw new common_2.CustomHttpException(`Tournament with tag ${updateTournamentDto.tag} already exists`, common_1.HttpStatus.CONFLICT);
-            }
-        }
-        const updatedTournament = await this.tournamentRepository.findRaw()
+        const updatedTournament = await this.tournamentRepository
+            .findRaw()
             .findByIdAndUpdate(id, updateTournamentDto, { new: true })
             .populate('organizer', 'username email')
             .populate('registeredTeams')
@@ -4173,14 +4511,17 @@ let TournamentsService = class TournamentsService {
         return updatedTournament;
     }
     async remove(id) {
-        const result = await this.tournamentRepository.findRaw().deleteOne({ _id: id }).exec();
+        const result = await this.tournamentRepository
+            .findRaw()
+            .deleteOne({ _id: id })
+            .exec();
         if (result.deletedCount === 0) {
             throw new common_2.CustomHttpException(`Tournament with ID ${id} not found`, common_1.HttpStatus.NOT_FOUND);
         }
     }
     async registerTeam(tournamentId, registerTeamDto) {
         const tournament = await this.tournamentRepository.findOne({
-            _id: tournamentId
+            _id: tournamentId,
         });
         if (!tournament) {
             throw new common_2.CustomHttpException(`Tournament with ID ${tournamentId} not found`, common_1.HttpStatus.NOT_FOUND);
@@ -4192,22 +4533,26 @@ let TournamentsService = class TournamentsService {
             throw new common_2.CustomHttpException('Tournament is full', common_1.HttpStatus.BAD_REQUEST);
         }
         const team = await this.teamRepository.findOne({
-            _id: registerTeamDto.teamId
+            _id: registerTeamDto.teamId,
         });
         if (!team) {
             throw new common_2.CustomHttpException(`Team with ID ${registerTeamDto.teamId} not found`, common_1.HttpStatus.NOT_FOUND);
         }
-        if (tournament.registeredTeams.some(teamId => teamId.toString() === registerTeamDto.teamId)) {
+        if (tournament.registeredTeams.some((teamId) => teamId.toString() === registerTeamDto.teamId)) {
             throw new common_2.CustomHttpException('Team is already registered for this tournament', common_1.HttpStatus.BAD_REQUEST);
         }
-        return await this.tournamentRepository.findRaw().findByIdAndUpdate(tournamentId, { $push: { registeredTeams: tournament.registeredTeams } })
+        return await this.tournamentRepository
+            .findRaw()
+            .findByIdAndUpdate(tournamentId, {
+            $push: { registeredTeams: tournament.registeredTeams },
+        })
             .populate('organizer', 'username email')
             .populate('registeredTeams')
             .exec();
     }
     async unregisterTeam(tournamentId, teamId) {
         const tournament = await this.tournamentRepository.findOne({
-            _id: tournamentId
+            _id: tournamentId,
         });
         if (!tournament) {
             throw new common_2.CustomHttpException(`Tournament with ID ${tournamentId} not found`, common_1.HttpStatus.NOT_FOUND);
@@ -4215,200 +4560,23 @@ let TournamentsService = class TournamentsService {
         if (tournament.status !== common_2.TournamentStatus.REGISTRATION) {
             throw new common_2.CustomHttpException('Tournament is not in registration phase', common_1.HttpStatus.BAD_REQUEST);
         }
-        if (!tournament.registeredTeams.some(registeredTeamId => registeredTeamId.toString() === teamId)) {
+        if (!tournament.registeredTeams.some((registeredTeamId) => registeredTeamId.toString() === teamId)) {
             throw new common_2.CustomHttpException('Team is not registered for this tournament', common_1.HttpStatus.BAD_REQUEST);
         }
-        tournament.registeredTeams = tournament.registeredTeams.filter(registeredTeamId => registeredTeamId.toString() !== teamId);
-        return this.tournamentRepository.findRaw().findByIdAndUpdate(tournamentId, { $pull: { registeredTeams: teamId } }, { new: true })
+        tournament.registeredTeams = tournament.registeredTeams.filter((registeredTeamId) => registeredTeamId.toString() !== teamId);
+        return this.tournamentRepository
+            .findRaw()
+            .findByIdAndUpdate(tournamentId, { $pull: { registeredTeams: teamId } }, { new: true })
             .populate('organizer', 'username email')
             .populate('registeredTeams')
-            .exec();
-    }
-    async startTournament(tournamentId) {
-        const tournament = await this.tournamentRepository.findOne({ _id: tournamentId });
-        if (!tournament) {
-            throw new common_2.CustomHttpException(`Tournament with ID ${tournamentId} not found`, common_1.HttpStatus.NOT_FOUND);
-        }
-        if (tournament.status !== common_2.TournamentStatus.REGISTRATION) {
-            throw new common_2.CustomHttpException('Tournament is not in registration phase', common_1.HttpStatus.BAD_REQUEST);
-        }
-        if (tournament.format === common_2.TournamentFormat.UCL_CLASSIC) {
-            if (tournament.registeredTeams.length < 16) {
-                throw new common_2.CustomHttpException('Tournament needs at least 16 teams to start', common_1.HttpStatus.BAD_REQUEST);
-            }
-            if (tournament.registeredTeams.length > 32) {
-                throw new common_2.CustomHttpException('Tournament can have at most 32 teams', common_1.HttpStatus.BAD_REQUEST);
-            }
-        }
-        const teamsWithDetails = await this.teamRepository.find({
-            _id: { $in: tournament.registeredTeams }
-        });
-        switch (tournament.format) {
-            case common_2.TournamentFormat.UCL_CLASSIC:
-                await this.setupUCLClassicFormat(tournament, teamsWithDetails);
-                break;
-            default:
-                throw new common_2.CustomHttpException(`Tournament format ${tournament.format} not supported yet`, common_1.HttpStatus.BAD_REQUEST);
-        }
-        tournament.status = common_2.TournamentStatus.GROUP_STAGE;
-        return this.tournamentRepository.findRaw().findByIdAndUpdate(tournamentId, {
-            status: tournament.status,
-            groups: tournament.groups,
-            matches: tournament.matches
-        }, { new: true })
-            .populate('organizer', 'username email')
-            .populate('registeredTeams')
-            .populate({
-            path: 'groups.teams',
-            model: 'Team',
-        })
-            .populate({
-            path: 'matches.homeTeam',
-            model: 'Team',
-        })
-            .populate({
-            path: 'matches.awayTeam',
-            model: 'Team',
-        })
-            .exec();
-    }
-    async setupUCLClassicFormat(tournament, teams) {
-        const numTeams = teams.length;
-        const numGroups = Math.min(8, Math.floor(numTeams / 4));
-        const teamsPerGroup = Math.ceil(numTeams / numGroups);
-        const groups = [];
-        const groupNames = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
-        const shuffledTeams = [...teams];
-        for (let i = shuffledTeams.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [shuffledTeams[i], shuffledTeams[j]] = [shuffledTeams[j], shuffledTeams[i]];
-        }
-        let teamIndex = 0;
-        for (let i = 0; i < numGroups; i++) {
-            const group = {
-                name: groupNames[i],
-                teams: [],
-                standings: []
-            };
-            for (let j = 0; j < teamsPerGroup && teamIndex < shuffledTeams.length; j++) {
-                group.teams.push(shuffledTeams[teamIndex]._id.toString());
-                group.standings.push({
-                    team: shuffledTeams[teamIndex]._id.toString(),
-                    played: 0,
-                    won: 0,
-                    drawn: 0,
-                    lost: 0,
-                    goalsFor: 0,
-                    goalsAgainst: 0,
-                    points: 0
-                });
-                teamIndex++;
-            }
-            groups.push(group);
-        }
-        const matches = [];
-        const now = new Date();
-        for (const group of groups) {
-            for (let i = 0; i < group.teams.length; i++) {
-                for (let j = i + 1; j < group.teams.length; j++) {
-                    const homeMatch = {
-                        homeTeam: group.teams[i],
-                        awayTeam: group.teams[j],
-                        homeScore: null,
-                        awayScore: null,
-                        location: tournament.locations.length > 0 ? tournament.locations[0] : {
-                            name: 'Default Location',
-                            address: 'TBD',
-                            city: 'TBD',
-                            country: 'TBD',
-                            location: { type: 'Point', coordinates: [0, 0] }
-                        },
-                        scheduledDate: new Date(now.getTime() + (matches.length * 24 * 60 * 60 * 1000)),
-                        completed: false,
-                        stage: 'group_stage',
-                        group: group.name
-                    };
-                    const awayMatch = {
-                        homeTeam: group.teams[j],
-                        awayTeam: group.teams[i],
-                        homeScore: null,
-                        awayScore: null,
-                        location: tournament.locations.length > 0 ?
-                            tournament.locations[Math.min(1, tournament.locations.length - 1)] : {
-                            name: 'Default Location',
-                            address: 'TBD',
-                            city: 'TBD',
-                            country: 'TBD',
-                            location: { type: 'Point', coordinates: [0, 0] }
-                        },
-                        scheduledDate: new Date(now.getTime() + ((matches.length + 1) * 24 * 60 * 60 * 1000)),
-                        completed: false,
-                        stage: 'group_stage',
-                        group: group.name
-                    };
-                    matches.push(homeMatch, awayMatch);
-                }
-            }
-        }
-        tournament.groups = groups;
-        tournament.matches = matches;
-    }
-    async updateMatchResult(tournamentId, matchIndex, updateMatchResultDto) {
-        const tournament = await this.tournamentRepository.findOne({
-            _id: tournamentId
-        });
-        if (!tournament) {
-            throw new common_2.CustomHttpException(`Tournament with ID ${tournamentId} not found`, common_1.HttpStatus.NOT_FOUND);
-        }
-        if (matchIndex < 0 || matchIndex >= tournament.matches.length) {
-            throw new common_2.CustomHttpException(`Match index ${matchIndex} not found in tournament`, common_1.HttpStatus.NOT_FOUND);
-        }
-        const match = tournament.matches[matchIndex];
-        if (match.completed) {
-            throw new common_2.CustomHttpException('Match is already completed', common_1.HttpStatus.BAD_REQUEST);
-        }
-        match.homeScore = updateMatchResultDto.homeScore;
-        match.awayScore = updateMatchResultDto.awayScore;
-        match.completed = true;
-        tournament.matches[matchIndex] = match;
-        if (match.stage === 'group_stage') {
-            await this.updateGroupStandings(tournament, match);
-        }
-        if (match.stage !== 'group_stage') {
-            await this.processKnockoutMatchResult(tournament, matchIndex);
-        }
-        await this.checkAndAdvanceTournamentStage(tournament);
-        return this.tournamentRepository.findRaw().findByIdAndUpdate(tournamentId, {
-            groups: tournament.groups,
-            matches: tournament.matches,
-            status: tournament.status
-        }, { new: true })
-            .populate('organizer', 'username email')
-            .populate('registeredTeams')
-            .populate({
-            path: 'groups.teams',
-            model: 'Team',
-        })
-            .populate({
-            path: 'groups.standings.team',
-            model: 'Team',
-        })
-            .populate({
-            path: 'matches.homeTeam',
-            model: 'Team',
-        })
-            .populate({
-            path: 'matches.awayTeam',
-            model: 'Team',
-        })
             .exec();
     }
     async updateGroupStandings(tournament, match) {
-        const groupIndex = tournament.groups.findIndex(g => g.name === match.group);
+        const groupIndex = tournament.groups.findIndex((g) => g.name === match.group);
         if (groupIndex === -1)
             return;
         const group = tournament.groups[groupIndex];
-        const homeTeamIndex = group.standings.findIndex(s => s.team.toString() === match.homeTeam.toString());
+        const homeTeamIndex = group.standings.findIndex((s) => s.team.toString() === match.homeTeam.toString());
         if (homeTeamIndex !== -1) {
             const homeStanding = group.standings[homeTeamIndex];
             homeStanding.played += 1;
@@ -4427,7 +4595,7 @@ let TournamentsService = class TournamentsService {
             }
             group.standings[homeTeamIndex] = homeStanding;
         }
-        const awayTeamIndex = group.standings.findIndex(s => s.team.toString() === match.awayTeam.toString());
+        const awayTeamIndex = group.standings.findIndex((s) => s.team.toString() === match.awayTeam.toString());
         if (awayTeamIndex !== -1) {
             const awayStanding = group.standings[awayTeamIndex];
             awayStanding.played += 1;
@@ -4459,233 +4627,32 @@ let TournamentsService = class TournamentsService {
         });
         tournament.groups[groupIndex] = group;
     }
-    async processKnockoutMatchResult(tournament, matchIndex) {
-        const match = tournament.matches[matchIndex];
-        let winner;
-        if (match.homeScore > match.awayScore) {
-            winner = match.homeTeam.toString();
-        }
-        else if (match.awayScore > match.homeScore) {
-            winner = match.awayTeam.toString();
-        }
-        else {
-            winner = Math.random() > 0.5 ? match.homeTeam.toString() : match.awayTeam.toString();
-        }
-        switch (match.stage) {
-            case 'round_of_16':
-                this.addWinnerToQuarterFinals(tournament, winner, matchIndex);
-                break;
-            case 'quarter_final':
-                this.addWinnerToSemiFinals(tournament, winner, matchIndex);
-                break;
-            case 'semi_final':
-                this.addWinnerToFinal(tournament, winner, matchIndex);
-                break;
-            case 'final':
-                tournament.status = common_2.TournamentStatus.COMPLETED;
-                break;
-        }
-    }
-    addWinnerToQuarterFinals(tournament, winnerTeamId, matchIndex) {
-        const quarterFinalMatchIndex = Math.floor(matchIndex / 2);
-        const isFirstMatchOfPair = matchIndex % 2 === 0;
-        const existingMatchIndex = tournament.matches.findIndex(m => m.stage === 'quarter_final' && m.homeTeam === null && m.awayTeam === null);
-        if (existingMatchIndex !== -1) {
-            if (isFirstMatchOfPair) {
-                tournament.matches[existingMatchIndex].homeTeam = winnerTeamId;
-            }
-            else {
-                tournament.matches[existingMatchIndex].awayTeam = winnerTeamId;
-            }
-        }
-        else {
-            const newMatch = {
-                homeTeam: isFirstMatchOfPair ? winnerTeamId : null,
-                awayTeam: isFirstMatchOfPair ? null : winnerTeamId,
-                homeScore: null,
-                awayScore: null,
-                location: tournament.locations.length > 0 ?
-                    tournament.locations[Math.min(1, tournament.locations.length - 1)] : {
-                    name: 'Default Location',
-                    address: 'TBD',
-                    city: 'TBD',
-                    country: 'TBD',
-                    location: { type: 'Point', coordinates: [0, 0] }
-                },
-                scheduledDate: new Date(Date.now() + (tournament.matches.length * 24 * 60 * 60 * 1000)),
-                completed: false,
-                stage: 'quarter_final',
-                group: ''
-            };
-            tournament.matches.push(newMatch);
-        }
-    }
-    addWinnerToSemiFinals(tournament, winnerTeamId, matchIndex) {
-        const semiFinalMatchIndex = Math.floor(matchIndex / 2);
-        const isFirstMatchOfPair = matchIndex % 2 === 0;
-        const existingMatchIndex = tournament.matches.findIndex(m => m.stage === 'semi_final' &&
-            ((isFirstMatchOfPair && m.homeTeam === null) || (!isFirstMatchOfPair && m.awayTeam === null)));
-        if (existingMatchIndex !== -1) {
-            if (isFirstMatchOfPair) {
-                tournament.matches[existingMatchIndex].homeTeam = winnerTeamId;
-            }
-            else {
-                tournament.matches[existingMatchIndex].awayTeam = winnerTeamId;
-            }
-        }
-        else {
-            const newMatch = {
-                homeTeam: isFirstMatchOfPair ? winnerTeamId : null,
-                awayTeam: isFirstMatchOfPair ? null : winnerTeamId,
-                homeScore: null,
-                awayScore: null,
-                location: tournament.locations.length > 0 ?
-                    tournament.locations[Math.min(1, tournament.locations.length - 1)] : {
-                    name: 'Default Location',
-                    address: 'TBD',
-                    city: 'TBD',
-                    country: 'TBD',
-                    location: { type: 'Point', coordinates: [0, 0] }
-                },
-                scheduledDate: new Date(Date.now() + (tournament.matches.length * 24 * 60 * 60 * 1000)),
-                completed: false,
-                stage: 'semi_final',
-                group: ''
-            };
-            tournament.matches.push(newMatch);
-        }
-    }
-    addWinnerToFinal(tournament, winnerTeamId, matchIndex) {
-        const isFirstSemiFinal = matchIndex % 2 === 0;
-        const finalMatchIndex = tournament.matches.findIndex(m => m.stage === 'final');
-        if (finalMatchIndex !== -1) {
-            if (isFirstSemiFinal) {
-                tournament.matches[finalMatchIndex].homeTeam = winnerTeamId;
-            }
-            else {
-                tournament.matches[finalMatchIndex].awayTeam = winnerTeamId;
-            }
-        }
-        else {
-            const newMatch = {
-                homeTeam: isFirstSemiFinal ? winnerTeamId : null,
-                awayTeam: isFirstSemiFinal ? null : winnerTeamId,
-                homeScore: null,
-                awayScore: null,
-                location: tournament.locations.length > 0 ?
-                    tournament.locations[Math.min(1, tournament.locations.length - 1)] : {
-                    name: 'Default Location',
-                    address: 'TBD',
-                    city: 'TBD',
-                    country: 'TBD',
-                    location: { type: 'Point', coordinates: [0, 0] }
-                },
-                scheduledDate: new Date(Date.now() + (tournament.matches.length * 24 * 60 * 60 * 1000)),
-                completed: false,
-                stage: 'final',
-                group: ''
-            };
-            tournament.matches.push(newMatch);
-        }
-    }
-    async checkAndAdvanceTournamentStage(tournament) {
-        const groupStageMatches = tournament.matches.filter(m => m.stage === 'group_stage');
-        const groupStageCompleted = groupStageMatches.every(m => m.completed);
-        if (groupStageCompleted && tournament.status === common_2.TournamentStatus.GROUP_STAGE) {
-            await this.createKnockoutPhase(tournament);
-            tournament.status = common_2.TournamentStatus.KNOCKOUT_PHASE;
-        }
-        const round16Matches = tournament.matches.filter(m => m.stage === 'round_of_16');
-        const quarterFinalMatches = tournament.matches.filter(m => m.stage === 'quarter_final');
-        const semiFinalMatches = tournament.matches.filter(m => m.stage === 'semi_final');
-        const finalMatch = tournament.matches.find(m => m.stage === 'final');
-        if (finalMatch && finalMatch.completed) {
-            tournament.status = common_2.TournamentStatus.COMPLETED;
-        }
-    }
-    async createKnockoutPhase(tournament) {
-        const qualifiedTeams = [];
-        for (const group of tournament.groups) {
-            if (group.standings.length >= 2) {
-                qualifiedTeams.push(group.standings[0].team);
-                qualifiedTeams.push(group.standings[1].team);
-            }
-        }
-        while (qualifiedTeams.length < 16 && tournament.registeredTeams.length > 0) {
-            const randomTeam = tournament.registeredTeams[Math.floor(Math.random() * tournament.registeredTeams.length)];
-            if (!qualifiedTeams.includes(randomTeam)) {
-                qualifiedTeams.push(randomTeam);
-            }
-        }
-        const shuffledTeams = [...qualifiedTeams];
-        for (let i = shuffledTeams.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [shuffledTeams[i], shuffledTeams[j]] = [shuffledTeams[j], shuffledTeams[i]];
-        }
-        for (let i = 0; i < shuffledTeams.length; i += 2) {
-            if (i + 1 < shuffledTeams.length) {
-                const homeMatch = {
-                    homeTeam: shuffledTeams[i],
-                    awayTeam: shuffledTeams[i + 1],
-                    homeScore: null,
-                    awayScore: null,
-                    location: tournament.locations.length > 0 ?
-                        tournament.locations[Math.min(1, tournament.locations.length - 1)] : {
-                        name: 'Default Location',
-                        address: 'TBD',
-                        city: 'TBD',
-                        country: 'TBD',
-                        location: { type: 'Point', coordinates: [0, 0] }
-                    },
-                    scheduledDate: new Date(Date.now() + (tournament.matches.length * 24 * 60 * 60 * 1000)),
-                    completed: false,
-                    stage: 'round_of_16',
-                    group: ''
-                };
-                const awayMatch = {
-                    homeTeam: shuffledTeams[i + 1],
-                    awayTeam: shuffledTeams[i],
-                    homeScore: null,
-                    awayScore: null,
-                    location: tournament.locations.length > 0 ?
-                        tournament.locations[Math.min(1, tournament.locations.length - 1)] : {
-                        name: 'Default Location',
-                        address: 'TBD',
-                        city: 'TBD',
-                        country: 'TBD',
-                        location: { type: 'Point', coordinates: [0, 0] }
-                    },
-                    scheduledDate: new Date(Date.now() + ((tournament.matches.length + 1) * 24 * 60 * 60 * 1000)),
-                    completed: false,
-                    stage: 'round_of_16',
-                    group: ''
-                };
-                tournament.matches.push(homeMatch, awayMatch);
-            }
-        }
-    }
     async getTournamentsByOrganizerId(organizerId) {
-        return this.tournamentRepository.findRaw().find({ organizer: organizerId })
+        return this.tournamentRepository
+            .findRaw()
+            .find({ organizer: organizerId })
             .populate('organizer', 'username email')
             .populate('registeredTeams')
             .exec();
     }
     async getTournamentsByTeamId(teamId) {
-        return this.tournamentRepository.findRaw().find({ registeredTeams: teamId })
+        return this.tournamentRepository
+            .findRaw()
+            .find({ registeredTeams: teamId })
             .populate('organizer', 'username email')
             .populate('registeredTeams')
             .exec();
     }
     async getUpcomingMatches(tournamentId, teamId) {
         const tournament = await this.tournamentRepository.findOne({
-            _id: tournamentId
+            _id: tournamentId,
         });
         if (!tournament) {
             throw new common_2.CustomHttpException(`Tournament with ID ${tournamentId} not found`, common_1.HttpStatus.NOT_FOUND);
         }
-        let matches = tournament.matches.filter(match => !match.completed);
+        let matches = tournament.matches.filter((match) => !match.completed);
         if (teamId) {
-            matches = matches.filter(match => match.homeTeam?.toString() === teamId ||
+            matches = matches.filter((match) => match.homeTeam?.toString() === teamId ||
                 match.awayTeam?.toString() === teamId);
         }
         matches.sort((a, b) => a.scheduledDate.getTime() - b.scheduledDate.getTime());
@@ -4693,14 +4660,14 @@ let TournamentsService = class TournamentsService {
     }
     async getCompletedMatches(tournamentId, teamId) {
         const tournament = await this.tournamentRepository.findOne({
-            _id: tournamentId
+            _id: tournamentId,
         });
         if (!tournament) {
             throw new common_2.CustomHttpException(`Tournament with ID ${tournamentId} not found`, common_1.HttpStatus.NOT_FOUND);
         }
-        let matches = tournament.matches.filter(match => match.completed);
+        let matches = tournament.matches.filter((match) => match.completed);
         if (teamId) {
-            matches = matches.filter(match => match.homeTeam?.toString() === teamId ||
+            matches = matches.filter((match) => match.homeTeam?.toString() === teamId ||
                 match.awayTeam?.toString() === teamId);
         }
         matches.sort((a, b) => b.scheduledDate.getTime() - a.scheduledDate.getTime());
@@ -4708,13 +4675,13 @@ let TournamentsService = class TournamentsService {
     }
     async getGroupStandings(tournamentId, groupName) {
         const tournament = await this.tournamentRepository.findOne({
-            _id: tournamentId
+            _id: tournamentId,
         });
         if (!tournament) {
             throw new common_2.CustomHttpException(`Tournament with ID ${tournamentId} not found`, common_1.HttpStatus.NOT_FOUND);
         }
         if (groupName) {
-            const group = tournament.groups.find(g => g.name === groupName);
+            const group = tournament.groups.find((g) => g.name === groupName);
             if (!group) {
                 throw new common_2.CustomHttpException(`Group ${groupName} not found in tournament`, common_1.HttpStatus.NOT_FOUND);
             }
@@ -4726,7 +4693,7 @@ let TournamentsService = class TournamentsService {
 exports.TournamentsService = TournamentsService;
 exports.TournamentsService = TournamentsService = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [typeof (_a = typeof tournaments_repository_1.TournamentRepository !== "undefined" && tournaments_repository_1.TournamentRepository) === "function" ? _a : Object, typeof (_b = typeof teams_repository_1.TeamRepository !== "undefined" && teams_repository_1.TeamRepository) === "function" ? _b : Object, typeof (_c = typeof users_repository_1.UserRepository !== "undefined" && users_repository_1.UserRepository) === "function" ? _c : Object])
+    __metadata("design:paramtypes", [typeof (_a = typeof tournaments_repository_1.TournamentRepository !== "undefined" && tournaments_repository_1.TournamentRepository) === "function" ? _a : Object, typeof (_b = typeof teams_repository_1.TeamRepository !== "undefined" && teams_repository_1.TeamRepository) === "function" ? _b : Object, typeof (_c = typeof locations_service_1.LocationsService !== "undefined" && locations_service_1.LocationsService) === "function" ? _c : Object, typeof (_d = typeof users_repository_1.UserRepository !== "undefined" && users_repository_1.UserRepository) === "function" ? _d : Object])
 ], TournamentsService);
 
 
@@ -5481,6 +5448,9 @@ async function bootstrap() {
     app.enableCors({
         origin: [
             'http://localhost:4500',
+            'https://i-one-sports.com',
+            'http://172.20.10.5:4500',
+            'http://172.20.10.6:4500'
         ],
         methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
         allowedHeaders: [

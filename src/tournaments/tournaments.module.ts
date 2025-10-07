@@ -6,6 +6,7 @@ import { UserRepository } from 'src/users/users.repository';
 import { TeamsService } from './teams.service';
 import { TournamentsService } from './tournaments.service';
 import { TournamentRepository } from './tournaments.repository';
+import { LocationsModule } from 'src/locations/locations.module';
 
 @Module({
     imports: [
@@ -13,7 +14,8 @@ import { TournamentRepository } from './tournaments.repository';
           { name: User.name, schema: UserSchema },
           { name: Tournament.name, schema: TournamentSchema },
           { name: Team.name, schema: TeamSchema },
-        ]),
+            ]),
+            LocationsModule,
       ],
       controllers: [],
       providers: [
@@ -21,7 +23,7 @@ import { TournamentRepository } from './tournaments.repository';
         UserRepository,
         TournamentRepository,
         TeamsService,
-        TournamentsService
+        TournamentsService,
       ],
       exports: [TeamsService, TournamentsService],
 })

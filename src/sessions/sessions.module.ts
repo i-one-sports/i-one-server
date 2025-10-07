@@ -16,7 +16,7 @@ import { UserRepository } from 'src/users/users.repository';
 import { LocationRepository } from 'src/locations/locations.repository';
 import { MatchRepository } from 'src/matches/matches.repository';
 import { SessionRepository } from './sessions.repository';
-import { CaptainsService } from 'src/captains/captains.service';
+import { CaptainsModule } from 'src/captains/captains.module';
 
 @Module({
   imports: [
@@ -26,6 +26,7 @@ import { CaptainsService } from 'src/captains/captains.service';
       { name: Location.name, schema: LocationSchema },
       { name: Match.name, schema: MatchSchema },
     ]),
+    CaptainsModule, // Import the entire CaptainsModule
   ],
   controllers: [SessionsController],
   providers: [
@@ -34,7 +35,6 @@ import { CaptainsService } from 'src/captains/captains.service';
     UserRepository,
     LocationRepository,
     MatchRepository,
-    CaptainsService
   ],
   exports: [SessionsService],
 })
