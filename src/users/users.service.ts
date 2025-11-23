@@ -41,7 +41,8 @@ export class UsersService {
     position,
     location,
     isOwner,
-    height
+    height,
+    dateOfBirth
   }: registerUserRequest) {
     const formattedPhone = internationalisePhoneNumber(phoneNumber);
     await this.checkExistingUser(phoneNumber, email, nickname);
@@ -57,7 +58,8 @@ export class UsersService {
       position,
       isOwner,
       nickname,
-      height
+      height,
+      dateOfBirth
     };
     try {
       const user = await this.usersRepository.create(payload);
