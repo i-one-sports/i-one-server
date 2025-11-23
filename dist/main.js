@@ -3115,8 +3115,6 @@ let SessionRepository = SessionRepository_1 = class SessionRepository extends co
         super(SessionModel);
         this.logger = new common_1.Logger(SessionRepository_1.name);
     }
-    async updateAllSessions() {
-    }
 };
 exports.SessionRepository = SessionRepository;
 exports.SessionRepository = SessionRepository = SessionRepository_1 = __decorate([
@@ -3710,16 +3708,21 @@ let SetsService = class SetsService {
         ];
     }
     async allocateMembers(session, createdSets) {
-        const members = session.members;
-        const pickedMembers = createdSets.flatMap((set) => set.players);
-        const availablePlayers = members.filter((member) => !pickedMembers.includes(member));
+        const members = session.members || [];
+        const pickedMembers = createdSets.flatMap((set) => (set.players || [])).map(String);
+        const availablePlayers = members
+            .map(String)
+            .filter((m) => !pickedMembers.includes(m));
         if (availablePlayers.length === 0)
             return;
-        for (let i = 0; i < members.length; i++) {
-            const player = availablePlayers[i];
-            const setIndex = i % createdSets.length;
-            const pickedSet = createdSets[setIndex];
-            await this.setRepository.findOneAndUpdate({ _id: pickedSet._id }, { $push: { players: player } });
+        const ops = availablePlayers.map((player, i) => ({
+            updateOne: {
+                filter: { _id: createdSets[i % createdSets.length]._id },
+                update: { $addToSet: { players: new mongoose_1.Types.ObjectId(player) } },
+            },
+        }));
+        if (ops.length > 0) {
+            await this.setRepository.findRaw().bulkWrite(ops, { ordered: false });
         }
     }
     async createSet(sessionId) {
@@ -3736,13 +3739,8 @@ let SetsService = class SetsService {
             if (availableNames.length < session.setNumber) {
                 throw new common_2.CustomHttpException('Not enough unique names available for the session', common_1.HttpStatus.BAD_REQUEST);
             }
-            const count = await this.setRepository
-                .findRaw()
-                .countDocuments({ session: sessionId });
-            const setExists = await this.setRepository.findOne({
-                session: sessionId,
-            });
-            if (setExists) {
+            const count = await this.setRepository.findRaw().countDocuments({ session: sessionId });
+            if (count > 0) {
                 throw new common_2.CustomHttpException('Set already created', common_1.HttpStatus.BAD_REQUEST);
             }
             const setData = Array(session.setNumber)
@@ -3752,7 +3750,7 @@ let SetsService = class SetsService {
                 const randomName = availableNames.splice(randomIndex, 1)[0];
                 return {
                     _id: new mongoose_1.Types.ObjectId(),
-                    session: session._id,
+                    session: sessionId,
                     name: randomName,
                     players: [],
                 };
@@ -3766,8 +3764,8 @@ let SetsService = class SetsService {
             };
         }
         catch (error) {
+            console.error('Error creating sets:', error);
             throw new common_2.CustomHttpException(error.message, common_1.HttpStatus.INTERNAL_SERVER_ERROR);
-            console.log(error);
         }
     }
     async viewAllSets() {
@@ -5056,7 +5054,7 @@ let UsersService = UsersService_1 = class UsersService {
         this.statsService = statsService;
         this.logger = new common_1.Logger(UsersService_1.name);
     }
-    async registerUser({ firstName, lastName, nickname, email, password, phoneNumber, address, position, location, isOwner, }) {
+    async registerUser({ firstName, lastName, nickname, email, password, phoneNumber, address, position, location, isOwner, height }) {
         const formattedPhone = (0, common_2.internationalisePhoneNumber)(phoneNumber);
         await this.checkExistingUser(phoneNumber, email, nickname);
         const payload = {
@@ -5070,6 +5068,7 @@ let UsersService = UsersService_1 = class UsersService {
             position,
             isOwner,
             nickname,
+            height
         };
         try {
             const user = await this.usersRepository.create(payload);
