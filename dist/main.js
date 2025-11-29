@@ -2508,6 +2508,65 @@ exports.LocationsService = LocationsService = __decorate([
 
 /***/ }),
 
+/***/ "./src/matches/match-event.service.ts":
+/*!********************************************!*\
+  !*** ./src/matches/match-event.service.ts ***!
+  \********************************************/
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+var MatchEventService_1;
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.MatchEventService = void 0;
+const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
+const rxjs_1 = __webpack_require__(/*! rxjs */ "rxjs");
+let MatchEventService = MatchEventService_1 = class MatchEventService {
+    constructor() {
+        this.logger = new common_1.Logger(MatchEventService_1.name);
+        this.matchscore$ = new rxjs_1.Subject();
+        this.matchConnections = new Map();
+        this.MAX_CONNECTIONS_PER_MATCH = 500;
+    }
+    emitMatchScoreUpdate(event) {
+        this.logger.log(`Emitting match score update for match ${event.matchId}`);
+        this.matchscore$.next(event);
+    }
+    getScoreUpdates() {
+        return this.matchscore$.asObservable();
+    }
+    canConnect(matchId) {
+        const current = this.matchConnections.get(matchId) || 0;
+        this.logger.log(`Match ${matchId} has ${current} connections`);
+        return current < this.MAX_CONNECTIONS_PER_MATCH;
+    }
+    addConnection(matchId) {
+        const current = this.matchConnections.get(matchId) || 0;
+        this.matchConnections.set(matchId, current + 1);
+        this.logger.log(`Added connection to match ${matchId}. Total: ${current + 1}`);
+    }
+    removeConnection(matchId) {
+        const current = this.matchConnections.get(matchId) || 0;
+        this.matchConnections.set(matchId, Math.max(0, current - 1));
+        this.logger.log(`Removed connection from match ${matchId}. Total: ${Math.max(0, current - 1)}`);
+    }
+    getConnectionCount(matchId) {
+        return this.matchConnections.get(matchId) || 0;
+    }
+};
+exports.MatchEventService = MatchEventService;
+exports.MatchEventService = MatchEventService = MatchEventService_1 = __decorate([
+    (0, common_1.Injectable)()
+], MatchEventService);
+
+
+/***/ }),
+
 /***/ "./src/matches/matches.controller.ts":
 /*!*******************************************!*\
   !*** ./src/matches/matches.controller.ts ***!
@@ -2527,15 +2586,21 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
-var _a;
+var MatchesController_1;
+var _a, _b, _c, _d;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.MatchesController = void 0;
 const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
-const jwt_guard_1 = __webpack_require__(/*! src/auth/guards/jwt.guard */ "./src/auth/guards/jwt.guard.ts");
+const express_1 = __webpack_require__(/*! express */ "express");
 const matches_service_1 = __webpack_require__(/*! ./matches.service */ "./src/matches/matches.service.ts");
-let MatchesController = class MatchesController {
-    constructor(matchesService) {
+const match_event_service_1 = __webpack_require__(/*! ./match-event.service */ "./src/matches/match-event.service.ts");
+const rxjs_1 = __webpack_require__(/*! rxjs */ "rxjs");
+let MatchesController = MatchesController_1 = class MatchesController {
+    constructor(matchesService, matchEventService) {
         this.matchesService = matchesService;
+        this.matchEventService = matchEventService;
+        this.logger = new common_1.Logger(MatchesController_1.name);
+        this.logger.log('MatchesController initialized');
     }
     async matchUp(sessionId) {
         return this.matchesService.matchUp(sessionId);
@@ -2551,6 +2616,85 @@ let MatchesController = class MatchesController {
     }
     async endMatchInSession(matchId) {
         return this.matchesService.endMatch(matchId);
+    }
+    async incrementMatchScore(matchId, team) {
+        return this.matchesService.incrementMatchScore(matchId, team);
+    }
+    async decrementMatchScore(matchId, team) {
+        return this.matchesService.decrementMatchScore(matchId, team);
+    }
+    matchScoreStream(matchId, response) {
+        if (!this.matchEventService.canConnect(matchId)) {
+            throw new common_1.HttpException(`Too many connections for match ${matchId}. Maximum ${500} connections allowed.`, common_1.HttpStatus.TOO_MANY_REQUESTS);
+        }
+        this.matchEventService.addConnection(matchId);
+        this.logger.log(`New SSE connection for match ${matchId}`);
+        response.on('close', () => {
+            this.matchEventService.removeConnection(matchId);
+            this.logger.log(`SSE connection closed for match ${matchId}`);
+        });
+        response.on('error', (error) => {
+            this.matchEventService.removeConnection(matchId);
+            this.logger.error(`SSE connection error for match ${matchId}:`, error);
+        });
+        return this.matchEventService.getScoreUpdates().pipe((0, rxjs_1.startWith)({ type: 'connected', message: 'Connection established', matchId }), (0, rxjs_1.map)(update => ({ data: update })), (0, rxjs_1.filter)((envelope) => {
+            const update = envelope.data;
+            return update.type === 'connected' ||
+                update.type === 'heartbeat' ||
+                (update.matchId && update.matchId.toString() === matchId);
+        }), (0, rxjs_1.catchError)((error) => {
+            this.logger.error(`SSE Stream error for match ${matchId}:`, error);
+            return (0, rxjs_1.of)({
+                data: {
+                    type: 'error',
+                    message: 'Connection error, retrying...',
+                    timestamp: Date.now(),
+                    matchId
+                }
+            });
+        }), (0, rxjs_1.retry)({
+            count: 3,
+            delay: (error, retryCount) => {
+                this.logger.warn(`SSE retry ${retryCount} for match ${matchId}:`, error.message);
+                return (0, rxjs_1.timer)(1000 * retryCount);
+            }
+        }), (0, rxjs_1.repeat)({
+            delay: () => {
+                this.logger.log(`SSE stream restarting for match ${matchId}`);
+                return (0, rxjs_1.timer)(1000);
+            }
+        }));
+    }
+    streamAllMatches(response) {
+        this.logger.log('New global SSE connection established');
+        response.on('close', () => {
+            this.logger.log('Global SSE connection closed');
+        });
+        response.on('error', (error) => {
+            this.logger.error('Global SSE connection error:', error);
+        });
+        return this.matchEventService.getScoreUpdates().pipe((0, rxjs_1.startWith)({ type: 'connected', message: 'Global stream connected' }), (0, rxjs_1.map)(update => ({ data: update })), (0, rxjs_1.catchError)((error) => {
+            this.logger.error('Global SSE Stream error:', error);
+            return (0, rxjs_1.of)({
+                data: {
+                    type: 'error',
+                    message: 'Global stream error, retrying...',
+                    timestamp: Date.now(),
+                    stream: 'global'
+                }
+            });
+        }), (0, rxjs_1.retry)({
+            count: 3,
+            delay: (error, retryCount) => {
+                this.logger.warn(`Global SSE retry ${retryCount}:`, error.message);
+                return (0, rxjs_1.timer)(2000 * retryCount);
+            }
+        }), (0, rxjs_1.repeat)({
+            delay: () => {
+                this.logger.log('Global SSE stream restarting');
+                return (0, rxjs_1.timer)(2000);
+            }
+        }));
     }
 };
 exports.MatchesController = MatchesController;
@@ -2589,10 +2733,40 @@ __decorate([
     __metadata("design:paramtypes", [String]),
     __metadata("design:returntype", Promise)
 ], MatchesController.prototype, "endMatchInSession", null);
-exports.MatchesController = MatchesController = __decorate([
-    (0, common_1.Controller)('match'),
-    (0, common_1.UseGuards)(jwt_guard_1.JwtAuthGuard),
-    __metadata("design:paramtypes", [typeof (_a = typeof matches_service_1.MatchesService !== "undefined" && matches_service_1.MatchesService) === "function" ? _a : Object])
+__decorate([
+    (0, common_1.Put)('increment-score/:matchId'),
+    __param(0, (0, common_1.Param)('matchId')),
+    __param(1, (0, common_1.Query)('team')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:returntype", Promise)
+], MatchesController.prototype, "incrementMatchScore", null);
+__decorate([
+    (0, common_1.Put)('decrement-score/:matchId'),
+    __param(0, (0, common_1.Param)('matchId')),
+    __param(1, (0, common_1.Query)('team')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:returntype", Promise)
+], MatchesController.prototype, "decrementMatchScore", null);
+__decorate([
+    (0, common_1.Sse)('stream/:matchId'),
+    __param(0, (0, common_1.Param)('matchId')),
+    __param(1, (0, common_1.Res)({ passthrough: true })),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, typeof (_c = typeof express_1.Response !== "undefined" && express_1.Response) === "function" ? _c : Object]),
+    __metadata("design:returntype", void 0)
+], MatchesController.prototype, "matchScoreStream", null);
+__decorate([
+    (0, common_1.Sse)('stream'),
+    __param(0, (0, common_1.Res)({ passthrough: true })),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [typeof (_d = typeof express_1.Response !== "undefined" && express_1.Response) === "function" ? _d : Object]),
+    __metadata("design:returntype", void 0)
+], MatchesController.prototype, "streamAllMatches", null);
+exports.MatchesController = MatchesController = MatchesController_1 = __decorate([
+    (0, common_1.Controller)('matches'),
+    __metadata("design:paramtypes", [typeof (_a = typeof matches_service_1.MatchesService !== "undefined" && matches_service_1.MatchesService) === "function" ? _a : Object, typeof (_b = typeof match_event_service_1.MatchEventService !== "undefined" && match_event_service_1.MatchEventService) === "function" ? _b : Object])
 ], MatchesController);
 
 
@@ -2621,6 +2795,7 @@ const matches_controller_1 = __webpack_require__(/*! ./matches.controller */ "./
 const matches_service_1 = __webpack_require__(/*! ./matches.service */ "./src/matches/matches.service.ts");
 const sets_repository_1 = __webpack_require__(/*! src/sets/sets.repository */ "./src/sets/sets.repository.ts");
 const sessions_repository_1 = __webpack_require__(/*! src/sessions/sessions.repository */ "./src/sessions/sessions.repository.ts");
+const match_event_service_1 = __webpack_require__(/*! ./match-event.service */ "./src/matches/match-event.service.ts");
 let MatchesModule = class MatchesModule {
 };
 exports.MatchesModule = MatchesModule;
@@ -2634,7 +2809,7 @@ exports.MatchesModule = MatchesModule = __decorate([
             ]),
         ],
         controllers: [matches_controller_1.MatchesController],
-        providers: [matches_service_1.MatchesService, matches_repository_1.MatchRepository, sets_repository_1.SetRepository, sessions_repository_1.SessionRepository],
+        providers: [matches_service_1.MatchesService, matches_repository_1.MatchRepository, sets_repository_1.SetRepository, sessions_repository_1.SessionRepository, match_event_service_1.MatchEventService],
         exports: [matches_service_1.MatchesService],
     })
 ], MatchesModule);
@@ -2674,6 +2849,30 @@ let MatchRepository = MatchRepository_1 = class MatchRepository extends common_2
         super(MatchModel);
         this.logger = new common_1.Logger(MatchRepository_1.name);
     }
+    async IncrementMatchScore(matchId, team) {
+        try {
+            const updatedMatch = await this.model.findByIdAndUpdate(matchId, team === 'teamOne'
+                ? { $inc: { teamOneScore: 1 } }
+                : { $inc: { teamTwoScore: 1 } }, { new: true });
+            return updatedMatch.populate(['teamOne', 'teamTwo']);
+        }
+        catch (error) {
+            this.logger.error(`Failed to increment match score for matchId ${matchId}`, error.stack);
+            return null;
+        }
+    }
+    async RedecrementMatchScore(matchId, team) {
+        try {
+            const updatedMatch = await this.model.findByIdAndUpdate(matchId, team === 'teamOne'
+                ? { $inc: { teamOneScore: -1 } }
+                : { $inc: { teamTwoScore: -1 } }, { new: true });
+            return updatedMatch.populate(['teamOne', 'teamTwo']);
+        }
+        catch (error) {
+            this.logger.error(`Failed to decrement match score for matchId ${matchId}`, error.stack);
+            return null;
+        }
+    }
 };
 exports.MatchRepository = MatchRepository;
 exports.MatchRepository = MatchRepository = MatchRepository_1 = __decorate([
@@ -2701,7 +2900,7 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
-var _a, _b, _c;
+var _a, _b, _c, _d;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.MatchesService = void 0;
 const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
@@ -2710,11 +2909,13 @@ const sets_repository_1 = __webpack_require__(/*! ../sets/sets.repository */ "./
 const common_2 = __webpack_require__(/*! @app/common */ "./libs/common/src/index.ts");
 const sessions_repository_1 = __webpack_require__(/*! src/sessions/sessions.repository */ "./src/sessions/sessions.repository.ts");
 const mongoose_1 = __webpack_require__(/*! mongoose */ "mongoose");
+const match_event_service_1 = __webpack_require__(/*! ./match-event.service */ "./src/matches/match-event.service.ts");
 let MatchesService = class MatchesService {
-    constructor(matchRepository, setRepository, sessionRepository) {
+    constructor(matchRepository, setRepository, sessionRepository, matchEventService) {
         this.matchRepository = matchRepository;
         this.setRepository = setRepository;
         this.sessionRepository = sessionRepository;
+        this.matchEventService = matchEventService;
     }
     async viewSetForSession(sessionId) {
         return await this.setRepository.find({
@@ -2795,11 +2996,35 @@ let MatchesService = class MatchesService {
         }
         return match;
     }
+    async incrementMatchScore(matchId, team) {
+        const updatedMatch = await this.matchRepository.IncrementMatchScore(matchId, team);
+        if (!updatedMatch) {
+            throw new common_2.CustomHttpException('Failed to increment match score', common_1.HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+        this.matchEventService.emitMatchScoreUpdate({
+            matchId: new mongoose_1.Types.ObjectId(matchId),
+            teamOneScore: updatedMatch.teamOneScore,
+            teamTwoScore: updatedMatch.teamTwoScore,
+        });
+        return updatedMatch;
+    }
+    async decrementMatchScore(matchId, team) {
+        const updatedMatch = await this.matchRepository.RedecrementMatchScore(matchId, team);
+        if (!updatedMatch) {
+            throw new common_2.CustomHttpException('Failed to decrement match score', common_1.HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+        this.matchEventService.emitMatchScoreUpdate({
+            matchId: new mongoose_1.Types.ObjectId(matchId),
+            teamOneScore: updatedMatch.teamOneScore,
+            teamTwoScore: updatedMatch.teamTwoScore,
+        });
+        return updatedMatch;
+    }
 };
 exports.MatchesService = MatchesService;
 exports.MatchesService = MatchesService = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [typeof (_a = typeof matches_repository_1.MatchRepository !== "undefined" && matches_repository_1.MatchRepository) === "function" ? _a : Object, typeof (_b = typeof sets_repository_1.SetRepository !== "undefined" && sets_repository_1.SetRepository) === "function" ? _b : Object, typeof (_c = typeof sessions_repository_1.SessionRepository !== "undefined" && sessions_repository_1.SessionRepository) === "function" ? _c : Object])
+    __metadata("design:paramtypes", [typeof (_a = typeof matches_repository_1.MatchRepository !== "undefined" && matches_repository_1.MatchRepository) === "function" ? _a : Object, typeof (_b = typeof sets_repository_1.SetRepository !== "undefined" && sets_repository_1.SetRepository) === "function" ? _b : Object, typeof (_c = typeof sessions_repository_1.SessionRepository !== "undefined" && sessions_repository_1.SessionRepository) === "function" ? _c : Object, typeof (_d = typeof match_event_service_1.MatchEventService !== "undefined" && match_event_service_1.MatchEventService) === "function" ? _d : Object])
 ], MatchesService);
 
 
@@ -5054,7 +5279,7 @@ let UsersService = UsersService_1 = class UsersService {
         this.statsService = statsService;
         this.logger = new common_1.Logger(UsersService_1.name);
     }
-    async registerUser({ firstName, lastName, nickname, email, password, phoneNumber, address, position, location, isOwner, height }) {
+    async registerUser({ firstName, lastName, nickname, email, password, phoneNumber, address, position, location, isOwner, height, dateOfBirth }) {
         const formattedPhone = (0, common_2.internationalisePhoneNumber)(phoneNumber);
         await this.checkExistingUser(phoneNumber, email, nickname);
         const payload = {
@@ -5068,7 +5293,8 @@ let UsersService = UsersService_1 = class UsersService {
             position,
             isOwner,
             nickname,
-            height
+            height,
+            dateOfBirth
         };
         try {
             const user = await this.usersRepository.create(payload);
@@ -5388,6 +5614,16 @@ module.exports = require("passport-jwt");
 /***/ ((module) => {
 
 module.exports = require("passport-local");
+
+/***/ }),
+
+/***/ "rxjs":
+/*!***********************!*\
+  !*** external "rxjs" ***!
+  \***********************/
+/***/ ((module) => {
+
+module.exports = require("rxjs");
 
 /***/ }),
 

@@ -6,6 +6,7 @@ import { MatchesController } from './matches.controller';
 import { MatchesService } from './matches.service';
 import { SetRepository } from 'src/sets/sets.repository';
 import { SessionRepository } from 'src/sessions/sessions.repository';
+import { MatchEventService } from './match-event.service';
 
 @Module({
   imports: [
@@ -16,7 +17,7 @@ import { SessionRepository } from 'src/sessions/sessions.repository';
     ]),
   ],
   controllers: [MatchesController],
-  providers: [MatchesService, MatchRepository, SetRepository, SessionRepository],
+  providers: [MatchesService, MatchRepository, SetRepository, SessionRepository, MatchEventService],
   exports: [MatchesService],
 })
 export class MatchesModule {}

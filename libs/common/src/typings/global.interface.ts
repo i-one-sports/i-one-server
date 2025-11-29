@@ -1,3 +1,5 @@
+import { Types } from "mongoose";
+
 export interface TokenPayload {
   userId: string;
 }
@@ -58,3 +60,8 @@ export enum TournamentFormat {
   LEAGUE = 'league',
 }
 
+export interface MatchScoreUpdateEvent {
+  matchId: string | Types.ObjectId;
+  teamOneScore: number;
+  teamTwoScore: number;
+}

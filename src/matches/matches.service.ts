@@ -6,6 +6,7 @@ import { Set } from '@app/common';
 import { SessionRepository } from 'src/sessions/sessions.repository';
 import { Model, Types } from 'mongoose';
 import { Session } from 'inspector/promises';
+import { MatchEventService } from './match-event.service';
 
 @Injectable()
 export class MatchesService {
@@ -13,6 +14,7 @@ export class MatchesService {
     private readonly matchRepository: MatchRepository,
     private readonly setRepository: SetRepository,
     private readonly sessionRepository: SessionRepository,
+    private readonly matchEventService: MatchEventService,
   ) {}
 
   private async viewSetForSession(sessionId: string): Promise<Set[]> {
@@ -149,5 +151,54 @@ export class MatchesService {
     }
 
     return match;
+  }
+
+  async incrementMatchScore(
+    matchId: string,
+    team: 'teamOne' | 'teamTwo',
+  ) {
+    const updatedMatch = await this.matchRepository.IncrementMatchScore(
+      matchId,
+      team,
+    );
+    if (!updatedMatch) {
+      throw new CustomHttpException(
+        'Failed to increment match score',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+
+    //broadcast to sse clients
+    this.matchEventService.emitMatchScoreUpdate({
+      matchId: new Types.ObjectId(matchId),
+      teamOneScore: updatedMatch.teamOneScore,
+      teamTwoScore: updatedMatch.teamTwoScore,
+    });
+
+    return updatedMatch;
+  }
+
+  async decrementMatchScore(
+    matchId: string,
+    team: 'teamOne' | 'teamTwo',
+  ) {
+    const updatedMatch = await this.matchRepository.RedecrementMatchScore(
+      matchId,
+      team,
+    );
+    if (!updatedMatch) {
+      throw new CustomHttpException(
+        'Failed to decrement match score',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+
+    //broadcast to sse clients
+    this.matchEventService.emitMatchScoreUpdate({
+      matchId: new Types.ObjectId(matchId),
+      teamOneScore: updatedMatch.teamOneScore,
+      teamTwoScore: updatedMatch.teamTwoScore,
+    });
+    return updatedMatch;
   }
 }
