@@ -853,20 +853,24 @@ Cookie: Authentication=<jwt-cookie>
 - If `maxTeams` is omitted it defaults to 16.
 ### Matches
 
-The Matches API manages match creation, starting, ending, and viewing details. Routes are under the `/match` prefix.
+The Matches API manages match creation, starting, ending, and viewing details. Routes are under the `/matches` prefix and require authentication.
 
 #### 1. Create Matchups for Session
 
-**Endpoint**: `POST /match/matchup/:sessionId`
+**Endpoint**: `POST /matches/matchup/:sessionId`
 
 **Description**: Generate matchups for a session (creates scheduled match documents for the session). The service determines match pairings based on session state.
 
 **Path Parameters**:
 - `sessionId`: string - ID of the session
 
+**Headers**:
+- `Authorization: Bearer <token>`
+
 **Example Request**:
 ```http
-POST /match/matchup/507f1f77bcf86cd799439014
+POST /matches/matchup/507f1f77bcf86cd799439014
+Authorization: Bearer <token>
 ```
 
 **Success Response**:
@@ -875,13 +879,20 @@ POST /match/matchup/507f1f77bcf86cd799439014
 
 #### 2. View Session Matchups
 
-**Endpoint**: `GET /match/matchups/:sessionId`
+**Endpoint**: `GET /matches/matchups/:sessionId`
 
 **Description**: Returns matchups for the given session.
 
+**Path Parameters**:
+- `sessionId`: string - ID of the session
+
+**Headers**:
+- `Authorization: Bearer <token>`
+
 **Example Request**:
 ```http
-GET /match/matchups/507f1f77bcf86cd799439014
+GET /matches/matchups/507f1f77bcf86cd799439014
+Authorization: Bearer <token>
 ```
 
 **Success Response**:
@@ -890,13 +901,20 @@ GET /match/matchups/507f1f77bcf86cd799439014
 
 #### 3. Start a Match
 
-**Endpoint**: `POST /match/start/:matchId`
+**Endpoint**: `POST /matches/start/:matchId`
 
 **Description**: Mark a match as started.
 
+**Path Parameters**:
+- `matchId`: string - ID of the match
+
+**Headers**:
+- `Authorization: Bearer <token>`
+
 **Example Request**:
 ```http
-POST /match/start/507f1f77bcf86cd799439050
+POST /matches/start/507f1f77bcf86cd799439050
+Authorization: Bearer <token>
 ```
 
 **Success Response**:
@@ -905,13 +923,20 @@ POST /match/start/507f1f77bcf86cd799439050
 
 #### 4. View Match Details
 
-**Endpoint**: `GET /match/details/:matchId`
+**Endpoint**: `GET /matches/details/:matchId`
 
 **Description**: Retrieve details for a specific match.
 
+**Path Parameters**:
+- `matchId`: string - ID of the match
+
+**Headers**:
+- `Authorization: Bearer <token>`
+
 **Example Request**:
 ```http
-GET /match/details/507f1f77bcf86cd799439050
+GET /matches/details/507f1f77bcf86cd799439050
+Authorization: Bearer <token>
 ```
 
 **Success Response**:
@@ -920,18 +945,147 @@ GET /match/details/507f1f77bcf86cd799439050
 
 #### 5. End a Match
 
-**Endpoint**: `POST /match/end/:matchId`
+**Endpoint**: `POST /matches/end/:matchId`
 
 **Description**: Mark a match as ended and record results.
 
+**Path Parameters**:
+- `matchId`: string - ID of the match
+
+**Headers**:
+- `Authorization: Bearer <token>`
+
 **Example Request**:
 ```http
-POST /match/end/507f1f77bcf86cd799439050
+POST /matches/end/507f1f77bcf86cd799439050
+Authorization: Bearer <token>
 ```
 
 **Success Response**:
 - **Status Code**: 200 OK
 - **Body**: Finalized match document
+
+#### 6. Increment Match Score
+
+**Endpoint**: `PUT /matches/increment-score/:matchId`
+
+**Description**: Increment the score for a specific team in a match. This triggers real-time updates via SSE.
+
+**Path Parameters**:
+- `matchId`: string - ID of the match
+
+**Query Parameters**:
+- `team`: 'teamOne' | 'teamTwo' - Which team's score to increment
+
+**Headers**:
+- `Authorization: Bearer <token>`
+
+**Example Request**:
+```http
+PUT /matches/increment-score/507f1f77bcf86cd799439050?team=teamOne
+Authorization: Bearer <token>
+```
+
+**Success Response**:
+- **Status Code**: 200 OK
+- **Body**: Updated match document with new scores
+  ```json
+  {
+    "_id": "507f1f77bcf86cd799439050",
+    "teamOne": "507f1f77bcf86cd799439015",
+    "teamTwo": "507f1f77bcf86cd799439016", 
+    "teamOneScore": 3,
+    "teamTwoScore": 1,
+    "isStarted": true,
+    "session": "507f1f77bcf86cd799439014"
+  }
+  ```
+
+#### 7. Decrement Match Score
+
+**Endpoint**: `PUT /matches/decrement-score/:matchId`
+
+**Description**: Decrement the score for a specific team in a match. This triggers real-time updates via SSE.
+
+**Path Parameters**:
+- `matchId`: string - ID of the match
+
+**Query Parameters**:
+- `team`: 'teamOne' | 'teamTwo' - Which team's score to decrement
+
+**Headers**:
+- `Authorization: Bearer <token>`
+
+**Example Request**:
+```http
+PUT /matches/decrement-score/507f1f77bcf86cd799439050?team=teamTwo
+Authorization: Bearer <token>
+```
+
+**Success Response**:
+- **Status Code**: 200 OK
+- **Body**: Updated match document with new scores
+
+#### 8. Match Score Stream (SSE)
+
+**Endpoint**: `GET /matches/stream/:matchId`
+
+**Description**: Server-Sent Events stream for real-time match score updates. Provides live updates when scores change.
+
+**Path Parameters**:
+- `matchId`: string - ID of the match to watch
+
+**Headers**:
+- `Authorization: Bearer <token>`
+- `Accept: text/event-stream`
+- `Cache-Control: no-cache`
+
+**Example Request**:
+```http
+GET /matches/stream/507f1f77bcf86cd799439050
+Authorization: Bearer <token>
+Accept: text/event-stream
+Cache-Control: no-cache
+```
+
+**SSE Response Events**:
+
+**Connection Established:**
+```
+data: {"type":"connected","message":"Connection established","matchId":"507f1f77bcf86cd799439050"}
+```
+
+**Score Updates:**
+```
+data: {"matchId":"507f1f77bcf86cd799439050","teamOneScore":3,"teamTwoScore":1}
+```
+
+**Heartbeat (every 30s):**
+```
+data: {"type":"heartbeat","timestamp":1732896234567}
+```
+
+#### 9. All Matches Stream (SSE)
+
+**Endpoint**: `GET /matches/stream`
+
+**Description**: Server-Sent Events stream for all match score updates. Useful for dashboards monitoring multiple matches.
+
+**Headers**:
+- `Authorization: Bearer <token>`
+- `Accept: text/event-stream`
+- `Cache-Control: no-cache`
+
+**Example Request**:
+```http
+GET /matches/stream
+Authorization: Bearer <token>
+Accept: text/event-stream
+Cache-Control: no-cache
+```
+
+**SSE Response Events**:
+Similar to single match stream but includes updates from all matches in the system.
 
 ### Stats
 

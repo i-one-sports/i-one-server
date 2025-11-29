@@ -20,7 +20,7 @@ import { filter, map, catchError, retry, repeat, startWith, mergeMap, delay, tim
 import { MatchScoreUpdateEvent } from '@app/common';
 
 @Controller('matches')
-// @UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard)
 export class MatchesController {
   private readonly logger = new Logger(MatchesController.name);
 
