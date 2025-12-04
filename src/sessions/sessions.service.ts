@@ -20,91 +20,96 @@ export class SessionsService {
     private readonly CaptainService: CaptainsService,
   ) {}
 
-  async findNearbySessionMatches(lng: number, lat: number) {
-    try {
-      const nearbyLocations = await this.locationRepository.find({
-        location: {
-          $near: {
-            $geometry: {
-              type: 'Point',
-              coordinates: [lng, lat],
-            },
-            // $maxDistance: 200000000,
+ async findNearbySessionMatches(lng: number, lat: number) {
+  try {
+    const nearbyLocations = await this.locationRepository.find({
+      location: {
+        $near: {
+          $geometry: {
+            type: 'Point',
+            coordinates: [lng, lat],
           },
+          // $maxDistance: 20000000, // ~20,000km - covers entire Earth
         },
-      });
+      },
+    });
 
-      const locationIds = nearbyLocations.map((loc) => loc._id);
-      const locatedSessions = await this.sessionRepository.find({
-        location: { $in: locationIds },
-      });
-      const sessionIds = locatedSessions.map((session) => session._id);
-
-      const aggregatedMatches = await this.matchRepository.findRaw().aggregate([
-        {
-          $match: {
-            session: { $in: sessionIds },
-          },
-        },
-        {
-          $lookup: {
-            from: 'sets',
-            localField: 'teamOne',
-            foreignField: '_id',
-            as: 'teamOne',
-            pipeline: [
-              {
-                $lookup: {
-                  from: 'sessions',
-                  localField: 'session',
-                  foreignField: '_id',
-                  as: 'session',
-                },
-              },
-              {
-                $unwind: '$session',
-              },
-            ],
-          },
-        },
-        {
-          $unwind: '$teamOne',
-        },
-        {
-          $lookup: {
-            from: 'sets',
-            localField: 'teamTwo',
-            foreignField: '_id',
-            as: 'teamTwo',
-            pipeline: [
-              {
-                $lookup: {
-                  from: 'sessions',
-                  localField: 'session',
-                  foreignField: '_id',
-                  as: 'session',
-                },
-              },
-              {
-                $unwind: '$session',
-              },
-            ],
-          },
-        },
-        {
-          $unwind: '$teamTwo',
-        },
-      ]);
-
-      return aggregatedMatches;
-    } catch (error) {
-      console.error('Error Finding sessions:', error);
-      throw new CustomHttpException(
-        'Error Finding sessions: ' + (error?.message || error),
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
+    if (!nearbyLocations.length) {
+      return [];
     }
+
+    const locationIds = nearbyLocations.map((loc) => loc._id);
+
+    const locatedSessions = await this.sessionRepository.find({
+      location: { $in: locationIds },
+    });
+
+    if (!locatedSessions.length) {
+      return [];
+    }
+
+    const sessionIds = locatedSessions.map((s) => s._id);
+
+    // 3️⃣ Get matches in those sessions (with teamOne + teamTwo populated)
+    const matches = await this.matchRepository.findRaw().aggregate([
+      {
+        $match: {
+          session: { $in: sessionIds },
+        },
+      },
+      {
+        $lookup: {
+          from: 'sets',
+          localField: 'teamOne',
+          foreignField: '_id',
+          as: 'teamOne',
+        },
+      },
+      { $unwind: { path: '$teamOne', preserveNullAndEmptyArrays: true } },
+
+      {
+        $lookup: {
+          from: 'sets',
+          localField: 'teamTwo',
+          foreignField: '_id',
+          as: 'teamTwo',
+        },
+      },
+      { $unwind: { path: '$teamTwo', preserveNullAndEmptyArrays: true } },
+
+      // Attach session details directly to each match
+      {
+        $lookup: {
+          from: 'sessions',
+          localField: 'session',
+          foreignField: '_id',
+          as: 'session',
+        },
+      },
+      { $unwind: { path: '$session', preserveNullAndEmptyArrays: true } },
+
+      // Attach location details to the session
+      {
+        $lookup: {
+          from: 'locations',
+          localField: 'session.location',
+          foreignField: '_id',
+          as: 'session.location',
+        },
+      },
+      { $unwind: { path: '$session.location', preserveNullAndEmptyArrays: true } },
+    ]);
+
+    return matches;
+  } catch (error) {
+    console.error('Error Finding sessions:', error);
+    throw new CustomHttpException(
+      'Error Finding sessions: ' + (error?.message || error),
+      HttpStatus.INTERNAL_SERVER_ERROR,
+    );
   }
+}
+
 
   async startSession(userId: string, locationId: string) {
     const user = await this.userRepository.findOne({ _id: userId });
@@ -402,12 +407,33 @@ export class SessionsService {
       });
   }
 
-  async viewAllSessions() {
-    return this.sessionRepository.findAndPopulate({ finished: false }, [
-      'captain',
-      'members',
-      'location',
+  async viewAllSessions(page: number = 1, limit: number = 6) {
+    const pageNum = Number(page) || 1;
+    const limitNum = Number(limit) || 6;
+    const skip = (pageNum - 1) * limitNum;
+    
+    const [sessions, total] = await Promise.all([
+      this.sessionRepository
+        .findRaw()
+        .find({ finished: false })
+        .populate('captain')
+        .populate('members')
+        .populate('location')
+        .skip(skip)
+        .limit(limitNum)
+        .sort({ createdAt: -1 }),
+      this.sessionRepository.findRaw().countDocuments({ finished: false }),
     ]);
+
+    return {
+      sessions,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        totalPages: Math.ceil(total / limitNum),
+      },
+    };
   }
 
   async deleteSession(sessionId: string) {

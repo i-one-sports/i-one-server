@@ -2592,6 +2592,7 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.MatchesController = void 0;
 const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
 const express_1 = __webpack_require__(/*! express */ "express");
+const jwt_guard_1 = __webpack_require__(/*! src/auth/guards/jwt.guard */ "./src/auth/guards/jwt.guard.ts");
 const matches_service_1 = __webpack_require__(/*! ./matches.service */ "./src/matches/matches.service.ts");
 const match_event_service_1 = __webpack_require__(/*! ./match-event.service */ "./src/matches/match-event.service.ts");
 const rxjs_1 = __webpack_require__(/*! rxjs */ "rxjs");
@@ -2766,6 +2767,7 @@ __decorate([
 ], MatchesController.prototype, "streamAllMatches", null);
 exports.MatchesController = MatchesController = MatchesController_1 = __decorate([
     (0, common_1.Controller)('matches'),
+    (0, common_1.UseGuards)(jwt_guard_1.JwtAuthGuard),
     __metadata("design:paramtypes", [typeof (_a = typeof matches_service_1.MatchesService !== "undefined" && matches_service_1.MatchesService) === "function" ? _a : Object, typeof (_b = typeof match_event_service_1.MatchEventService !== "undefined" && match_event_service_1.MatchEventService) === "function" ? _b : Object])
 ], MatchesController);
 
@@ -3121,8 +3123,8 @@ let SessionsController = class SessionsController {
         console.log(lng, lat);
         return this.sessionsService.findNearbySessionMatches(lng, lat);
     }
-    async viewAllSessions() {
-        return this.sessionsService.viewAllSessions();
+    async viewAllSessions(page = 1, limit = 6) {
+        return this.sessionsService.viewAllSessions(page, limit);
     }
     async startSession(data, user) {
         return this.sessionsService.startSession(user._id.toString(), data.locationId);
@@ -3166,8 +3168,10 @@ __decorate([
 ], SessionsController.prototype, "findNearbySessionMatches", null);
 __decorate([
     (0, common_1.Get)('all'),
+    __param(0, (0, common_1.Query)('page')),
+    __param(1, (0, common_1.Query)('limit')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", []),
+    __metadata("design:paramtypes", [Number, Number]),
     __metadata("design:returntype", Promise)
 ], SessionsController.prototype, "viewAllSessions", null);
 __decorate([
@@ -3398,12 +3402,18 @@ let SessionsService = class SessionsService {
                     },
                 },
             });
+            if (!nearbyLocations.length) {
+                return [];
+            }
             const locationIds = nearbyLocations.map((loc) => loc._id);
             const locatedSessions = await this.sessionRepository.find({
                 location: { $in: locationIds },
             });
-            const sessionIds = locatedSessions.map((session) => session._id);
-            const aggregatedMatches = await this.matchRepository.findRaw().aggregate([
+            if (!locatedSessions.length) {
+                return [];
+            }
+            const sessionIds = locatedSessions.map((s) => s._id);
+            const matches = await this.matchRepository.findRaw().aggregate([
                 {
                     $match: {
                         session: { $in: sessionIds },
@@ -3415,50 +3425,38 @@ let SessionsService = class SessionsService {
                         localField: 'teamOne',
                         foreignField: '_id',
                         as: 'teamOne',
-                        pipeline: [
-                            {
-                                $lookup: {
-                                    from: 'sessions',
-                                    localField: 'session',
-                                    foreignField: '_id',
-                                    as: 'session',
-                                },
-                            },
-                            {
-                                $unwind: '$session',
-                            },
-                        ],
                     },
                 },
-                {
-                    $unwind: '$teamOne',
-                },
+                { $unwind: { path: '$teamOne', preserveNullAndEmptyArrays: true } },
                 {
                     $lookup: {
                         from: 'sets',
                         localField: 'teamTwo',
                         foreignField: '_id',
                         as: 'teamTwo',
-                        pipeline: [
-                            {
-                                $lookup: {
-                                    from: 'sessions',
-                                    localField: 'session',
-                                    foreignField: '_id',
-                                    as: 'session',
-                                },
-                            },
-                            {
-                                $unwind: '$session',
-                            },
-                        ],
                     },
                 },
+                { $unwind: { path: '$teamTwo', preserveNullAndEmptyArrays: true } },
                 {
-                    $unwind: '$teamTwo',
+                    $lookup: {
+                        from: 'sessions',
+                        localField: 'session',
+                        foreignField: '_id',
+                        as: 'session',
+                    },
                 },
+                { $unwind: { path: '$session', preserveNullAndEmptyArrays: true } },
+                {
+                    $lookup: {
+                        from: 'locations',
+                        localField: 'session.location',
+                        foreignField: '_id',
+                        as: 'session.location',
+                    },
+                },
+                { $unwind: { path: '$session.location', preserveNullAndEmptyArrays: true } },
             ]);
-            return aggregatedMatches;
+            return matches;
         }
         catch (error) {
             console.error('Error Finding sessions:', error);
@@ -3640,12 +3638,31 @@ let SessionsService = class SessionsService {
             select: 'nickname -_id',
         });
     }
-    async viewAllSessions() {
-        return this.sessionRepository.findAndPopulate({ finished: false }, [
-            'captain',
-            'members',
-            'location',
+    async viewAllSessions(page = 1, limit = 6) {
+        const pageNum = Number(page) || 1;
+        const limitNum = Number(limit) || 6;
+        const skip = (pageNum - 1) * limitNum;
+        const [sessions, total] = await Promise.all([
+            this.sessionRepository
+                .findRaw()
+                .find({ finished: false })
+                .populate('captain')
+                .populate('members')
+                .populate('location')
+                .skip(skip)
+                .limit(limitNum)
+                .sort({ createdAt: -1 }),
+            this.sessionRepository.findRaw().countDocuments({ finished: false }),
         ]);
+        return {
+            sessions,
+            pagination: {
+                page: pageNum,
+                limit: limitNum,
+                total,
+                totalPages: Math.ceil(total / limitNum),
+            },
+        };
     }
     async deleteSession(sessionId) {
         const session = await this.sessionRepository.findOne({

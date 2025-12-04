@@ -29,8 +29,11 @@ export class SessionsController {
   }
 
   @Get('all')
-  async viewAllSessions() {
-    return this.sessionsService.viewAllSessions();
+  async viewAllSessions(
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 6,
+  ) {
+    return this.sessionsService.viewAllSessions(page, limit);
   }
 
   @Post('start')
