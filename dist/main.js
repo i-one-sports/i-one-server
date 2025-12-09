@@ -3454,7 +3454,12 @@ let SessionsService = class SessionsService {
                         as: 'session.location',
                     },
                 },
-                { $unwind: { path: '$session.location', preserveNullAndEmptyArrays: true } },
+                {
+                    $unwind: {
+                        path: '$session.location',
+                        preserveNullAndEmptyArrays: true,
+                    },
+                },
             ]);
             return matches;
         }
