@@ -42,7 +42,7 @@ export class UsersService {
     location,
     isOwner,
     height,
-    dateOfBirth
+    dateOfBirth,
   }: registerUserRequest) {
     const formattedPhone = internationalisePhoneNumber(phoneNumber);
     await this.checkExistingUser(phoneNumber, email, nickname);
@@ -59,11 +59,12 @@ export class UsersService {
       isOwner,
       nickname,
       height,
-      dateOfBirth
+      dateOfBirth,
     };
     try {
       const user = await this.usersRepository.create(payload);
       await this.statsService.initializeStat(user._id.toString());
+      await this.sendWelcomeEmail(user);
       return user;
     } catch (error) {
       throw new CustomHttpException(
@@ -71,6 +72,12 @@ export class UsersService {
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
+  }
+
+  private async sendWelcomeEmail(user: User) {
+    const subject = 'Welcome to I-One App!';
+    const body = `Hello ${user.firstName},\n\nWelcome to I-One App! We're excited to have you on board.\n\nBest regards,\nThe I-One Team`;
+    await this.mailService.sendMail(user.email, subject, body);
   }
 
   async getUser(id: string) {
