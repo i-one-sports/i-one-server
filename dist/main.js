@@ -1440,6 +1440,9 @@ let AppController = class AppController {
     getHello() {
         return this.appService.getHello();
     }
+    healthCheck() {
+        return 'I-one server is up and running!';
+    }
 };
 exports.AppController = AppController;
 __decorate([
@@ -1448,6 +1451,12 @@ __decorate([
     __metadata("design:paramtypes", []),
     __metadata("design:returntype", String)
 ], AppController.prototype, "getHello", null);
+__decorate([
+    (0, common_1.Get)('/healthcheck'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", String)
+], AppController.prototype, "healthCheck", null);
 exports.AppController = AppController = __decorate([
     (0, common_1.Controller)(),
     __metadata("design:paramtypes", [typeof (_a = typeof app_service_1.AppService !== "undefined" && app_service_1.AppService) === "function" ? _a : Object])
@@ -5301,7 +5310,7 @@ let UsersService = UsersService_1 = class UsersService {
         this.statsService = statsService;
         this.logger = new common_1.Logger(UsersService_1.name);
     }
-    async registerUser({ firstName, lastName, nickname, email, password, phoneNumber, address, position, location, isOwner, height, dateOfBirth }) {
+    async registerUser({ firstName, lastName, nickname, email, password, phoneNumber, address, position, location, isOwner, height, dateOfBirth, }) {
         const formattedPhone = (0, common_2.internationalisePhoneNumber)(phoneNumber);
         await this.checkExistingUser(phoneNumber, email, nickname);
         const payload = {
@@ -5316,16 +5325,22 @@ let UsersService = UsersService_1 = class UsersService {
             isOwner,
             nickname,
             height,
-            dateOfBirth
+            dateOfBirth,
         };
         try {
             const user = await this.usersRepository.create(payload);
             await this.statsService.initializeStat(user._id.toString());
+            await this.sendWelcomeEmail(user);
             return user;
         }
         catch (error) {
             throw new common_2.CustomHttpException(`can not process request. Try again later ${JSON.stringify(error)}`, common_1.HttpStatus.INTERNAL_SERVER_ERROR);
         }
+    }
+    async sendWelcomeEmail(user) {
+        const subject = 'Welcome to I-One App!';
+        const body = `Hello ${user.firstName},\n\nWelcome to I-One App! We're excited to have you on board.\n\nBest regards,\nThe I-One Team`;
+        await this.mailService.sendMail(user.email, subject, body);
     }
     async getUser(id) {
         return await this.usersRepository.findOne({
