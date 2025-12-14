@@ -23,6 +23,9 @@ export class User extends AbstractDocument {
   @Prop(String)
   nickname: string;
 
+  @Prop(String)
+  avatar?: string
+
   @Prop()
   password: string;
 

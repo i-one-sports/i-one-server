@@ -1,9 +1,10 @@
-import { Body, Controller, Get, Post, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Patch, Post, Put, UseGuards } from '@nestjs/common';
 import { UsersService } from './users.service';
 import {
   ForgotPasswordDto,
   registerUserRequest,
   ResetPasswordDto,
+  UpdateUserDto,
   VerifyOtpDto,
 } from './dto/user.dto';
 import { JwtAuthGuard } from 'src/auth/guards/jwt.guard';
@@ -46,5 +47,14 @@ export class UsersController {
   @Get('profile')
   async getProfile(@CurrentUser() user: User) {
     return this.usersService.getProfile(user._id.toString());
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('profile')
+  async updateProfile(
+    @CurrentUser() user: User,
+    @Body() data: UpdateUserDto,
+  ) {
+    return this.usersService.updateProfile(user._id.toString(), data);
   }
 }

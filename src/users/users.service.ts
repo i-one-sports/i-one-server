@@ -9,6 +9,7 @@ import {
   ForgotPasswordDto,
   registerUserRequest,
   ResetPasswordDto,
+  UpdateUserDto,
   VerifyOtpDto,
 } from './dto/user.dto';
 import {
@@ -37,6 +38,7 @@ export class UsersService {
     email,
     password,
     phoneNumber,
+    avatar,
     address,
     position,
     location,
@@ -60,6 +62,7 @@ export class UsersService {
       nickname,
       height,
       dateOfBirth,
+      avatar
     };
     try {
       const user = await this.usersRepository.create(payload);
@@ -244,6 +247,38 @@ export class UsersService {
         throw new CustomHttpException(error, HttpStatus.INTERNAL_SERVER_ERROR);
       }
     }
+  }
+
+  public async updateProfile(id: string, data: UpdateUserDto): Promise<User> {
+    const user = await this.usersRepository.findOne({ _id: id });
+
+    if (!user) {
+      throw new CustomHttpException('User not found', HttpStatus.NOT_FOUND);
+    }
+
+    if (data.phoneNumber) {
+      data.phoneNumber = internationalisePhoneNumber(data.phoneNumber);
+    }
+
+    if (data.nickname && data.nickname !== user.nickname) {
+      const existingNickname = await this.usersRepository.findOne({
+        nickname: data.nickname,
+      });
+      if (existingNickname) {
+        throw new CustomHttpException(
+          'Nickname already exists',
+          HttpStatus.CONFLICT,
+        );
+      }
+    }
+
+    const updatedUser = await this.usersRepository.findOneAndUpdate(
+      { _id: id },
+      data,
+    );
+
+    updatedUser.password = '';
+    return updatedUser;
   }
 
   public async validateUser(email: string, password: string): Promise<User> {

@@ -8,7 +8,50 @@ import {
   MinLength,
   IsBoolean,
   IsDateString,
+  IsOptional,
 } from 'class-validator';
+
+export class UpdateUserDto {
+  @IsString()
+  @IsOptional()
+  firstName?: string;
+
+  @IsString()
+  @IsOptional()
+  lastName?: string;
+
+  @IsString()
+  @IsOptional()
+  nickname?: string;
+
+  @IsString()
+  @IsOptional()
+  avatar?: string;
+
+  @IsString()
+  @IsOptional()
+  address?: string;
+
+  @IsString()
+  @IsPhoneNumber('NG')
+  @IsOptional()
+  phoneNumber?: string;
+
+  @IsString()
+  @IsOptional()
+  position?: string;
+
+  @IsOptional()
+  location?: LocationCoordinates;
+
+  @IsNumber()
+  @IsOptional()
+  height?: number;
+
+  @IsDateString()
+  @IsOptional()
+  dateOfBirth?: Date;
+}
 
 export class registerUserRequest {
   @IsString()
@@ -26,6 +69,10 @@ export class registerUserRequest {
   @IsString()
   @IsNotEmpty()
   nickname: string;
+
+  @IsString()
+  @IsOptional()
+  avatar?: string
 
   @IsString()
   @IsNotEmpty()

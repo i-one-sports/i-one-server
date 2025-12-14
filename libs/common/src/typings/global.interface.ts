@@ -43,6 +43,7 @@ export interface SetI {
 export enum UploadType {
   PITCH = 'pitches',
   USER_AVATAR = 'users',
+  AVATAR = 'avatars'
   // RESOURCE_AVATAR = 'resources'
 }
 
