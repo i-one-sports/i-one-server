@@ -10,6 +10,7 @@ import { UsersJwtStrategy } from '../auth/strategy/jwt.strategy';
 import { JwtService } from '@nestjs/jwt';
 import { StatsService } from 'src/stats/stats.service';
 import { StatsModule } from 'src/stats/stats.module';
+import { AwsService } from '@app/common/providers/aws.service';
 
 @Module({
   imports: [
@@ -25,7 +26,8 @@ import { StatsModule } from 'src/stats/stats.module';
     UsersJwtStrategy,
     JwtService,
     MailerService,
-      ],
+    AwsService,
+  ],
   exports: [UsersService],
 })
 export class UsersModule {}

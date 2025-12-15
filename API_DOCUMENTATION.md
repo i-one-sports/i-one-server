@@ -167,6 +167,46 @@ GET /user
 - **Status Code**: 200 OK
 - **Body**: User object similar to `/user/profile` response.
 
+### 5. Upload Avatar
+
+**Endpoint**: `POST /user/avatar`
+
+**Description**: Uploads an avatar image for the authenticated user. The file is uploaded to S3 storage and the user's profile is updated with the new avatar URL.
+
+**Headers**:
+- `Content-Type`: `multipart/form-data`
+- Requires authentication cookie (HTTP-only)
+
+**Form Data**:
+- `file`: File - Image file to upload (JPG, PNG, etc.)
+
+**Example Request** (multipart/form-data):
+```http
+POST /user/avatar
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary
+Cookie: Authentication=<jwt-cookie>
+
+------WebKitFormBoundary
+Content-Disposition: form-data; name="file"; filename="avatar.jpg"
+Content-Type: image/jpeg
+
+<binary data>
+------WebKitFormBoundary--
+```
+
+**Success Response**:
+- **Status Code**: 201 Created
+- **Body**:
+  ```json
+  {
+    "avatar": "https://your-s3-bucket.s3.amazonaws.com/users/507f1f77bcf86cd799439011/abc123.jpg"
+  }
+  ```
+
+**Error Responses**:
+- **401 Unauthorized**: User is not authenticated
+- **500 Internal Server Error**: Failed to upload file to S3
+
 ### 2. Forgot Password
 
 **Endpoint**: `POST /user/forget-password`

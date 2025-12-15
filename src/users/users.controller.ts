@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Patch, Post, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Patch, Post, Put, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { UsersService } from './users.service';
 import {
   ForgotPasswordDto,
@@ -8,18 +8,22 @@ import {
   VerifyOtpDto,
 } from './dto/user.dto';
 import { JwtAuthGuard } from 'src/auth/guards/jwt.guard';
-import { CurrentUser, User } from '@app/common';
+import { CurrentUser, UploadType, User } from '@app/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import * as multer from 'multer';
+import { AwsService } from '@app/common/providers/aws.service';
 
 @Controller('user')
 export class UsersController {
-  constructor(private usersService: UsersService) {}
+  constructor(
+    private usersService: UsersService,
+    private readonly awsService: AwsService,
+  ) {}
 
   @Post('register')
   async register(@Body() request: registerUserRequest) {
     return this.usersService.registerUser(request);
   }
-
- 
 
   @Post('forget-password')
   async forgetPassword(@Body() data: ForgotPasswordDto) {
@@ -34,6 +38,30 @@ export class UsersController {
   @Put('reset-password')
   async resetPassword(@Body() data: ResetPasswordDto) {
     return this.usersService.resetPassword(data);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('avatar')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: multer.memoryStorage(),
+    }),
+  )
+  async uploadAvatar(
+    @CurrentUser() user: User,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    const avatarUrl = await this.awsService.upload(
+      file,
+      UploadType.USER_AVATAR,
+      user._id.toString(),
+    );
+
+    await this.usersService.updateProfile(user._id.toString(), {
+      avatar: avatarUrl,
+    });
+
+    return { avatar: avatarUrl };
   }
 
   @UseGuards(JwtAuthGuard)
