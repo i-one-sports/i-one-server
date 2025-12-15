@@ -39,6 +39,7 @@ interface registerUserRequest {
   nickname: string;
   password: string;
   address: string;
+  avatar?: string;
   phoneNumber: string; // expects NG phone format
   position: string; // e.g., 'MF', 'ST', 'CB', 'GK'
   location: { type: 'Point'; coordinates: [number, number] };
