@@ -7,29 +7,6 @@ import { Types } from 'mongoose';
 
 @Injectable()
 export class SetsService {
-  private readonly setNames = [
-    'Team 7',
-    'Royal Knights',
-    'Bouillon Fc',
-    'Sepulcher FC',
-    'Akatsuki',
-    'Amapiano FC',
-    'Grey Fc',
-    'Dynasty',
-    'Elon Musk Fc',
-    'J-boys FC',
-    'Sporty9ja',
-    'Wizkidfc',
-    '30BG',
-    'Valdomites',
-    'OV-Hoes',
-    'Outsiders',
-    'Celeboys',
-    'Azonto FC',
-    'Akara warriors',
-    'Egusi FC',
-  ];
-
   constructor(
     private readonly setRepository: SetRepository,
     private readonly sessionRepository: SessionRepository,
@@ -69,21 +46,6 @@ export class SetsService {
         );
       }
 
-      const existingSets = await this.setRepository.find({
-        session: sessionId,
-      });
-      const usedNames = existingSets.map((set) => set.name);
-      const availableNames = this.setNames.filter(
-        (name) => !usedNames.includes(name),
-      );
-
-      if (availableNames.length < session.setNumber) {
-        throw new CustomHttpException(
-          'Not enough unique names available for the session',
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-
       const count = await this.setRepository.findRaw().countDocuments({ session: sessionId });
 
       if (count > 0) {
@@ -92,16 +54,12 @@ export class SetsService {
 
       const setData = Array(session.setNumber)
         .fill(null)
-        .map(() => {
-          const randomIndex = Math.floor(Math.random() * availableNames.length);
-          const randomName = availableNames.splice(randomIndex, 1)[0];
-          return {
-            _id: new Types.ObjectId(),
-            session: sessionId,
-            name: randomName,
-            players: [],
-          };
-        });
+        .map((_, index) => ({
+          _id: new Types.ObjectId(),
+          session: sessionId,
+          name: `Team ${index + 1}`,
+          players: [],
+        }));
 
       const createdSets = await this.setRepository.insertMany(setData);
       await this.allocateMembers(session, createdSets);
