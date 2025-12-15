@@ -39,6 +39,7 @@ interface registerUserRequest {
   nickname: string;
   password: string;
   address: string;
+  avatar?: string;
   phoneNumber: string; // expects NG phone format
   position: string; // e.g., 'MF', 'ST', 'CB', 'GK'
   location: { type: 'Point'; coordinates: [number, number] };
@@ -165,6 +166,48 @@ GET /user
 **Success Response**:
 - **Status Code**: 200 OK
 - **Body**: User object similar to `/user/profile` response.
+
+### 5. Upload Avatar
+
+**Endpoint**: `POST /user/avatar`
+
+**Description**: Uploads an avatar image. This endpoint does not require authentication and is intended to be used during the registration flow. The returned avatar URL can be included in the registration request.
+
+**Headers**:
+- `Content-Type`: `multipart/form-data`
+
+**Form Data**:
+- `file`: File - Image file to upload (JPG, PNG, etc.)
+
+**Example Request** (multipart/form-data):
+```http
+POST /user/avatar
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary
+
+------WebKitFormBoundary
+Content-Disposition: form-data; name="file"; filename="avatar.jpg"
+Content-Type: image/jpeg
+
+<binary data>
+------WebKitFormBoundary--
+```
+
+**Success Response**:
+- **Status Code**: 201 Created
+- **Body**:
+  ```json
+  {
+    "avatar": "https://your-s3-bucket.s3.amazonaws.com/users/1702656000000/abc123.jpg"
+  }
+  ```
+
+**Error Responses**:
+- **500 Internal Server Error**: Failed to upload file to S3
+
+**Usage in Registration Flow**:
+1. Upload avatar using this endpoint
+2. Receive the avatar URL in response
+3. Include the avatar URL in the `POST /user/register` request body
 
 ### 2. Forgot Password
 

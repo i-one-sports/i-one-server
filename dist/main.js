@@ -5181,7 +5181,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
-var _a, _b, _c, _d, _e, _f, _g, _h, _j;
+var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.UsersController = void 0;
 const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
@@ -5189,9 +5189,13 @@ const users_service_1 = __webpack_require__(/*! ./users.service */ "./src/users/
 const user_dto_1 = __webpack_require__(/*! ./dto/user.dto */ "./src/users/dto/user.dto.ts");
 const jwt_guard_1 = __webpack_require__(/*! src/auth/guards/jwt.guard */ "./src/auth/guards/jwt.guard.ts");
 const common_2 = __webpack_require__(/*! @app/common */ "./libs/common/src/index.ts");
+const platform_express_1 = __webpack_require__(/*! @nestjs/platform-express */ "@nestjs/platform-express");
+const multer = __webpack_require__(/*! multer */ "multer");
+const aws_service_1 = __webpack_require__(/*! @app/common/providers/aws.service */ "./libs/common/src/providers/aws.service.ts");
 let UsersController = class UsersController {
-    constructor(usersService) {
+    constructor(usersService, awsService) {
         this.usersService = usersService;
+        this.awsService = awsService;
     }
     async register(request) {
         return this.usersService.registerUser(request);
@@ -5204,6 +5208,10 @@ let UsersController = class UsersController {
     }
     async resetPassword(data) {
         return this.usersService.resetPassword(data);
+    }
+    async uploadAvatar(file) {
+        const avatarUrl = await this.awsService.upload(file, common_2.UploadType.USER_AVATAR);
+        return { avatar: avatarUrl };
     }
     async getUser(user) {
         return this.usersService.getUser(user._id.toString());
@@ -5220,36 +5228,46 @@ __decorate([
     (0, common_1.Post)('register'),
     __param(0, (0, common_1.Body)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [typeof (_b = typeof user_dto_1.registerUserRequest !== "undefined" && user_dto_1.registerUserRequest) === "function" ? _b : Object]),
+    __metadata("design:paramtypes", [typeof (_c = typeof user_dto_1.registerUserRequest !== "undefined" && user_dto_1.registerUserRequest) === "function" ? _c : Object]),
     __metadata("design:returntype", Promise)
 ], UsersController.prototype, "register", null);
 __decorate([
     (0, common_1.Post)('forget-password'),
     __param(0, (0, common_1.Body)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [typeof (_c = typeof user_dto_1.ForgotPasswordDto !== "undefined" && user_dto_1.ForgotPasswordDto) === "function" ? _c : Object]),
+    __metadata("design:paramtypes", [typeof (_d = typeof user_dto_1.ForgotPasswordDto !== "undefined" && user_dto_1.ForgotPasswordDto) === "function" ? _d : Object]),
     __metadata("design:returntype", Promise)
 ], UsersController.prototype, "forgetPassword", null);
 __decorate([
     (0, common_1.Post)('verify-otp'),
     __param(0, (0, common_1.Body)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [typeof (_d = typeof user_dto_1.VerifyOtpDto !== "undefined" && user_dto_1.VerifyOtpDto) === "function" ? _d : Object]),
+    __metadata("design:paramtypes", [typeof (_e = typeof user_dto_1.VerifyOtpDto !== "undefined" && user_dto_1.VerifyOtpDto) === "function" ? _e : Object]),
     __metadata("design:returntype", Promise)
 ], UsersController.prototype, "verifyOtp", null);
 __decorate([
     (0, common_1.Put)('reset-password'),
     __param(0, (0, common_1.Body)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [typeof (_e = typeof user_dto_1.ResetPasswordDto !== "undefined" && user_dto_1.ResetPasswordDto) === "function" ? _e : Object]),
+    __metadata("design:paramtypes", [typeof (_f = typeof user_dto_1.ResetPasswordDto !== "undefined" && user_dto_1.ResetPasswordDto) === "function" ? _f : Object]),
     __metadata("design:returntype", Promise)
 ], UsersController.prototype, "resetPassword", null);
+__decorate([
+    (0, common_1.Post)('avatar'),
+    (0, common_1.UseInterceptors)((0, platform_express_1.FileInterceptor)('file', {
+        storage: multer.memoryStorage(),
+    })),
+    __param(0, (0, common_1.UploadedFile)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [typeof (_h = typeof Express !== "undefined" && (_g = Express.Multer) !== void 0 && _g.File) === "function" ? _h : Object]),
+    __metadata("design:returntype", Promise)
+], UsersController.prototype, "uploadAvatar", null);
 __decorate([
     (0, common_1.UseGuards)(jwt_guard_1.JwtAuthGuard),
     (0, common_1.Get)(),
     __param(0, (0, common_2.CurrentUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [typeof (_f = typeof common_2.User !== "undefined" && common_2.User) === "function" ? _f : Object]),
+    __metadata("design:paramtypes", [typeof (_j = typeof common_2.User !== "undefined" && common_2.User) === "function" ? _j : Object]),
     __metadata("design:returntype", Promise)
 ], UsersController.prototype, "getUser", null);
 __decorate([
@@ -5257,7 +5275,7 @@ __decorate([
     (0, common_1.Get)('profile'),
     __param(0, (0, common_2.CurrentUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [typeof (_g = typeof common_2.User !== "undefined" && common_2.User) === "function" ? _g : Object]),
+    __metadata("design:paramtypes", [typeof (_k = typeof common_2.User !== "undefined" && common_2.User) === "function" ? _k : Object]),
     __metadata("design:returntype", Promise)
 ], UsersController.prototype, "getProfile", null);
 __decorate([
@@ -5266,12 +5284,12 @@ __decorate([
     __param(0, (0, common_2.CurrentUser)()),
     __param(1, (0, common_1.Body)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [typeof (_h = typeof common_2.User !== "undefined" && common_2.User) === "function" ? _h : Object, typeof (_j = typeof user_dto_1.UpdateUserDto !== "undefined" && user_dto_1.UpdateUserDto) === "function" ? _j : Object]),
+    __metadata("design:paramtypes", [typeof (_l = typeof common_2.User !== "undefined" && common_2.User) === "function" ? _l : Object, typeof (_m = typeof user_dto_1.UpdateUserDto !== "undefined" && user_dto_1.UpdateUserDto) === "function" ? _m : Object]),
     __metadata("design:returntype", Promise)
 ], UsersController.prototype, "updateProfile", null);
 exports.UsersController = UsersController = __decorate([
     (0, common_1.Controller)('user'),
-    __metadata("design:paramtypes", [typeof (_a = typeof users_service_1.UsersService !== "undefined" && users_service_1.UsersService) === "function" ? _a : Object])
+    __metadata("design:paramtypes", [typeof (_a = typeof users_service_1.UsersService !== "undefined" && users_service_1.UsersService) === "function" ? _a : Object, typeof (_b = typeof aws_service_1.AwsService !== "undefined" && aws_service_1.AwsService) === "function" ? _b : Object])
 ], UsersController);
 
 
@@ -5303,6 +5321,7 @@ const local_strategy_1 = __webpack_require__(/*! ../auth/strategy/local.strategy
 const jwt_strategy_1 = __webpack_require__(/*! ../auth/strategy/jwt.strategy */ "./src/auth/strategy/jwt.strategy.ts");
 const jwt_1 = __webpack_require__(/*! @nestjs/jwt */ "@nestjs/jwt");
 const stats_module_1 = __webpack_require__(/*! src/stats/stats.module */ "./src/stats/stats.module.ts");
+const aws_service_1 = __webpack_require__(/*! @app/common/providers/aws.service */ "./libs/common/src/providers/aws.service.ts");
 let UsersModule = class UsersModule {
 };
 exports.UsersModule = UsersModule;
@@ -5321,6 +5340,7 @@ exports.UsersModule = UsersModule = __decorate([
             jwt_strategy_1.UsersJwtStrategy,
             jwt_1.JwtService,
             common_2.MailerService,
+            aws_service_1.AwsService,
         ],
         exports: [users_service_1.UsersService],
     })
