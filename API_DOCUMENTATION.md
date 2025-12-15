@@ -171,11 +171,10 @@ GET /user
 
 **Endpoint**: `POST /user/avatar`
 
-**Description**: Uploads an avatar image for the authenticated user. The file is uploaded to S3 storage and the user's profile is updated with the new avatar URL.
+**Description**: Uploads an avatar image. This endpoint does not require authentication and is intended to be used during the registration flow. The returned avatar URL can be included in the registration request.
 
 **Headers**:
 - `Content-Type`: `multipart/form-data`
-- Requires authentication cookie (HTTP-only)
 
 **Form Data**:
 - `file`: File - Image file to upload (JPG, PNG, etc.)
@@ -184,7 +183,6 @@ GET /user
 ```http
 POST /user/avatar
 Content-Type: multipart/form-data; boundary=----WebKitFormBoundary
-Cookie: Authentication=<jwt-cookie>
 
 ------WebKitFormBoundary
 Content-Disposition: form-data; name="file"; filename="avatar.jpg"
@@ -199,13 +197,17 @@ Content-Type: image/jpeg
 - **Body**:
   ```json
   {
-    "avatar": "https://your-s3-bucket.s3.amazonaws.com/users/507f1f77bcf86cd799439011/abc123.jpg"
+    "avatar": "https://your-s3-bucket.s3.amazonaws.com/users/1702656000000/abc123.jpg"
   }
   ```
 
 **Error Responses**:
-- **401 Unauthorized**: User is not authenticated
 - **500 Internal Server Error**: Failed to upload file to S3
+
+**Usage in Registration Flow**:
+1. Upload avatar using this endpoint
+2. Receive the avatar URL in response
+3. Include the avatar URL in the `POST /user/register` request body
 
 ### 2. Forgot Password
 

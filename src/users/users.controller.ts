@@ -40,7 +40,6 @@ export class UsersController {
     return this.usersService.resetPassword(data);
   }
 
-  @UseGuards(JwtAuthGuard)
   @Post('avatar')
   @UseInterceptors(
     FileInterceptor('file', {
@@ -48,18 +47,12 @@ export class UsersController {
     }),
   )
   async uploadAvatar(
-    @CurrentUser() user: User,
     @UploadedFile() file: Express.Multer.File,
   ) {
     const avatarUrl = await this.awsService.upload(
       file,
       UploadType.USER_AVATAR,
-      user._id.toString(),
     );
-
-    await this.usersService.updateProfile(user._id.toString(), {
-      avatar: avatarUrl,
-    });
 
     return { avatar: avatarUrl };
   }

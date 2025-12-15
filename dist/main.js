@@ -5181,7 +5181,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
-var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o;
+var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.UsersController = void 0;
 const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
@@ -5209,11 +5209,8 @@ let UsersController = class UsersController {
     async resetPassword(data) {
         return this.usersService.resetPassword(data);
     }
-    async uploadAvatar(user, file) {
-        const avatarUrl = await this.awsService.upload(file, common_2.UploadType.USER_AVATAR, user._id.toString());
-        await this.usersService.updateProfile(user._id.toString(), {
-            avatar: avatarUrl,
-        });
+    async uploadAvatar(file) {
+        const avatarUrl = await this.awsService.upload(file, common_2.UploadType.USER_AVATAR);
         return { avatar: avatarUrl };
     }
     async getUser(user) {
@@ -5256,15 +5253,13 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], UsersController.prototype, "resetPassword", null);
 __decorate([
-    (0, common_1.UseGuards)(jwt_guard_1.JwtAuthGuard),
     (0, common_1.Post)('avatar'),
     (0, common_1.UseInterceptors)((0, platform_express_1.FileInterceptor)('file', {
         storage: multer.memoryStorage(),
     })),
-    __param(0, (0, common_2.CurrentUser)()),
-    __param(1, (0, common_1.UploadedFile)()),
+    __param(0, (0, common_1.UploadedFile)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [typeof (_g = typeof common_2.User !== "undefined" && common_2.User) === "function" ? _g : Object, typeof (_j = typeof Express !== "undefined" && (_h = Express.Multer) !== void 0 && _h.File) === "function" ? _j : Object]),
+    __metadata("design:paramtypes", [typeof (_h = typeof Express !== "undefined" && (_g = Express.Multer) !== void 0 && _g.File) === "function" ? _h : Object]),
     __metadata("design:returntype", Promise)
 ], UsersController.prototype, "uploadAvatar", null);
 __decorate([
@@ -5272,7 +5267,7 @@ __decorate([
     (0, common_1.Get)(),
     __param(0, (0, common_2.CurrentUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [typeof (_k = typeof common_2.User !== "undefined" && common_2.User) === "function" ? _k : Object]),
+    __metadata("design:paramtypes", [typeof (_j = typeof common_2.User !== "undefined" && common_2.User) === "function" ? _j : Object]),
     __metadata("design:returntype", Promise)
 ], UsersController.prototype, "getUser", null);
 __decorate([
@@ -5280,7 +5275,7 @@ __decorate([
     (0, common_1.Get)('profile'),
     __param(0, (0, common_2.CurrentUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [typeof (_l = typeof common_2.User !== "undefined" && common_2.User) === "function" ? _l : Object]),
+    __metadata("design:paramtypes", [typeof (_k = typeof common_2.User !== "undefined" && common_2.User) === "function" ? _k : Object]),
     __metadata("design:returntype", Promise)
 ], UsersController.prototype, "getProfile", null);
 __decorate([
@@ -5289,7 +5284,7 @@ __decorate([
     __param(0, (0, common_2.CurrentUser)()),
     __param(1, (0, common_1.Body)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [typeof (_m = typeof common_2.User !== "undefined" && common_2.User) === "function" ? _m : Object, typeof (_o = typeof user_dto_1.UpdateUserDto !== "undefined" && user_dto_1.UpdateUserDto) === "function" ? _o : Object]),
+    __metadata("design:paramtypes", [typeof (_l = typeof common_2.User !== "undefined" && common_2.User) === "function" ? _l : Object, typeof (_m = typeof user_dto_1.UpdateUserDto !== "undefined" && user_dto_1.UpdateUserDto) === "function" ? _m : Object]),
     __metadata("design:returntype", Promise)
 ], UsersController.prototype, "updateProfile", null);
 exports.UsersController = UsersController = __decorate([
