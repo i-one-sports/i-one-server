@@ -4,7 +4,7 @@ import { LocationRepository } from '../locations/locations.repository';
 import { MatchRepository } from '../matches/matches.repository';
 import { UserRepository } from '../users/users.repository';
 import { CustomHttpException, Session, SessionI, User } from '@app/common';
-import { UpdateQuery, FilterQuery } from 'mongoose';
+import { UpdateQuery, FilterQuery, Types } from 'mongoose';
 import { createSessionRequest } from './dto/sessions.dto';
 import { MATCH_TYPE } from '@app/common';
 import { CaptainsService } from 'src/captains/captains.service';
@@ -534,6 +534,30 @@ export class SessionsService {
       console.error('Error updating sessions:', error);
       throw new CustomHttpException(
         'Error updating sessions: ' + (error?.message || error),
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  async isCaptain(userId: string, sessionId: string): Promise<boolean> {
+    try {
+      const session: Session = await this.sessionRepository.findOne({
+        _id: new Types.ObjectId(sessionId),
+      });
+
+      if (!session) {
+        return false;
+      }
+      const sessionCaptainId = session.captain?.toString();
+
+      if (sessionCaptainId === userId) {
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Error checking captain status:', error);
+      throw new CustomHttpException(
+        'Error checking captain status: ' + (error?.message || error),
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
