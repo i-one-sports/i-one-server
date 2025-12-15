@@ -1165,6 +1165,10 @@ __decorate([
     __metadata("design:type", String)
 ], User.prototype, "nickname", void 0);
 __decorate([
+    (0, mongoose_1.Prop)(String),
+    __metadata("design:type", String)
+], User.prototype, "avatar", void 0);
+__decorate([
     (0, mongoose_1.Prop)(),
     __metadata("design:type", String)
 ], User.prototype, "password", void 0);
@@ -1263,6 +1267,7 @@ var UploadType;
 (function (UploadType) {
     UploadType["PITCH"] = "pitches";
     UploadType["USER_AVATAR"] = "users";
+    UploadType["AVATAR"] = "avatars";
 })(UploadType || (exports.UploadType = UploadType = {}));
 var TournamentStatus;
 (function (TournamentStatus) {
@@ -3389,6 +3394,7 @@ const locations_repository_1 = __webpack_require__(/*! ../locations/locations.re
 const matches_repository_1 = __webpack_require__(/*! ../matches/matches.repository */ "./src/matches/matches.repository.ts");
 const users_repository_1 = __webpack_require__(/*! ../users/users.repository */ "./src/users/users.repository.ts");
 const common_2 = __webpack_require__(/*! @app/common */ "./libs/common/src/index.ts");
+const mongoose_1 = __webpack_require__(/*! mongoose */ "mongoose");
 const common_3 = __webpack_require__(/*! @app/common */ "./libs/common/src/index.ts");
 const captains_service_1 = __webpack_require__(/*! src/captains/captains.service */ "./src/captains/captains.service.ts");
 let SessionsService = class SessionsService {
@@ -3736,6 +3742,25 @@ let SessionsService = class SessionsService {
         catch (error) {
             console.error('Error updating sessions:', error);
             throw new common_2.CustomHttpException('Error updating sessions: ' + (error?.message || error), common_1.HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+    async isCaptain(userId, sessionId) {
+        try {
+            const session = await this.sessionRepository.findOne({
+                _id: new mongoose_1.Types.ObjectId(sessionId),
+            });
+            if (!session) {
+                return false;
+            }
+            const sessionCaptainId = session.captain?.toString();
+            if (sessionCaptainId === userId) {
+                return true;
+            }
+            return false;
+        }
+        catch (error) {
+            console.error('Error checking captain status:', error);
+            throw new common_2.CustomHttpException('Error checking captain status: ' + (error?.message || error), common_1.HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
 };
@@ -4969,11 +4994,64 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
-var _a, _b;
+var _a, _b, _c, _d;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.ResetPasswordDto = exports.VerifyOtpDto = exports.ForgotPasswordDto = exports.registerUserRequest = void 0;
+exports.ResetPasswordDto = exports.VerifyOtpDto = exports.ForgotPasswordDto = exports.registerUserRequest = exports.UpdateUserDto = void 0;
 const common_1 = __webpack_require__(/*! @app/common */ "./libs/common/src/index.ts");
 const class_validator_1 = __webpack_require__(/*! class-validator */ "class-validator");
+class UpdateUserDto {
+}
+exports.UpdateUserDto = UpdateUserDto;
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], UpdateUserDto.prototype, "firstName", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], UpdateUserDto.prototype, "lastName", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], UpdateUserDto.prototype, "nickname", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], UpdateUserDto.prototype, "avatar", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], UpdateUserDto.prototype, "address", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsPhoneNumber)('NG'),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], UpdateUserDto.prototype, "phoneNumber", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], UpdateUserDto.prototype, "position", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", typeof (_a = typeof common_1.LocationCoordinates !== "undefined" && common_1.LocationCoordinates) === "function" ? _a : Object)
+], UpdateUserDto.prototype, "location", void 0);
+__decorate([
+    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", Number)
+], UpdateUserDto.prototype, "height", void 0);
+__decorate([
+    (0, class_validator_1.IsDateString)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", typeof (_b = typeof Date !== "undefined" && Date) === "function" ? _b : Object)
+], UpdateUserDto.prototype, "dateOfBirth", void 0);
 class registerUserRequest {
 }
 exports.registerUserRequest = registerUserRequest;
@@ -4999,6 +5077,11 @@ __decorate([
 ], registerUserRequest.prototype, "nickname", void 0);
 __decorate([
     (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], registerUserRequest.prototype, "avatar", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
     (0, class_validator_1.IsNotEmpty)(),
     __metadata("design:type", String)
 ], registerUserRequest.prototype, "password", void 0);
@@ -5020,7 +5103,7 @@ __decorate([
 ], registerUserRequest.prototype, "position", void 0);
 __decorate([
     (0, class_validator_1.IsNotEmpty)(),
-    __metadata("design:type", typeof (_a = typeof common_1.LocationCoordinates !== "undefined" && common_1.LocationCoordinates) === "function" ? _a : Object)
+    __metadata("design:type", typeof (_c = typeof common_1.LocationCoordinates !== "undefined" && common_1.LocationCoordinates) === "function" ? _c : Object)
 ], registerUserRequest.prototype, "location", void 0);
 __decorate([
     (0, class_validator_1.IsBoolean)(),
@@ -5035,7 +5118,7 @@ __decorate([
 __decorate([
     (0, class_validator_1.IsDateString)(),
     (0, class_validator_1.IsNotEmpty)(),
-    __metadata("design:type", typeof (_b = typeof Date !== "undefined" && Date) === "function" ? _b : Object)
+    __metadata("design:type", typeof (_d = typeof Date !== "undefined" && Date) === "function" ? _d : Object)
 ], registerUserRequest.prototype, "dateOfBirth", void 0);
 class ForgotPasswordDto {
 }
@@ -5098,7 +5181,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
-var _a, _b, _c, _d, _e, _f, _g;
+var _a, _b, _c, _d, _e, _f, _g, _h, _j;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.UsersController = void 0;
 const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
@@ -5127,6 +5210,9 @@ let UsersController = class UsersController {
     }
     async getProfile(user) {
         return this.usersService.getProfile(user._id.toString());
+    }
+    async updateProfile(user, data) {
+        return this.usersService.updateProfile(user._id.toString(), data);
     }
 };
 exports.UsersController = UsersController;
@@ -5174,6 +5260,15 @@ __decorate([
     __metadata("design:paramtypes", [typeof (_g = typeof common_2.User !== "undefined" && common_2.User) === "function" ? _g : Object]),
     __metadata("design:returntype", Promise)
 ], UsersController.prototype, "getProfile", null);
+__decorate([
+    (0, common_1.UseGuards)(jwt_guard_1.JwtAuthGuard),
+    (0, common_1.Patch)('profile'),
+    __param(0, (0, common_2.CurrentUser)()),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [typeof (_h = typeof common_2.User !== "undefined" && common_2.User) === "function" ? _h : Object, typeof (_j = typeof user_dto_1.UpdateUserDto !== "undefined" && user_dto_1.UpdateUserDto) === "function" ? _j : Object]),
+    __metadata("design:returntype", Promise)
+], UsersController.prototype, "updateProfile", null);
 exports.UsersController = UsersController = __decorate([
     (0, common_1.Controller)('user'),
     __metadata("design:paramtypes", [typeof (_a = typeof users_service_1.UsersService !== "undefined" && users_service_1.UsersService) === "function" ? _a : Object])
@@ -5310,7 +5405,7 @@ let UsersService = UsersService_1 = class UsersService {
         this.statsService = statsService;
         this.logger = new common_1.Logger(UsersService_1.name);
     }
-    async registerUser({ firstName, lastName, nickname, email, password, phoneNumber, address, position, location, isOwner, height, dateOfBirth, }) {
+    async registerUser({ firstName, lastName, nickname, email, password, phoneNumber, avatar, address, position, location, isOwner, height, dateOfBirth, }) {
         const formattedPhone = (0, common_2.internationalisePhoneNumber)(phoneNumber);
         await this.checkExistingUser(phoneNumber, email, nickname);
         const payload = {
@@ -5326,6 +5421,7 @@ let UsersService = UsersService_1 = class UsersService {
             nickname,
             height,
             dateOfBirth,
+            avatar
         };
         try {
             const user = await this.usersRepository.create(payload);
@@ -5438,6 +5534,26 @@ let UsersService = UsersService_1 = class UsersService {
                 throw new common_2.CustomHttpException(error, common_1.HttpStatus.INTERNAL_SERVER_ERROR);
             }
         }
+    }
+    async updateProfile(id, data) {
+        const user = await this.usersRepository.findOne({ _id: id });
+        if (!user) {
+            throw new common_2.CustomHttpException('User not found', common_1.HttpStatus.NOT_FOUND);
+        }
+        if (data.phoneNumber) {
+            data.phoneNumber = (0, common_2.internationalisePhoneNumber)(data.phoneNumber);
+        }
+        if (data.nickname && data.nickname !== user.nickname) {
+            const existingNickname = await this.usersRepository.findOne({
+                nickname: data.nickname,
+            });
+            if (existingNickname) {
+                throw new common_2.CustomHttpException('Nickname already exists', common_1.HttpStatus.CONFLICT);
+            }
+        }
+        const updatedUser = await this.usersRepository.findOneAndUpdate({ _id: id }, data);
+        updatedUser.password = '';
+        return updatedUser;
     }
     async validateUser(email, password) {
         const user = await this.usersRepository.findOne({
