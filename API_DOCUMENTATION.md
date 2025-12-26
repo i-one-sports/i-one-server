@@ -41,7 +41,7 @@ interface registerUserRequest {
   address: string;
   avatar?: string;
   phoneNumber: string; // expects NG phone format
-  position: string; // e.g., 'MF', 'ST', 'CB', 'GK'
+  position: PLAYER_POSITION; // 'DF' (Defender), 'MF' (Midfielder), 'ST' (Striker)
   location: { type: 'Point'; coordinates: [number, number] };
   isOwner: boolean;
   height: number;

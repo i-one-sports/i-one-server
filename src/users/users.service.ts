@@ -67,7 +67,8 @@ export class UsersService {
     try {
       const user = await this.usersRepository.create(payload);
       await this.statsService.initializeStat(user._id.toString());
-      await this.sendWelcomeEmail(user);
+      // Send welcome email asynchronously to avoid blocking the response
+      this.sendWelcomeEmail(user).catch(err => console.error('Welcome email failed:', err));
       return user;
     } catch (error) {
       throw new CustomHttpException(
