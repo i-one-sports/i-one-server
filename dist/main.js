@@ -178,6 +178,7 @@ __exportStar(__webpack_require__(/*! ./filters/http-exception.filter copy */ "./
 __exportStar(__webpack_require__(/*! ./utils/nodemailer */ "./libs/common/src/utils/nodemailer.ts"), exports);
 __exportStar(__webpack_require__(/*! ./utils/phone.number */ "./libs/common/src/utils/phone.number.ts"), exports);
 __exportStar(__webpack_require__(/*! ./utils/random */ "./libs/common/src/utils/random.ts"), exports);
+__exportStar(__webpack_require__(/*! ./utils/logging.interceptor */ "./libs/common/src/utils/logging.interceptor.ts"), exports);
 
 
 /***/ }),
@@ -1294,6 +1295,50 @@ var TournamentFormat;
 
 /***/ }),
 
+/***/ "./libs/common/src/utils/logging.interceptor.ts":
+/*!******************************************************!*\
+  !*** ./libs/common/src/utils/logging.interceptor.ts ***!
+  \******************************************************/
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.LoggingInterceptor = void 0;
+const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
+const operators_1 = __webpack_require__(/*! rxjs/operators */ "rxjs/operators");
+let LoggingInterceptor = class LoggingInterceptor {
+    constructor() {
+        this.logger = new common_1.Logger('HTTP');
+    }
+    intercept(context, next) {
+        const request = context.switchToHttp().getRequest();
+        const response = context.switchToHttp().getResponse();
+        const { method, url } = request;
+        const userAgent = request.get('User-Agent') || '';
+        const now = Date.now();
+        this.logger.log(`[${method}] ${url} - Start - User-Agent: ${userAgent}`);
+        return next.handle().pipe((0, operators_1.tap)((data) => {
+            const { statusCode } = response;
+            const contentLength = response.get('Content-Length') || 'unknown';
+            const duration = Date.now() - now;
+            this.logger.log(`[${method}] ${url} - ${statusCode} - ${contentLength} bytes - ${duration}ms`);
+        }));
+    }
+};
+exports.LoggingInterceptor = LoggingInterceptor;
+exports.LoggingInterceptor = LoggingInterceptor = __decorate([
+    (0, common_1.Injectable)()
+], LoggingInterceptor);
+
+
+/***/ }),
+
 /***/ "./libs/common/src/utils/nodemailer.ts":
 /*!*********************************************!*\
   !*** ./libs/common/src/utils/nodemailer.ts ***!
@@ -1310,15 +1355,17 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
+var MailerService_1;
 var _a;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.MailerService = void 0;
 const nodemailer = __webpack_require__(/*! nodemailer */ "nodemailer");
 const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
 const config_1 = __webpack_require__(/*! @nestjs/config */ "@nestjs/config");
-let MailerService = class MailerService {
+let MailerService = MailerService_1 = class MailerService {
     constructor(configService) {
         this.configService = configService;
+        this.logger = new common_1.Logger(MailerService_1.name);
         this.transporter = nodemailer.createTransport({
             host: this.configService.get('MAIL_HOST'),
             port: this.configService.get('MAIL_PORT'),
@@ -1330,6 +1377,7 @@ let MailerService = class MailerService {
         });
     }
     async sendMail(to, subject, text, html) {
+        this.logger.log(`Sending email to ${to} with subject: ${subject}`);
         try {
             await this.transporter.sendMail({
                 from: this.configService.get('MAIL_FROM'),
@@ -1338,14 +1386,15 @@ let MailerService = class MailerService {
                 text,
                 html,
             });
+            this.logger.log(`Email sent successfully to ${to}`);
         }
         catch (error) {
-            console.error(`Email failed to send: ${error.message}`);
+            this.logger.error(`Email failed to send to ${to}: ${error.message}`);
         }
     }
 };
 exports.MailerService = MailerService;
-exports.MailerService = MailerService = __decorate([
+exports.MailerService = MailerService = MailerService_1 = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [typeof (_a = typeof config_1.ConfigService !== "undefined" && config_1.ConfigService) === "function" ? _a : Object])
 ], MailerService);
@@ -1496,6 +1545,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.AppModule = void 0;
 const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
+const core_1 = __webpack_require__(/*! @nestjs/core */ "@nestjs/core");
 const app_controller_1 = __webpack_require__(/*! ./app.controller */ "./src/app.controller.ts");
 const app_service_1 = __webpack_require__(/*! ./app.service */ "./src/app.service.ts");
 const users_module_1 = __webpack_require__(/*! ./users/users.module */ "./src/users/users.module.ts");
@@ -1512,6 +1562,7 @@ const schedule_1 = __webpack_require__(/*! @nestjs/schedule */ "@nestjs/schedule
 const tournaments_module_1 = __webpack_require__(/*! ./tournaments/tournaments.module */ "./src/tournaments/tournaments.module.ts");
 const stats_module_1 = __webpack_require__(/*! ./stats/stats.module */ "./src/stats/stats.module.ts");
 const captains_module_1 = __webpack_require__(/*! ./captains/captains.module */ "./src/captains/captains.module.ts");
+const common_2 = __webpack_require__(/*! @app/common */ "./libs/common/src/index.ts");
 let RootCronService = class RootCronService {
     handleCron() {
     }
@@ -1559,7 +1610,14 @@ exports.AppModule = AppModule = __decorate([
             captains_module_1.CaptainsModule,
         ],
         controllers: [app_controller_1.AppController],
-        providers: [app_service_1.AppService, RootCronService],
+        providers: [
+            app_service_1.AppService,
+            RootCronService,
+            {
+                provide: core_1.APP_INTERCEPTOR,
+                useClass: common_2.LoggingInterceptor,
+            },
+        ],
     })
 ], AppModule);
 
@@ -4303,15 +4361,17 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
+var StatsService_1;
 var _a;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.StatsService = void 0;
 const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
 const stats_repository_1 = __webpack_require__(/*! ./stats.repository */ "./src/stats/stats.repository.ts");
 const common_2 = __webpack_require__(/*! @app/common */ "./libs/common/src/index.ts");
-let StatsService = class StatsService {
+let StatsService = StatsService_1 = class StatsService {
     constructor(statsRepository) {
         this.statsRepository = statsRepository;
+        this.logger = new common_1.Logger(StatsService_1.name);
     }
     async overallUserStats(userId) {
         try {
@@ -4330,6 +4390,7 @@ let StatsService = class StatsService {
         }
     }
     async initializeStat(userId) {
+        this.logger.log(`Initializing stats for user: ${userId}`);
         try {
             const startDate = new Date().getFullYear();
             const endDate = startDate + 1;
@@ -4341,9 +4402,11 @@ let StatsService = class StatsService {
                 userId,
                 ...dateData,
             });
+            this.logger.log(`Stats initialized successfully for user: ${userId}`);
             return stats;
         }
         catch (error) {
+            this.logger.error(`Failed to initialize stats for user ${userId}: ${error.message}`);
             throw new common_2.CustomHttpException(`cannot initialise user stats ${JSON.stringify(error)}`, common_1.HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
@@ -4367,7 +4430,7 @@ let StatsService = class StatsService {
     }
 };
 exports.StatsService = StatsService;
-exports.StatsService = StatsService = __decorate([
+exports.StatsService = StatsService = StatsService_1 = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [typeof (_a = typeof stats_repository_1.StatsRepository !== "undefined" && stats_repository_1.StatsRepository) === "function" ? _a : Object])
 ], StatsService);
@@ -5399,6 +5462,7 @@ let UsersService = UsersService_1 = class UsersService {
         this.logger = new common_1.Logger(UsersService_1.name);
     }
     async registerUser({ firstName, lastName, nickname, email, password, phoneNumber, avatar, address, position, location, isOwner, height, dateOfBirth, }) {
+        this.logger.log(`Registering user: ${email} (${nickname})`);
         const formattedPhone = (0, common_2.internationalisePhoneNumber)(phoneNumber);
         await this.checkExistingUser(phoneNumber, email, nickname);
         const payload = {
@@ -5420,9 +5484,11 @@ let UsersService = UsersService_1 = class UsersService {
             const user = await this.usersRepository.create(payload);
             await this.statsService.initializeStat(user._id.toString());
             this.sendWelcomeEmail(user).catch(err => console.error('Welcome email failed:', err));
+            this.logger.log(`User registered successfully: ${user._id} (${email})`);
             return user;
         }
         catch (error) {
+            this.logger.error(`User registration failed for ${email}: ${error.message}`);
             throw new common_2.CustomHttpException(`can not process request. Try again later ${JSON.stringify(error)}`, common_1.HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
@@ -5770,6 +5836,16 @@ module.exports = require("passport-local");
 /***/ ((module) => {
 
 module.exports = require("rxjs");
+
+/***/ }),
+
+/***/ "rxjs/operators":
+/*!*********************************!*\
+  !*** external "rxjs/operators" ***!
+  \*********************************/
+/***/ ((module) => {
+
+module.exports = require("rxjs/operators");
 
 /***/ }),
 

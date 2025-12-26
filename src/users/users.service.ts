@@ -46,6 +46,7 @@ export class UsersService {
     height,
     dateOfBirth,
   }: registerUserRequest) {
+    this.logger.log(`Registering user: ${email} (${nickname})`);
     const formattedPhone = internationalisePhoneNumber(phoneNumber);
     await this.checkExistingUser(phoneNumber, email, nickname);
 
@@ -69,8 +70,10 @@ export class UsersService {
       await this.statsService.initializeStat(user._id.toString());
       // Send welcome email asynchronously to avoid blocking the response
       this.sendWelcomeEmail(user).catch(err => console.error('Welcome email failed:', err));
+      this.logger.log(`User registered successfully: ${user._id} (${email})`);
       return user;
     } catch (error) {
+      this.logger.error(`User registration failed for ${email}: ${error.message}`);
       throw new CustomHttpException(
         `can not process request. Try again later ${JSON.stringify(error)}`,
         HttpStatus.INTERNAL_SERVER_ERROR,

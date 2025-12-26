@@ -1,4 +1,5 @@
 import { Injectable, Module } from '@nestjs/common';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { UsersModule } from './users/users.module';
@@ -15,6 +16,7 @@ import { Cron, ScheduleModule } from '@nestjs/schedule';
 import { TournamentsModule } from './tournaments/tournaments.module';
 import { StatsModule } from './stats/stats.module';
 import { CaptainsModule } from './captains/captains.module';
+import { LoggingInterceptor } from '@app/common';
 
 
 @Injectable()
@@ -55,6 +57,13 @@ class RootCronService {
     CaptainsModule,
   ],
   controllers: [AppController],
-  providers: [AppService, RootCronService],
+  providers: [
+    AppService,
+    RootCronService,
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: LoggingInterceptor,
+    },
+  ],
 })
 export class AppModule {}

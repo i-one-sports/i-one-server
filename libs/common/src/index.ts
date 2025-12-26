@@ -21,3 +21,4 @@ export * from './filters/http-exception.filter copy';
 export * from './utils/nodemailer';
 export * from './utils/phone.number';
 export * from './utils/random'
+export * from './utils/logging.interceptor';

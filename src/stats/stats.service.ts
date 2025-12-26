@@ -1,10 +1,12 @@
-import { Injectable, HttpStatus } from '@nestjs/common';
+import { Injectable, HttpStatus, Logger } from '@nestjs/common';
 import { StatsRepository } from './stats.repository';
 import { StatsDto, statsQueryDto, updateStatsDto } from './dto/stats.dto';
 import { CustomHttpException } from '@app/common';
 
 @Injectable()
 export class StatsService {
+  private readonly logger = new Logger(StatsService.name);
+
   constructor(private readonly statsRepository: StatsRepository) {}
 
   public async overallUserStats(userId: string) {
@@ -31,6 +33,7 @@ public async getUserStatsBySeason(userId: string,query: statsQueryDto){
 }
 
   public async initializeStat(userId: string) {
+    this.logger.log(`Initializing stats for user: ${userId}`);
     try {
       const startDate: number = new Date().getFullYear();
       const endDate: number = startDate + 1;
@@ -44,8 +47,10 @@ public async getUserStatsBySeason(userId: string,query: statsQueryDto){
         ...dateData,
       });
 
+      this.logger.log(`Stats initialized successfully for user: ${userId}`);
       return stats;
     } catch (error: any) {
+      this.logger.error(`Failed to initialize stats for user ${userId}: ${error.message}`);
       throw new CustomHttpException(
         `cannot initialise user stats ${JSON.stringify(error)}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
