@@ -2,6 +2,7 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Types } from 'mongoose';
 import { AbstractDocument } from './abstract.schema';
 import { LocationCoordinates } from '../types/common';
+import { PLAYER_POSITION } from '../types/common';
 
 @Schema({ timestamps: true })
 export class User extends AbstractDocument {
@@ -35,8 +36,8 @@ export class User extends AbstractDocument {
   @Prop()
   phoneNumber: string;
 
-  @Prop()
-  position: string;
+  @Prop({ type: String, enum: PLAYER_POSITION })
+  position: PLAYER_POSITION;
 
   @Prop({ default: false })
   isOwner: boolean;

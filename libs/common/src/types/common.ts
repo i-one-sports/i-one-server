@@ -9,12 +9,17 @@ export enum MATCH_TYPE {
   FRIENDLY = 'friendly',
 }
 
-
-export enum WINNING_DECIDER{
-  PENALTY = "penalties"
+export enum WINNING_DECIDER {
+  PENALTY = 'penalties',
 }
 
-export enum STATS{
-  GOALS = "goals",
-  ASSISTS = "assists",
+export enum STATS {
+  GOALS = 'goals',
+  ASSISTS = 'assists',
+}
+
+export enum PLAYER_POSITION {
+  DEFENDER = 'DF',
+  MIDFIELDER = 'MF',
+  STRIKER = 'ST',
 }

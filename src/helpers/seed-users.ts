@@ -1,4 +1,4 @@
-import { UserSchema, User } from '@app/common';
+import { UserSchema, User, PLAYER_POSITION } from '@app/common';
 import { faker } from '@faker-js/faker'
 import mongoose, { model, Model, Mongoose } from 'mongoose';
 
@@ -13,7 +13,7 @@ export const userSeeder = (): Partial<User> => {
     password: "12345",
     address: faker.location.streetAddress(),
     phoneNumber: `+234${faker.string.numeric(10)}`,
-    position: 'MF',
+    position: PLAYER_POSITION.MIDFIELDER,
     location: {
       type: 'Point',
       coordinates: [3.5977, 6.4525],

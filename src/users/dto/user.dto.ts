@@ -1,4 +1,4 @@
-import { LocationCoordinates } from '@app/common';
+import { LocationCoordinates, PLAYER_POSITION } from '@app/common';
 import {
   IsString,
   IsEmail,
@@ -9,6 +9,7 @@ import {
   IsBoolean,
   IsDateString,
   IsOptional,
+  IsEnum,
 } from 'class-validator';
 
 export class UpdateUserDto {
@@ -37,9 +38,9 @@ export class UpdateUserDto {
   @IsOptional()
   phoneNumber?: string;
 
-  @IsString()
+  @IsEnum(PLAYER_POSITION)
   @IsOptional()
-  position?: string;
+  position?: PLAYER_POSITION;
 
   @IsOptional()
   location?: LocationCoordinates;
@@ -87,9 +88,9 @@ export class registerUserRequest {
   @IsPhoneNumber('NG')
   phoneNumber: string;
 
-  @IsString()
+  @IsEnum(PLAYER_POSITION)
   @IsNotEmpty()
-  position: string; // MF, ST. CB, GK
+  position: PLAYER_POSITION; // MF, ST, DF
 
   @IsNotEmpty()
   location: LocationCoordinates;
