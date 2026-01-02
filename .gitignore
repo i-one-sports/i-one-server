@@ -3,5 +3,4 @@ node_modules
 randomCordinates.js
 renameField.js
 addFields.js
-
-
+dist
