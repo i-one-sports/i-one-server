@@ -12,6 +12,6 @@ export class AppController {
 
   @Get('/healthcheck')
   healthCheck(): string {
-    return 'I-one server is up and running!';
+    return 'I-one server is up and running-test!';
   }
 }
