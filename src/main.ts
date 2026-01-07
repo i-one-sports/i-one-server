@@ -48,6 +48,7 @@ async function bootstrap() {
 
   app.useGlobalFilters(new GlobalExceptionFilter(httpAdapter));
   app.setGlobalPrefix('i-one');
+  app.enableShutdownHooks();
   await app.listen(process.env.PORT ?? 3000);
 }
 bootstrap();

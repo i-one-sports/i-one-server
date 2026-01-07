@@ -16,8 +16,21 @@ import { Response } from 'express';
 import { JwtAuthGuard } from 'src/auth/guards/jwt.guard';
 import { MatchesService } from './matches.service';
 import { MatchEventService } from './match-event.service';
-import { filter, map, catchError, retry, repeat, startWith, mergeMap, delay, timer, of, tap } from 'rxjs';
-import { MatchScoreUpdateEvent } from '@app/common';
+import { 
+  filter, 
+  map, 
+  catchError, 
+  retry, 
+  repeat, 
+  startWith, 
+  mergeMap, 
+  merge, 
+  timer, 
+  of, 
+  tap,
+  finalize
+} from 'rxjs';
+import { MatchScoreUpdateEvent, CurrentUser } from '@app/common';
 
 @Controller('matches')
 @UseGuards(JwtAuthGuard)
@@ -75,108 +88,168 @@ export class MatchesController {
   }
 
   @Sse('stream/:matchId')
-  matchScoreStream(@Param('matchId') matchId: string, @Res({ passthrough: true }) response: Response) {
-    // Check connection limit
-    if (!this.matchEventService.canConnect(matchId)) {
+  matchScoreStream(
+    @Param('matchId') matchId: string,
+    @CurrentUser() user: any,
+    @Res({ passthrough: true }) response: Response
+  ) {
+    const userId = user?._id?.toString() || user?.id?.toString();
+    
+    if (!userId) {
       throw new HttpException(
-        `Too many connections for match ${matchId}. Maximum ${500} connections allowed.`,
+        'User authentication required',
+        HttpStatus.UNAUTHORIZED
+      );
+    }
+
+    // Check if user can connect
+    const connectionCheck = this.matchEventService.canConnect(userId, matchId);
+    if (!connectionCheck.allowed) {
+      throw new HttpException(
+        connectionCheck.reason || 'Connection not allowed',
         HttpStatus.TOO_MANY_REQUESTS
       );
     }
 
     // Add connection tracking
-    this.matchEventService.addConnection(matchId);
-    this.logger.log(`New SSE connection for match ${matchId}`);
+    const connectionId = this.matchEventService.addConnection(userId, matchId);
+    this.logger.log(`SSE connection established: ${connectionId} (User: ${userId}, Match: ${matchId})`);
+
+    // Set proper SSE headers
+    response.setHeader('Cache-Control', 'no-cache');
+    response.setHeader('Connection', 'keep-alive');
+    response.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
+
+    let cleanupPerformed = false;
+    const performCleanup = () => {
+      if (!cleanupPerformed) {
+        cleanupPerformed = true;
+        this.matchEventService.removeConnection(userId, matchId);
+        this.logger.log(`SSE connection cleaned up: ${connectionId}`);
+      }
+    };
 
     // Cleanup on disconnect
-    response.on('close', () => {
-      this.matchEventService.removeConnection(matchId);
-      this.logger.log(`SSE connection closed for match ${matchId}`);
-    });
-
+    response.on('close', performCleanup);
     response.on('error', (error) => {
-      this.matchEventService.removeConnection(matchId);
-      this.logger.error(`SSE connection error for match ${matchId}:`, error);
+      this.logger.error(`SSE connection error for ${connectionId}:`, error.message);
+      performCleanup();
     });
 
-    return this.matchEventService.getScoreUpdates().pipe(
-      startWith({ type: 'connected', message: 'Connection established', matchId }),
-      map(update => ({ data: update })),
-      filter(
-        (envelope: any) => {
-          const update = envelope.data;
-          return update.type === 'connected' || 
-                 update.type === 'heartbeat' || 
-                 (update.matchId && update.matchId.toString() === matchId);
-        }
+    // Merge score updates with heartbeat
+    return merge(
+      this.matchEventService.getScoreUpdates().pipe(
+        filter((update: any) => 
+          update.matchId && update.matchId.toString() === matchId
+        )
       ),
+      this.matchEventService.getHeartbeat()
+    ).pipe(
+      startWith({ 
+        type: 'connected', 
+        message: 'Connection established', 
+        matchId,
+        userId,
+        timestamp: Date.now()
+      }),
+      map(update => ({ data: update })),
       catchError((error) => {
-        this.logger.error(`SSE Stream error for match ${matchId}:`, error);
+        this.logger.error(`SSE Stream error for ${connectionId}:`, error.message);
         return of({
           data: {
             type: 'error',
-            message: 'Connection error, retrying...',
+            message: 'Connection error occurred',
             timestamp: Date.now(),
             matchId
           }
         });
       }),
-      retry({
-        count: 3,
-        delay: (error, retryCount) => {
-          this.logger.warn(`SSE retry ${retryCount} for match ${matchId}:`, error.message);
-          return timer(1000 * retryCount); // Exponential backoff: 1s, 2s, 3s
-        }
-      }),
-      repeat({
-        delay: () => {
-          this.logger.log(`SSE stream restarting for match ${matchId}`);
-          return timer(1000);
-        }
+      finalize(() => {
+        performCleanup();
       })
     );
   }
 
   @Sse('stream')
-  streamAllMatches(@Res({ passthrough: true }) response: Response) {
-    this.logger.log('New global SSE connection established');
+  streamAllMatches(
+    @CurrentUser() user: any,
+    @Res({ passthrough: true }) response: Response
+  ) {
+    const userId = user?._id?.toString() || user?.id?.toString();
+    
+    if (!userId) {
+      throw new HttpException(
+        'User authentication required',
+        HttpStatus.UNAUTHORIZED
+      );
+    }
 
-    // Cleanup logging on disconnect
-    response.on('close', () => {
-      this.logger.log('Global SSE connection closed');
-    });
+    const pseudoMatchId = 'global-stream';
+    
+    // Check connection limits for global stream
+    const connectionCheck = this.matchEventService.canConnect(userId, pseudoMatchId);
+    if (!connectionCheck.allowed) {
+      throw new HttpException(
+        connectionCheck.reason || 'Connection not allowed',
+        HttpStatus.TOO_MANY_REQUESTS
+      );
+    }
 
+    const connectionId = this.matchEventService.addConnection(userId, pseudoMatchId);
+    this.logger.log(`Global SSE connection established: ${connectionId} (User: ${userId})`);
+
+    // Set proper SSE headers
+    response.setHeader('Cache-Control', 'no-cache');
+    response.setHeader('Connection', 'keep-alive');
+    response.setHeader('X-Accel-Buffering', 'no');
+
+    let cleanupPerformed = false;
+    const performCleanup = () => {
+      if (!cleanupPerformed) {
+        cleanupPerformed = true;
+        this.matchEventService.removeConnection(userId, pseudoMatchId);
+        this.logger.log(`Global SSE connection cleaned up: ${connectionId}`);
+      }
+    };
+
+    // Cleanup on disconnect
+    response.on('close', performCleanup);
     response.on('error', (error) => {
-      this.logger.error('Global SSE connection error:', error);
+      this.logger.error(`Global SSE connection error for ${connectionId}:`, error.message);
+      performCleanup();
     });
 
-    return this.matchEventService.getScoreUpdates().pipe(
-      startWith({ type: 'connected', message: 'Global stream connected' }),
+    // Merge all score updates with heartbeat
+    return merge(
+      this.matchEventService.getScoreUpdates(),
+      this.matchEventService.getHeartbeat()
+    ).pipe(
+      startWith({ 
+        type: 'connected', 
+        message: 'Global stream connected',
+        userId,
+        timestamp: Date.now()
+      }),
       map(update => ({ data: update })),
       catchError((error) => {
-        this.logger.error('Global SSE Stream error:', error);
+        this.logger.error(`Global SSE Stream error for ${connectionId}:`, error.message);
         return of({
           data: {
             type: 'error',
-            message: 'Global stream error, retrying...',
+            message: 'Global stream error occurred',
             timestamp: Date.now(),
             stream: 'global'
           }
         });
       }),
-      retry({
-        count: 3,
-        delay: (error, retryCount) => {
-          this.logger.warn(`Global SSE retry ${retryCount}:`, error.message);
-          return timer(2000 * retryCount); // Exponential backoff: 2s, 4s, 6s
-        }
-      }),
-      repeat({
-        delay: () => {
-          this.logger.log('Global SSE stream restarting');
-          return timer(2000);
-        }
+      finalize(() => {
+        performCleanup();
       })
     );
+  }
+
+  @Get('connections/stats')
+  getConnectionStats() {
+    return this.matchEventService.getConnectionStats();
   }
 }
