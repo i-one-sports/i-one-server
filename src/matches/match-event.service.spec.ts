@@ -164,6 +164,14 @@ describe('MatchEventService - Memory Leak & Connection Tests', () => {
         matchId,
         teamOneScore: 10,
         teamTwoScore: 5,
+        teamOne: {
+          id: '',
+          name: ''
+        },
+        teamTwo: {
+          id: '',
+          name: ''
+        }
       };
 
       service.getScoreUpdates().subscribe((update) => {

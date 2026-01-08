@@ -171,6 +171,15 @@ export class MatchesService {
     //broadcast to sse clients
     this.matchEventService.emitMatchScoreUpdate({
       matchId: new Types.ObjectId(matchId),
+      sessionId: updatedMatch.session,
+      teamOne: {
+        id: (updatedMatch.teamOne as any)._id,
+        name: (updatedMatch.teamOne as any).name,
+      },
+      teamTwo: {
+        id: (updatedMatch.teamTwo as any)._id,
+        name: (updatedMatch.teamTwo as any).name,
+      },
       teamOneScore: updatedMatch.teamOneScore,
       teamTwoScore: updatedMatch.teamTwoScore,
     });
@@ -196,6 +205,15 @@ export class MatchesService {
     //broadcast to sse clients
     this.matchEventService.emitMatchScoreUpdate({
       matchId: new Types.ObjectId(matchId),
+      sessionId: updatedMatch.session,
+      teamOne: {
+        id: (updatedMatch.teamOne as any)._id,
+        name: (updatedMatch.teamOne as any).name,
+      },
+      teamTwo: {
+        id: (updatedMatch.teamTwo as any)._id,
+        name: (updatedMatch.teamTwo as any).name,
+      },
       teamOneScore: updatedMatch.teamOneScore,
       teamTwoScore: updatedMatch.teamTwoScore,
     });

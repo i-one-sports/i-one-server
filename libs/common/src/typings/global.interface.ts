@@ -63,6 +63,16 @@ export enum TournamentFormat {
 
 export interface MatchScoreUpdateEvent {
   matchId: string | Types.ObjectId;
+  sessionId?: string | Types.ObjectId;
+  locationId?: string | Types.ObjectId;
+  teamOne: {
+    id: string | Types.ObjectId;
+    name: string;
+  };
+  teamTwo: {
+    id: string | Types.ObjectId;
+    name: string;
+  };
   teamOneScore: number;
   teamTwoScore: number;
 }

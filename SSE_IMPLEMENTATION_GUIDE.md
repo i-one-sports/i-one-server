@@ -1,7 +1,7 @@
 # SSE (Server-Sent Events) Implementation Guide
 
 ## Overview
-This guide explains the improved SSE implementation for real-time match score updates with robust connection management, heartbeat mechanism, and memory leak prevention.
+This guide explains the improved SSE implementation for real-time match score updates with robust connection management, heartbeat mechanism, and memory leak prevention. The implementation supports three types of streams: single match, session-based (all matches in a location/session), and global (all matches).
 
 ## Key Features
 
@@ -75,16 +75,38 @@ GET /matches/stream/:matchId
 }
 ```
 
-#### 2. Global Stream
+#### 2. Session Stream
+```
+GET /matches/stream/session/:sessionId
+```
+- Requires JWT authentication
+- Tracks user connection to specific session
+- Filters events for all matches in the session
+- Includes heartbeat
+- **Use Case**: User viewing all matches at a specific location/session
+
+**Response Format:**
+```json
+{
+  "type": "connected",
+  "message": "Session stream connected",
+  "sessionId": "session789",
+  "userId": "user456",
+  "timestamp": 1704672000000
+}
+```
+
+#### 3. Global Stream
 ```
 GET /matches/stream
 ```
 - Requires JWT authentication
-- Receives all match updates
+- Receives all match updates across all sessions
 - Includes heartbeat
 - Uses pseudo-matchId for tracking
+- **Use Case**: Admin dashboard showing all matches
 
-#### 3. Connection Statistics
+#### 4. Connection Statistics
 ```
 GET /matches/connections/stats
 ```
@@ -130,8 +152,14 @@ eventSource.onmessage = (event) => {
     
     case 'score-update':
       console.log('Score update:', data);
-      // Update UI with new scores
-      updateScores(data.teamOneScore, data.teamTwoScore);
+      // Update UI with team names and scores
+      updateMatchDisplay({
+        teamOneName: data.teamOne.name,
+        teamOneScore: data.teamOneScore,
+        teamTwoName: data.teamTwo.name,
+        teamTwoScore: data.teamTwoScore
+      });
+      // Example: "Thunder Strikers 3 - 2 Lightning Warriors"
       break;
     
     case 'error':
@@ -149,6 +177,69 @@ eventSource.onerror = (error) => {
 eventSource.close();
 ```
 
+### Connecting to Session Stream
+```javascript
+const sessionId = 'session789';
+const eventSource = new EventSource(
+  `/matches/stream/session/${sessionId}`,
+  { withCredentials: true }
+);
+
+eventSource.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  
+  switch(data.type) {
+    case 'connected':
+      console.log('Connected to session stream');
+      break;
+    
+    case 'score-update':
+      // Update specific match in the session with team names
+      updateMatchInSession({
+        matchId: data.matchId,
+        teamOneName: data.teamOne.name,
+        teamOneScore: data.teamOneScore,
+        teamTwoName: data.teamTwo.name,
+        teamTwoScore: data.teamTwoScore
+      });
+      // Display: "Thunder Strikers 3 - 2 Lightning Warriors"
+      break;
+    
+    case 'heartbeat':
+      console.log('Heartbeat:', data.timestamp);
+      break;
+  }
+};
+
+// Cleanup
+eventSource.close();
+```
+
+**Example: Display All Matches in a Session**
+```javascript
+// Store matches in state
+const [sessionMatches, setSessionMatches] = useState({});
+
+eventSource.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  
+  if (data.type === 'score-update') {
+    setSessionMatches(prev => ({
+      ...prev,
+      [data.matchId]: {
+        teamOne: data.teamOne.name,
+        teamTwo: data.teamTwo.name,
+        score: `${data.teamOneScore} - ${data.teamTwoScore}`
+      }
+    }));
+  }
+};
+
+// Render:
+// Match 1: Thunder Strikers 3 - 2 Lightning Warriors
+// Match 2: Fire Dragons 1 - 0 Ice Phoenix
+```
+
 ### Connecting to Global Stream
 ```javascript
 const eventSource = new EventSource(
@@ -160,10 +251,95 @@ eventSource.onmessage = (event) => {
   const data = JSON.parse(event.data);
   
   if (data.type === 'score-update') {
-    // Handle updates for any match
-    updateMatchScore(data.matchId, data.teamOneScore, data.teamTwoScore);
+    // Handle updates for any match across all sessions with full team info
+    updateMatchScore({
+      matchId: data.matchId,
+      sessionId: data.sessionId,
+      teamOne: data.teamOne.name,
+      teamTwo: data.teamTwo.name,
+      score: `${data.teamOneScore} - ${data.teamTwoScore}`
+    });
+    
+    // Example display:
+    // "Location A: Thunder Strikers 3 - 2 Lightning Warriors"
+    // "Location B: Fire Dragons 1 - 0 Ice Phoenix"
   }
 };
+```
+
+**Example: Admin Dashboard Displaying All Matches**
+```javascript
+const [allMatches, setAllMatches] = useState({});
+
+eventSource.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  
+  if (data.type === 'score-update') {
+    setAllMatches(prev => ({
+      ...prev,
+      [data.matchId]: {
+        sessionId: data.sessionId,
+        matchup: `${data.teamOne.name} vs ${data.teamTwo.name}`,
+        score: `${data.teamOneScore} - ${data.teamTwoScore}`,
+        lastUpdate: new Date(data.timestamp)
+      }
+    }));
+  }
+};
+
+// Render all matches grouped by session:
+// Session Location A:
+//   - Thunder Strikers 3 - 2 Lightning Warriors (Updated 2s ago)
+//   - Fire Dragons 1 - 0 Ice Phoenix (Updated 45s ago)
+// Session Location B:
+//   - Storm Eagles 2 - 2 Wave Riders (Updated 10s ago)
+```
+
+## Stream Types Comparison
+
+| Stream Type | Endpoint | Filter | Use Case | Example |
+|-------------|----------|--------|----------|----------|
+| **Single Match** | `/matches/stream/:matchId` | `matchId` only | User watching one specific match | Match details page |
+| **Session Stream** | `/matches/stream/session/:sessionId` | `sessionId` (all matches in session) | User viewing matches at a location | Location/Session dashboard |
+| **Global Stream** | `/matches/stream` | No filter (all matches) | Admin monitoring all matches | Admin panel |
+
+### How Filtering Works
+
+```typescript
+// Score update is emitted with both matchId and sessionId
+emitMatchScoreUpdate({
+  matchId: 'match123',
+  sessionId: 'session456',
+  teamOneScore: 3,
+  teamTwoScore: 2
+});
+
+// Single match stream: filters by matchId
+filter(update => update.matchId === 'match123')
+
+// Session stream: filters by sessionId
+filter(update => update.sessionId === 'session456')
+
+// Global stream: no filter, receives everything
+```
+
+### Real-World Example
+
+**Scenario**: Location A has Match 1 & Match 2, Location B has Match 3
+
+```javascript
+// User connects to Location A session stream
+GET /matches/stream/session/locationA
+
+// When Match 1 scores:
+// ✅ Session A stream receives update
+// ✅ Global stream receives update
+// ❌ Session B stream does NOT receive
+
+// When Match 3 scores:
+// ✅ Session B stream receives update
+// ✅ Global stream receives update
+// ❌ Session A stream does NOT receive
 ```
 
 ## Event Types
@@ -193,9 +369,39 @@ eventSource.onmessage = (event) => {
 {
   type: 'score-update',
   matchId: string,
+  sessionId?: string,
+  locationId?: string,
+  teamOne: {
+    id: string,
+    name: string
+  },
+  teamTwo: {
+    id: string,
+    name: string
+  },
   teamOneScore: number,
   teamTwoScore: number,
   timestamp: number
+}
+```
+
+**Example:**
+```json
+{
+  "type": "score-update",
+  "matchId": "64f8a1b2c3d4e5f6a7b8c9d0",
+  "sessionId": "64f8a1b2c3d4e5f6a7b8c9d1",
+  "teamOne": {
+    "id": "64f8a1b2c3d4e5f6a7b8c9d2",
+    "name": "Thunder Strikers"
+  },
+  "teamTwo": {
+    "id": "64f8a1b2c3d4e5f6a7b8c9d3",
+    "name": "Lightning Warriors"
+  },
+  "teamOneScore": 3,
+  "teamTwoScore": 2,
+  "timestamp": 1704672123456
 }
 ```
 

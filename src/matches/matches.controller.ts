@@ -170,6 +170,90 @@ export class MatchesController {
     );
   }
 
+  @Sse('stream/session/:sessionId')
+  sessionMatchesStream(
+    @Param('sessionId') sessionId: string,
+    @CurrentUser() user: any,
+    @Res({ passthrough: true }) response: Response
+  ) {
+    const userId = user?._id?.toString() || user?.id?.toString();
+    
+    if (!userId) {
+      throw new HttpException(
+        'User authentication required',
+        HttpStatus.UNAUTHORIZED
+      );
+    }
+
+    const streamId = `session-${sessionId}`;
+    
+    // Check connection limits for session stream
+    const connectionCheck = this.matchEventService.canConnect(userId, streamId);
+    if (!connectionCheck.allowed) {
+      throw new HttpException(
+        connectionCheck.reason || 'Connection not allowed',
+        HttpStatus.TOO_MANY_REQUESTS
+      );
+    }
+
+    const connectionId = this.matchEventService.addConnection(userId, streamId);
+    this.logger.log(`Session SSE connection established: ${connectionId} (User: ${userId}, Session: ${sessionId})`);
+
+    // Set proper SSE headers
+    response.setHeader('Cache-Control', 'no-cache');
+    response.setHeader('Connection', 'keep-alive');
+    response.setHeader('X-Accel-Buffering', 'no');
+
+    let cleanupPerformed = false;
+    const performCleanup = () => {
+      if (!cleanupPerformed) {
+        cleanupPerformed = true;
+        this.matchEventService.removeConnection(userId, streamId);
+        this.logger.log(`Session SSE connection cleaned up: ${connectionId}`);
+      }
+    };
+
+    // Cleanup on disconnect
+    response.on('close', performCleanup);
+    response.on('error', (error) => {
+      this.logger.error(`Session SSE connection error for ${connectionId}:`, error.message);
+      performCleanup();
+    });
+
+    // Merge session score updates with heartbeat
+    return merge(
+      this.matchEventService.getScoreUpdates().pipe(
+        filter((update: any) => 
+          update.sessionId && update.sessionId.toString() === sessionId
+        )
+      ),
+      this.matchEventService.getHeartbeat()
+    ).pipe(
+      startWith({ 
+        type: 'connected', 
+        message: 'Session stream connected',
+        sessionId,
+        userId,
+        timestamp: Date.now()
+      }),
+      map(update => ({ data: update })),
+      catchError((error) => {
+        this.logger.error(`Session SSE Stream error for ${connectionId}:`, error.message);
+        return of({
+          data: {
+            type: 'error',
+            message: 'Session stream error occurred',
+            timestamp: Date.now(),
+            sessionId
+          }
+        });
+      }),
+      finalize(() => {
+        performCleanup();
+      })
+    );
+  }
+
   @Sse('stream')
   streamAllMatches(
     @CurrentUser() user: any,
