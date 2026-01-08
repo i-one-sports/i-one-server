@@ -14,7 +14,6 @@ describe('MatchEventService - Memory Leak & Connection Tests', () => {
   });
 
   afterEach(() => {
-    // Ensure cleanup after each test
     service.onModuleDestroy();
   });
 

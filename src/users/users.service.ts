@@ -48,10 +48,11 @@ export class UsersService {
   }: registerUserRequest) {
     this.logger.log(`Registering user: ${email} (${nickname})`);
     const formattedPhone = internationalisePhoneNumber(phoneNumber);
+    const formattedEmail = email.toLowerCase()
     await this.checkExistingUser(phoneNumber, email, nickname);
 
     const payload: Partial<User> = {
-      email,
+      email: formattedEmail,
       phoneNumber: formattedPhone,
       password: await bcrypt.hash(password, 10),
       address,
@@ -289,7 +290,6 @@ export class UsersService {
     const user: User = await this.usersRepository.findOne({
       email: email.toLowerCase(),
     });
-    console.log(user);
     if (user === null) {
       throw new CustomHttpException(
         'User with email is not found',
