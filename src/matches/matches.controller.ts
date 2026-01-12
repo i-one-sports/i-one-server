@@ -103,7 +103,7 @@ export class MatchesController {
     }
 
     // Check if user can connect
-    const connectionCheck = this.matchEventService.canConnect(userId, matchId);
+    const connectionCheck = this.matchEventService.canConnect(userId, 'match', matchId);
     if (!connectionCheck.allowed) {
       throw new HttpException(
         connectionCheck.reason || 'Connection not allowed',
@@ -112,7 +112,7 @@ export class MatchesController {
     }
 
     // Add connection tracking
-    const connectionId = this.matchEventService.addConnection(userId, matchId);
+    const connectionId = this.matchEventService.addConnection(userId, 'match', { matchId });
     this.logger.log(`SSE connection established: ${connectionId} (User: ${userId}, Match: ${matchId})`);
 
     // Set proper SSE headers
@@ -124,7 +124,7 @@ export class MatchesController {
     const performCleanup = () => {
       if (!cleanupPerformed) {
         cleanupPerformed = true;
-        this.matchEventService.removeConnection(userId, matchId);
+        this.matchEventService.removeConnection(connectionId);
         this.logger.log(`SSE connection cleaned up: ${connectionId}`);
       }
     };
@@ -185,10 +185,8 @@ export class MatchesController {
       );
     }
 
-    const streamId = `session-${sessionId}`;
-    
     // Check connection limits for session stream
-    const connectionCheck = this.matchEventService.canConnect(userId, streamId);
+    const connectionCheck = this.matchEventService.canConnect(userId, 'session', sessionId);
     if (!connectionCheck.allowed) {
       throw new HttpException(
         connectionCheck.reason || 'Connection not allowed',
@@ -196,7 +194,7 @@ export class MatchesController {
       );
     }
 
-    const connectionId = this.matchEventService.addConnection(userId, streamId);
+    const connectionId = this.matchEventService.addConnection(userId, 'session', { sessionId });
     this.logger.log(`Session SSE connection established: ${connectionId} (User: ${userId}, Session: ${sessionId})`);
 
     // Set proper SSE headers
@@ -208,7 +206,7 @@ export class MatchesController {
     const performCleanup = () => {
       if (!cleanupPerformed) {
         cleanupPerformed = true;
-        this.matchEventService.removeConnection(userId, streamId);
+        this.matchEventService.removeConnection(connectionId);
         this.logger.log(`Session SSE connection cleaned up: ${connectionId}`);
       }
     };
@@ -268,10 +266,8 @@ export class MatchesController {
       );
     }
 
-    const pseudoMatchId = 'global-stream';
-    
     // Check connection limits for global stream
-    const connectionCheck = this.matchEventService.canConnect(userId, pseudoMatchId);
+    const connectionCheck = this.matchEventService.canConnect(userId, 'global');
     if (!connectionCheck.allowed) {
       throw new HttpException(
         connectionCheck.reason || 'Connection not allowed',
@@ -279,7 +275,7 @@ export class MatchesController {
       );
     }
 
-    const connectionId = this.matchEventService.addConnection(userId, pseudoMatchId);
+    const connectionId = this.matchEventService.addConnection(userId, 'global');
     this.logger.log(`Global SSE connection established: ${connectionId} (User: ${userId})`);
 
     // Set proper SSE headers
@@ -291,7 +287,7 @@ export class MatchesController {
     const performCleanup = () => {
       if (!cleanupPerformed) {
         cleanupPerformed = true;
-        this.matchEventService.removeConnection(userId, pseudoMatchId);
+        this.matchEventService.removeConnection(connectionId);
         this.logger.log(`Global SSE connection cleaned up: ${connectionId}`);
       }
     };

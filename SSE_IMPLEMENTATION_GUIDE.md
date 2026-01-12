@@ -6,9 +6,11 @@ This guide explains the improved SSE implementation for real-time match score up
 ## Key Features
 
 ### ✅ 1. User-Based Connection Tracking
-- Connections are tracked per user, not just per match
-- Each user can connect to multiple matches (max 10)
-- Each match can have multiple users connected (max 500)
+- Each physical connection gets a unique ID: `type:userId:timestamp:random`
+- Supports multiple tabs: same user can open same match in multiple tabs
+- Each user can have up to 10 concurrent connections (across all types)
+- Each match can have up to 500 unique users
+- Connections are typed: 'match', 'session', or 'global'
 - Prevents abuse by limiting connections per user
 
 ### ✅ 2. Heartbeat Mechanism
@@ -24,30 +26,54 @@ This guide explains the improved SSE implementation for real-time match score up
 - Subject completion prevents Observable leaks
 
 ### ✅ 4. Memory Leak Prevention
-- Maps cleared when empty
-- Connection details tracked with timestamps
-- Proper unsubscribe and finalize operators
-- Module lifecycle management
+- Unique connection IDs prevent duplicate entries
+- Empty user Sets automatically removed from Maps
+- Connection details include timestamp and type for tracking
+- Proper unsubscribe and finalize operators in RxJS streams
+- Module lifecycle management with onModuleDestroy
+- All Maps cleared on shutdown
 
 ## Architecture
+
+### Connection ID Format
+
+Each connection gets a unique identifier:
+```typescript
+const connectionId = `${type}:${userId}:${timestamp}:${random}`;
+// Example: "match:user123:1704672123456:x9k2m5p8q"
+```
+
+**Benefits:**
+- Supports multiple tabs/windows per user
+- Easy to identify connection type from ID
+- Timestamp helps with debugging
+- Random suffix ensures uniqueness
 
 ### MatchEventService
 Central service managing all SSE connections and events.
 
 **Key Methods:**
-- `addConnection(userId, matchId)` - Track new connection
-- `removeConnection(userId, matchId)` - Cleanup connection
-- `canConnect(userId, matchId)` - Check connection limits
+- `addConnection(userId, type, options?)` - Track new connection with type ('match', 'session', or 'global')
+- `removeConnection(connectionId)` - Cleanup connection by unique ID
+- `canConnect(userId, type, resourceId?)` - Check connection limits based on type
 - `emitMatchScoreUpdate(event)` - Emit score updates
 - `getScoreUpdates()` - Get score update observable
 - `getHeartbeat()` - Get heartbeat observable
-- `getConnectionStats()` - Get connection statistics
+- `getConnectionStats()` - Get detailed connection statistics
 
 **Data Structures:**
 ```typescript
-userConnections: Map<userId, Set<matchId>>
-matchConnections: Map<matchId, Set<userId>>
+userConnections: Map<userId, Set<connectionId>>
 connectionDetails: Map<connectionId, ConnectionInfo>
+
+interface ConnectionInfo {
+  connectionId: string;      // Unique ID per connection
+  userId: string;            // Who is connected
+  type: 'match' | 'session' | 'global';  // Stream type
+  matchId?: string;          // For match streams
+  sessionId?: string;        // For session streams
+  connectedAt: Date;         // When connected
+}
 ```
 
 ### MatchesController
@@ -117,13 +143,36 @@ GET /matches/connections/stats
 ```json
 {
   "totalUsers": 5,
-  "totalMatches": 3,
-  "totalConnections": 8,
+  "totalConnections": 12,
+  "byType": {
+    "match": 8,
+    "session": 3,
+    "global": 1
+  },
   "userConnections": [
-    { "userId": "user1", "matchCount": 2 }
+    {
+      "userId": "user1",
+      "connectionCount": 3,
+      "byType": {
+        "match": 2,
+        "session": 1,
+        "global": 0
+      }
+    }
   ],
   "matchConnections": [
-    { "matchId": "match1", "userCount": 3 }
+    {
+      "matchId": "match1",
+      "connectionCount": 5,
+      "uniqueUsers": 3
+    }
+  ],
+  "sessionConnections": [
+    {
+      "sessionId": "session456",
+      "connectionCount": 3,
+      "uniqueUsers": 2
+    }
   ]
 }
 ```
