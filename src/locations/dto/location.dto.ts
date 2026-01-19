@@ -1,5 +1,16 @@
 import { LocationCoordinates } from '@app/common';
-import { IsBoolean, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsNotEmpty, IsOptional, IsString, ValidateNested, IsArray, IsNumber, IsIn } from 'class-validator';
+import { Type } from 'class-transformer';
+
+export class LocationCoordinatesDto {
+  @IsIn(['Point'])
+  @IsOptional()
+  type?: 'Point';
+
+  @IsArray()
+  @IsNumber({}, { each: true })
+  coordinates: [number, number];
+}
 
 export class CreateLocationDto {
   @IsNotEmpty()
@@ -14,7 +25,9 @@ export class CreateLocationDto {
   pitchPhoto?: string;
 
   @IsNotEmpty()
-  location: LocationCoordinates;
+  @ValidateNested()
+  @Type(() => LocationCoordinatesDto)
+  location: LocationCoordinatesDto;
 
   @IsBoolean()
   @IsOptional()

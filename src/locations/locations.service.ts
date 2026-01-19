@@ -34,12 +34,25 @@ export class LocationsService {
       );
     }
 
-    return await this.locationRepository.create({
-      name,
-      address,
-      location,
-      pitchPhoto,
-    });
+    try {
+      return await this.locationRepository.create({
+        name,
+        address,
+        location: {
+          type: 'Point',
+          coordinates: location.coordinates,
+        },
+        pitchPhoto,
+      });
+    } catch (error) {
+      if (error.code === 11000) {
+        throw new CustomHttpException(
+          'Location with this name already exists',
+          HttpStatus.CONFLICT,
+        );
+      }
+      throw error;
+    }
   }
 
   async viewAllLocations(): Promise<Location[]> {

@@ -11,7 +11,7 @@ export function getOwnerByContext(context: ExecutionContext): User | undefined {
   }
   return context.switchToRpc().getData()?.user as User;
 }
-export const IsOwner = createParamDecorator((ctx: ExecutionContext) => {
+export const IsOwner = createParamDecorator((data: unknown, ctx: ExecutionContext) => {
   const user = getOwnerByContext(ctx);
 
   if (user?.isOwner === true) {
@@ -19,7 +19,7 @@ export const IsOwner = createParamDecorator((ctx: ExecutionContext) => {
   }
   if (user === undefined || !user?.isOwner) {
     throw new ForbiddenException(
-      'You do not have the required clearance to access this resource',
+      'You must be an owner to access this resource',
     );
   }
   return user;

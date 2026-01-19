@@ -18,6 +18,12 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     let statusCode = HttpStatus.INTERNAL_SERVER_ERROR;
     let message = 'Internal server error';
 
+    // Log the exception for debugging
+    console.error('Exception caught:', exception);
+    if (exception instanceof Error) {
+      console.error('Error stack:', exception.stack);
+    }
+
     if (exception instanceof HttpException) {
       const response = exception.getResponse() as any;
       statusCode = exception.getStatus();

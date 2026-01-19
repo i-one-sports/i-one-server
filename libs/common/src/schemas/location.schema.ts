@@ -36,6 +36,10 @@ export class Location extends AbstractDocument {
 
   @Prop({ type: Number, required: false })
   tournamentFee: number;
+
+  createdAt?: Date;
+
+  updatedAt?: Date;
 }
 
 export const LocationSchema = SchemaFactory.createForClass(Location);
