@@ -1,5 +1,4 @@
 import { CustomHttpException } from '@app/common';
-import { th } from '@faker-js/faker/.';
 import { HttpStatus } from '@nestjs/common';
 
 export const handleError = (error: any, message: string) => {

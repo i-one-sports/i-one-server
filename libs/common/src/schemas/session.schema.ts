@@ -51,3 +51,6 @@ export class Session extends AbstractDocument {
   matchType: MATCH_TYPE;
 }
 export const SessionSchema = SchemaFactory.createForClass(Session);
+// Indexes to improve query performance for owner dashboard and session lookups
+SessionSchema.index({ startTime: 1 });
+SessionSchema.index({ location: 1 });

@@ -5,10 +5,11 @@
 2. [Authentication Endpoints](#authentication-endpoints)
 3. [User Management](#user-management)
 4. [Location Management](#location-management)
-5. [Session Management](#session-management)
-6. [Sets Management](#sets-management)
-7. [Error Handling](#error-handling)
-8. [Types and Interfaces](#types-and-interfaces)
+5. [Owner Dashboard Endpoints](#owner-dashboard-endpoints)
+6. [Session Management](#session-management)
+7. [Sets Management](#sets-management)
+8. [Error Handling](#error-handling)
+9. [Types and Interfaces](#types-and-interfaces)
 
 ## Base URL and Authentication
 
@@ -488,6 +489,127 @@ GET /location/nearby?lng=3.42158&lat=6.45306
 
 **Errors**:
 - 404 Not Found if the user is not found or has no location information
+
+## Owner Dashboard Endpoints
+
+**Description**: These endpoints provide data for location owners to manage their pitch. All endpoints require the user to be authenticated as an owner (using `IsOwnerGuard`). The `locationId` must belong to the authenticated owner.
+
+### 1. Get Owner Dashboard Summary
+
+**Endpoint**: `GET /location/:locationId/dashboard/summary`
+
+**Description**: Retrieves basic information about the location, including pitch condition, photo, address, and operating hours.
+
+**Path Parameters**:
+- `locationId` (string): The ID of the location.
+
+**Response**:
+```json
+{
+  "pitchCondition": "Good",
+  "pitchPhoto": "https://s3.amazonaws.com/bucket/pitch-photo.jpg",
+  "address": "123 Main St, City, Country",
+  "openingHour": "08:00",
+  "closingHour": "22:00"
+}
+```
+
+**Error Responses**:
+- 401 Unauthorized: If the user is not an owner or does not own the location.
+- 404 Not Found: If the location does not exist.
+
+### 2. Get Last Matches
+
+**Endpoint**: `GET /location/:locationId/dashboard/last-matches`
+
+**Description**: Retrieves the last N matches played at the location, sorted by most recent first.
+
+**Path Parameters**:
+- `locationId` (string): The ID of the location.
+
+**Query Parameters**:
+- `limit` (number, optional, default: 5): Number of matches to return.
+- `skip` (number, optional, default: 0): Number of matches to skip for pagination.
+
+**Response**: Array of match objects.
+```json
+[
+  {
+    "_id": "matchId",
+    "teamOne": {
+      "_id": "teamId",
+      "name": "Team A",
+      "players": ["player1", "player2"]
+    },
+    "teamTwo": {
+      "_id": "teamId",
+      "name": "Team B",
+      "players": ["player3", "player4"]
+    },
+    "teamOneScore": 2,
+    "teamTwoScore": 1,
+    "isStarted": true,
+    "session": "sessionId",
+    "createdAt": "2023-10-01T10:00:00.000Z"
+  }
+]
+```
+
+**Error Responses**:
+- 401 Unauthorized: If the user is not an owner or does not own the location.
+- 404 Not Found: If the location does not exist.
+
+### 3. Get Visitor Count
+
+**Endpoint**: `GET /location/:locationId/dashboard/visitors`
+
+**Description**: Returns the total number of unique visitors (players) who have participated in sessions at the location.
+
+**Path Parameters**:
+- `locationId` (string): The ID of the location.
+
+**Response**:
+```json
+{
+  "visitorCount": 150
+}
+```
+
+**Error Responses**:
+- 401 Unauthorized: If the user is not an owner or does not own the location.
+- 404 Not Found: If the location does not exist.
+
+### 4. Get Upcoming Sessions
+
+**Endpoint**: `GET /location/:locationId/dashboard/upcoming-sessions`
+
+**Description**: Retrieves upcoming sessions at the location, sorted by start time.
+
+**Path Parameters**:
+- `locationId` (string): The ID of the location.
+
+**Query Parameters**:
+- `limit` (number, optional, default: 20): Number of sessions to return.
+- `skip` (number, optional, default: 0): Number of sessions to skip for pagination.
+
+**Response**: Array of session objects.
+```json
+[
+  {
+    "_id": "sessionId",
+    "startTime": "2023-10-15T14:00:00.000Z",
+    "timeDuration": 90,
+    "maxNumber": 22,
+    "members": ["userId1", "userId2"],
+    "captain": "userId3",
+    "createdAt": "2023-10-01T10:00:00.000Z"
+  }
+]
+```
+
+**Error Responses**:
+- 401 Unauthorized: If the user is not an owner or does not own the location.
+- 404 Not Found: If the location does not exist.
 
 ## Session Management
 

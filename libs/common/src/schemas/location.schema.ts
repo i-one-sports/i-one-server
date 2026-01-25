@@ -1,4 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { Types } from 'mongoose';
 import { AbstractDocument } from './abstract.schema';
 import { LocationCoordinates } from '../types/common';
 
@@ -37,6 +38,9 @@ export class Location extends AbstractDocument {
   @Prop({ type: Number, required: false })
   tournamentFee: number;
 
+  @Prop({ type: Types.ObjectId, ref: 'User', required: false })
+  owner?: string;
+
   createdAt?: Date;
 
   updatedAt?: Date;
@@ -44,3 +48,4 @@ export class Location extends AbstractDocument {
 
 export const LocationSchema = SchemaFactory.createForClass(Location);
 LocationSchema.index({ location: '2dsphere' });
+LocationSchema.index({ owner: 1 });

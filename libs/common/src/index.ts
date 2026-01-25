@@ -17,6 +17,7 @@ export * from './utils/phone.number';
 export * from './typings/global.interface';
 export * from './decorators/currentUser.decorator';
 export * from './decorators/isOwner.decorator';
+export * from './guards/is-owner.guard';
 export * from './filters/http-exception.filter copy';
 export * from './utils/nodemailer';
 export * from './utils/phone.number';

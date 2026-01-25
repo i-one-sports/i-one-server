@@ -10,4 +10,7 @@ export class LocationRepository extends AbstractRepository<Location> {
   constructor(@InjectModel(Location.name) LocationModel: Model<Location>) {
     super(LocationModel);
   }
+
+  
+
 }

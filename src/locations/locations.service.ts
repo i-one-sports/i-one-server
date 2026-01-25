@@ -1,18 +1,22 @@
 import { Injectable, HttpStatus } from '@nestjs/common';
 import { LocationRepository } from './locations.repository';
 import { UserRepository } from '../users/users.repository';
-import { CustomHttpException, Location } from '@app/common';
+import { CustomHttpException, IsOwner, Location } from '@app/common';
+import { MatchRepository } from '../matches/matches.repository';
 import { CreateLocationDto, ViewNearbyLocationsDto } from './dto/location.dto';
 import { handleError } from 'src/helpers/errorHandler';
+import { SessionRepository } from 'src/sessions/sessions.repository';
 
 @Injectable()
 export class LocationsService {
   constructor(
     private readonly locationRepository: LocationRepository,
+    private readonly sessionRepository: SessionRepository,
     private readonly userRepository: UserRepository,
+    private readonly matchRepository: MatchRepository,
   ) {}
 
-  async registerLocation(locationData: CreateLocationDto): Promise<Location> {
+  async registerLocation(locationData: CreateLocationDto, ownerId?: string): Promise<Location> {
     const { name, address, location, pitchPhoto } = locationData;
 
     const alreadyExists = await this.locationRepository.findOne({
@@ -35,7 +39,7 @@ export class LocationsService {
     }
 
     try {
-      return await this.locationRepository.create({
+      const payload: any = {
         name,
         address,
         location: {
@@ -43,7 +47,9 @@ export class LocationsService {
           coordinates: location.coordinates,
         },
         pitchPhoto,
-      });
+      };
+      if (ownerId) payload.owner = ownerId;
+      return await this.locationRepository.create(payload);
     } catch (error) {
       if (error.code === 11000) {
         throw new CustomHttpException(
@@ -72,6 +78,98 @@ export class LocationsService {
       },
     });
   }
+
+  async findMatchesByLocation(locationId: string, skip = 0, limit = 20) {
+    return await this.sessionRepository.findMatchesByLocation(locationId, skip, limit);
+  }
+
+  async getOwnerDashboard(locationId: string, ownerId: string) {
+    // verify location exists and ownership
+    const location = await this.locationRepository.findOne({ _id: locationId });
+    if (!location) {
+      throw new CustomHttpException('Location not found', HttpStatus.NOT_FOUND);
+    }
+
+    // If location has an owner field, verify; otherwise rely on passed ownerId
+    if (location.owner && location.owner.toString() !== ownerId) {
+      throw new CustomHttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+    }
+
+    // compose dashboard
+    const pitchCondition = location.pitchCondition || 'Good';
+    const pitchPhoto = location.pitchPhoto || null;
+    const address = location.address;
+    const openingHour = location.openingHour || null;
+    const closingHour = location.closingHour || null;
+
+    const lastMatchesRaw = await this.sessionRepository.findMatchesByLocation(locationId);
+    // extract and flatten matches, sort by createdAt desc, limit 5
+    const matches: any[] = [];
+    for (const s of lastMatchesRaw) {
+      if (Array.isArray(s.matches)) {
+        for (const m of s.matches) matches.push(m);
+      }
+    }
+    const lastMatches = matches
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 5);
+
+    const visitorCount = await this.sessionRepository.findVisitorCountByLocation(locationId);
+
+    const upcomingSessions = await this.sessionRepository.findUpcomingSessionsByLocation(locationId, 20);
+
+    return {
+      pitchCondition,
+      pitchPhoto,
+      address,
+      openingHour,
+      closingHour,
+      lastMatches,
+      visitorCount,
+      upcomingSessions,
+    };
+  }
+
+  private async verifyOwnership(locationId: string, ownerId: string) {
+    const location = await this.locationRepository.findOne({ _id: locationId });
+    if (!location) {
+      throw new CustomHttpException('Location not found', HttpStatus.NOT_FOUND);
+    }
+    if (location.owner && location.owner.toString() !== ownerId) {
+      throw new CustomHttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+    }
+    return location;
+  }
+
+  async getOwnerSummary(locationId: string, ownerId: string) {
+    const location = await this.verifyOwnership(locationId, ownerId);
+    return {
+      pitchCondition: location.pitchCondition || 'Good',
+      pitchPhoto: location.pitchPhoto || null,
+      address: location.address,
+      openingHour: location.openingHour || null,
+      closingHour: location.closingHour || null,
+    };
+  }
+
+  async getOwnerLastMatches(locationId: string, ownerId: string, limit = 5, skip = 0) {
+    await this.verifyOwnership(locationId, ownerId);
+    return this.sessionRepository.findMatchesByLocation(locationId, skip, limit);
+  }
+
+  async getVisitorCount(locationId: string, ownerId: string) {
+    await this.verifyOwnership(locationId, ownerId);
+    return this.sessionRepository.findVisitorCountByLocation(locationId);
+  }
+
+  async getUpcomingSessions(locationId: string, ownerId: string, limit = 20, skip = 0) {
+    await this.verifyOwnership(locationId, ownerId);
+    return this.sessionRepository.findUpcomingSessionsByLocation(locationId, limit, skip);
+  }
+
+  
+
+
 
   async getMyLocation(userId: string) {
     const user = await this.userRepository.findOne({ _id: userId });

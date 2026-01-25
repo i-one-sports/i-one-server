@@ -4,7 +4,7 @@ import { CreateCaptainDto } from './dto/captains.dto';
 import { Captain } from '@app/common/schemas/captains.schema';
 import { CustomHttpException } from '@app/common';
 import { handleError } from 'src/helpers/errorHandler';
-import { P } from '@faker-js/faker/dist/airline-CLphikKp';
+
 
 @Injectable()
 export class CaptainsService {
