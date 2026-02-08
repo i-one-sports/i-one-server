@@ -43,7 +43,9 @@ export interface SetI {
 export enum UploadType {
   PITCH = 'pitches',
   USER_AVATAR = 'users',
-  AVATAR = 'avatars'
+  AVATAR = 'avatars',
+  DOCUMENT_FRONT = 'documents_front',
+  DOCUMENT_BACK = 'documents_back'
   // RESOURCE_AVATAR = 'resources'
 }
 

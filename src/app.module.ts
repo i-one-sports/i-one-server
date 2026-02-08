@@ -17,6 +17,8 @@ import { TournamentsModule } from './tournaments/tournaments.module';
 import { StatsModule } from './stats/stats.module';
 import { CaptainsModule } from './captains/captains.module';
 import { LoggingInterceptor } from '@app/common';
+import { BillingModule } from './billing/billing.module';
+import { VerificationModule } from './verification/verification.module';
 
 
 @Injectable()
@@ -55,6 +57,8 @@ class RootCronService {
     TournamentsModule,
     StatsModule,
     CaptainsModule,
+    BillingModule,
+    VerificationModule,
   ],
   controllers: [AppController],
   providers: [

@@ -27,7 +27,7 @@ export class SetsService {
   const ops = availablePlayers.map((player, i) => ({
     updateOne: {
       filter: { _id: createdSets[i % createdSets.length]._id },
-      update: { $addToSet: { players: new Types.ObjectId(player) } },
+      update: { $addToSet: { players: new Types.ObjectId(player) } } as any,
     },
   }));  
 
