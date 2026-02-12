@@ -4,9 +4,18 @@ import { GlobalExceptionFilter } from '@app/common';
 import cookieParser from 'cookie-parser';
 import { ValidationPipe } from '@nestjs/common';
 import { populateDb } from './helpers/seed-users';
+import { json } from 'express';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, {
+    rawBody: true,
+  });
+
+  app.use(json({
+    verify: (req: any, res, buf) => {
+      req.rawBody = buf;
+    },
+  }));
 
     app.enableCors({
     origin: [

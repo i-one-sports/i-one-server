@@ -1,14 +1,20 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, InternalServerErrorException } from '@nestjs/common';
 import { UploadVerificationDocumentDto } from './dto/verification.dto';
 import { VerificationRepository } from './verification.repository';
 import { Types } from 'mongoose';
 import { Verification } from '@app/common/schemas/verification.schema';
+import { WalletService } from '../billing/services/wallet.service';
+import { UserRepository } from '../users/users.repository';
 
 @Injectable()
 export class VerificationService {
   private readonly logger = new Logger(VerificationService.name);
 
-  constructor(private readonly verificationRepository: VerificationRepository) {}
+  constructor(
+    private readonly verificationRepository: VerificationRepository,
+    private readonly walletService: WalletService,
+    private readonly userRepository: UserRepository,
+  ) {}
 
   async submitVerification(
     userId: string,
@@ -88,7 +94,7 @@ export class VerificationService {
     this.logger.log(`Approving verification: ${verificationId}`);
 
     const updatedVerification = await this.verificationRepository.findOneAndUpdate(
-      { 
+      {
         _id: new Types.ObjectId(verificationId),
         status: { $ne: 'APPROVED' }
       },
@@ -99,18 +105,52 @@ export class VerificationService {
       const verification = await this.verificationRepository.findOne({
         _id: new Types.ObjectId(verificationId)
       });
-      
+
       if (!verification) {
         throw new NotFoundException('Verification not found');
       }
-      
+
       throw new BadRequestException('Verification is already approved');
     }
 
-    return {
-      message: 'Verification approved successfully',
-      verification: updatedVerification
-    };
+    try {
+      const user = await this.userRepository.findOne({ _id: updatedVerification.userId });
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+
+      const { wallet, dva } = await this.walletService.createWalletWithDVA(
+        updatedVerification.userId,
+        user.email,
+        user.firstName,
+        user.lastName,
+        user.phoneNumber,
+      );
+
+      await this.userRepository.findOneAndUpdate(
+        { _id: updatedVerification.userId },
+        {
+          isOwner: true,
+          walletId: wallet._id,
+        }
+      );
+
+      this.logger.log(`Wallet and DVA created for user: ${updatedVerification.userId}`);
+
+      return {
+        message: 'Verification approved and wallet created successfully',
+        verification: updatedVerification,
+        wallet,
+        dva: {
+          accountNumber: dva.accountNumber,
+          bankName: dva.bankName,
+          accountName: dva.accountName,
+        },
+      };
+    } catch (error) {
+      this.logger.error(`Failed to create wallet and DVA: ${error.message}`);
+      throw new InternalServerErrorException('Verification approved but wallet creation failed');
+    }
   }
 
   async rejectVerification(verificationId: string) {

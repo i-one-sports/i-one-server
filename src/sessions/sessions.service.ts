@@ -9,6 +9,7 @@ import { createSessionRequest } from './dto/sessions.dto';
 import { MATCH_TYPE } from '@app/common';
 import { CaptainsService } from 'src/captains/captains.service';
 import { CreateCaptainDto } from 'src/captains/dto/captains.dto';
+import { SessionPaymentService } from 'src/billing/services/session-payment.service';
 
 @Injectable()
 export class SessionsService {
@@ -18,6 +19,7 @@ export class SessionsService {
     private readonly matchRepository: MatchRepository,
     private readonly userRepository: UserRepository,
     private readonly CaptainService: CaptainsService,
+    private readonly sessionPaymentService: SessionPaymentService,
   ) {}
 
   async findNearbySessionMatches(lng: number, lat: number) {
@@ -295,11 +297,13 @@ export class SessionsService {
       throw new CustomHttpException('Session is full', HttpStatus.BAD_REQUEST);
     }
 
+    const willBeFull = session.members.length + 1 >= session.maxNumber;
+
     const updatedSession = await this.sessionRepository.findOneAndUpdate(
       { _id: sessionId },
       {
         $push: { members: userId },
-        $set: { isFull: session.members.length + 1 >= session.maxNumber },
+        $set: { isFull: willBeFull },
       },
     );
 
@@ -307,6 +311,10 @@ export class SessionsService {
       { _id: userId },
       { currentSession: sessionId },
     );
+
+    if (willBeFull && updatedSession.paymentRequired) {
+      await this.onSessionFull(sessionId);
+    }
 
     return {
       message: 'User successfully joined session',
@@ -561,5 +569,54 @@ export class SessionsService {
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
+  }
+
+  async onSessionFull(sessionId: string) {
+    const session = await this.sessionRepository.findOne({ _id: new Types.ObjectId(sessionId) });
+    if (!session) {
+      throw new CustomHttpException('Session not found', HttpStatus.NOT_FOUND);
+    }
+
+    const location = await this.locationRepository.findOne({ _id: session.location });
+    if (!location || !location.owner) {
+      throw new CustomHttpException('Location owner not found', HttpStatus.BAD_REQUEST);
+    }
+
+    if (!session.paymentRequired || !session.paymentAmount) {
+      return;
+    }
+
+    const paymentDeadline = new Date();
+    paymentDeadline.setHours(paymentDeadline.getHours() + 24);
+
+    await this.sessionPaymentService.initializeSessionPayments(
+      session._id,
+      session.location as any,
+      location.owner as any,
+      session.members.map((m) => new Types.ObjectId(m)),
+      session.paymentAmount,
+      paymentDeadline,
+    );
+
+    await this.sessionRepository.findOneAndUpdate(
+      { _id: session._id },
+      {
+        paymentStatus: 'PENDING',
+        paymentDeadline,
+      },
+    );
+  }
+
+  async canSessionStart(sessionId: string): Promise<boolean> {
+    const session = await this.sessionRepository.findOne({ _id: new Types.ObjectId(sessionId) });
+    if (!session) {
+      return false;
+    }
+
+    if (!session.paymentRequired) {
+      return true;
+    }
+
+    return await this.sessionPaymentService.areAllPaymentsCompleted(session._id);
   }
 }

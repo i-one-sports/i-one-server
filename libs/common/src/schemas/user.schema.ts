@@ -2,7 +2,7 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Types } from 'mongoose';
 import { AbstractDocument } from './abstract.schema';
 import { LocationCoordinates } from '../types/common';
-import { PLAYER_POSITION } from '../types/common';
+import { PLAYER_POSITION, USER_ROLE } from '../types/common';
 
 @Schema({ timestamps: true })
 export class User extends AbstractDocument {
@@ -42,6 +42,12 @@ export class User extends AbstractDocument {
   @Prop({ default: false })
   isOwner: boolean;
 
+  @Prop({ type: String, enum: USER_ROLE, default: USER_ROLE.USER })
+  role: USER_ROLE;
+
+  @Prop({ type: Types.ObjectId, ref: 'Wallet', required: false })
+  walletId: Types.ObjectId;
+
   @Prop({ type: Types.ObjectId, ref: 'Session', default: null })
   currentSession: string;
 
@@ -68,3 +74,4 @@ export class User extends AbstractDocument {
 }
 export const UserSchema = SchemaFactory.createForClass(User);
 UserSchema.index({ location: '2dsphere' });
+UserSchema.index({ walletId: 1 }, { sparse: true });

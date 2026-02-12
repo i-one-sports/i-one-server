@@ -1,9 +1,58 @@
 import { Module } from '@nestjs/common';
-import { BillingController } from './billing.controller';
-import { BillingService } from './billing.service';
+import { MongooseModule } from '@nestjs/mongoose';
+import { Wallet, WalletSchema } from '@app/common/schemas/wallet.schema';
+import { Transaction, TransactionSchema } from '@app/common/schemas/transaction.schema';
+import { DedicatedVirtualAccount, DvaSchema } from '@app/common/schemas/dva.schema';
+import { SessionPayment, SessionPaymentSchema } from '@app/common/schemas/session-payment.schema';
+import { BankAccount, BankAccountSchema } from '@app/common/schemas/bank-account.schema';
+
+import { WalletRepository } from './repositories/wallet.repository';
+import { TransactionRepository } from './repositories/transaction.repository';
+import { DvaRepository } from './repositories/dva.repository';
+import { SessionPaymentRepository } from './repositories/session-payment.repository';
+import { BankAccountRepository } from './repositories/bank-account.repository';
+
+import { WalletService } from './services/wallet.service';
+import { SessionPaymentService } from './services/session-payment.service';
+import { WebhookService } from './services/webhook.service';
+import { WithdrawalService } from './services/withdrawal.service';
+
+import { WalletController } from './controllers/wallet.controller';
+import { WebhookController } from './controllers/webhook.controller';
+import { AdminBillingController } from './controllers/admin-billing.controller';
+
+import { PaystackService } from '@app/common/providers/paystack.service';
 
 @Module({
-  controllers: [BillingController],
-  providers: [BillingService]
+  imports: [
+    MongooseModule.forFeature([
+      { name: Wallet.name, schema: WalletSchema },
+      { name: Transaction.name, schema: TransactionSchema },
+      { name: DedicatedVirtualAccount.name, schema: DvaSchema },
+      { name: SessionPayment.name, schema: SessionPaymentSchema },
+      { name: BankAccount.name, schema: BankAccountSchema },
+    ]),
+  ],
+  controllers: [
+    WalletController,
+    WebhookController,
+    AdminBillingController,
+  ],
+  providers: [
+    WalletRepository,
+    TransactionRepository,
+    DvaRepository,
+    SessionPaymentRepository,
+    BankAccountRepository,
+    WalletService,
+    SessionPaymentService,
+    WebhookService,
+    WithdrawalService,
+    PaystackService,
+  ],
+  exports: [
+    WalletService,
+    SessionPaymentService,
+  ],
 })
 export class BillingModule {}

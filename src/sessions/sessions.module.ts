@@ -17,6 +17,7 @@ import { LocationRepository } from 'src/locations/locations.repository';
 import { MatchRepository } from 'src/matches/matches.repository';
 import { SessionRepository } from './sessions.repository';
 import { CaptainsModule } from 'src/captains/captains.module';
+import { BillingModule } from 'src/billing/billing.module';
 
 @Module({
   imports: [
@@ -26,7 +27,8 @@ import { CaptainsModule } from 'src/captains/captains.module';
       { name: Location.name, schema: LocationSchema },
       { name: Match.name, schema: MatchSchema },
     ]),
-    CaptainsModule, // Import the entire CaptainsModule
+    CaptainsModule,
+    BillingModule,
   ],
   controllers: [SessionsController],
   providers: [

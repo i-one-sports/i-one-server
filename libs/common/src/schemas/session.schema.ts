@@ -49,8 +49,25 @@ export class Session extends AbstractDocument {
 
   @Prop({ type:String, default: MATCH_TYPE.FRIENDLY })
   matchType: MATCH_TYPE;
+
+  @Prop({ type: Number, required: false, min: 0 })
+  paymentAmount: number;
+
+  @Prop({ type: Boolean, default: false })
+  paymentRequired: boolean;
+
+  @Prop({ type: Boolean, default: false })
+  allPaymentsCompleted: boolean;
+
+  @Prop({ type: Date, required: false })
+  paymentDeadline: Date;
+
+  @Prop({ type: String, enum: ['NOT_INITIATED', 'PENDING', 'COMPLETED', 'EXPIRED'], default: 'NOT_INITIATED' })
+  paymentStatus: string;
 }
 export const SessionSchema = SchemaFactory.createForClass(Session);
 // Indexes to improve query performance for owner dashboard and session lookups
 SessionSchema.index({ startTime: 1 });
 SessionSchema.index({ location: 1 });
+SessionSchema.index({ paymentRequired: 1, paymentStatus: 1 });
+SessionSchema.index({ allPaymentsCompleted: 1 });

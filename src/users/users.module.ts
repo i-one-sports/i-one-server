@@ -28,6 +28,6 @@ import { AwsService } from '@app/common/providers/aws.service';
     MailerService,
     AwsService,
   ],
-  exports: [UsersService],
+  exports: [UsersService, UserRepository],
 })
 export class UsersModule {}
