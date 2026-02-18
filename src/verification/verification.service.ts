@@ -5,6 +5,7 @@ import { Types } from 'mongoose';
 import { Verification } from '@app/common/schemas/verification.schema';
 import { WalletService } from '../billing/services/wallet.service';
 import { UserRepository } from '../users/users.repository';
+import { ne } from '@faker-js/faker';
 
 @Injectable()
 export class VerificationService {
@@ -153,7 +154,7 @@ export class VerificationService {
     }
   }
 
-  async rejectVerification(verificationId: string) {
+  async rejectVerification(verificationId: string, rejectionReason: string) {
     this.logger.log(`Rejecting verification: ${verificationId}`);
 
     const updatedVerification = await this.verificationRepository.findOneAndUpdate(
@@ -161,7 +162,8 @@ export class VerificationService {
         _id: new Types.ObjectId(verificationId),
         status: { $ne: 'REJECTED' }
       },
-      { status: 'REJECTED' }
+      { status: 'REJECTED', rejectionReason },
+     
     );
 
     if (!updatedVerification) {

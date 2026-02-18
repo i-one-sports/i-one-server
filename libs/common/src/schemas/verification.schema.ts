@@ -26,6 +26,9 @@ export class Verification extends AbstractDocument {
 
     @Prop({type: String, enum: ['PENDING', 'APPROVED', 'REJECTED'], default: 'PENDING'})
     status: string;
+
+    @Prop({type: String, default: null})
+    rejectionReason: string;
 }
 
 export const VerificationSchema = SchemaFactory.createForClass(Verification);

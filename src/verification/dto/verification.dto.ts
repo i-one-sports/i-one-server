@@ -22,4 +22,6 @@ export class VerificationDto {
     address: string;
 }
 
+
+
 export class UploadVerificationDocumentDto extends VerificationDto {}
