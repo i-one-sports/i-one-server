@@ -45,7 +45,8 @@ export enum UploadType {
   USER_AVATAR = 'users',
   AVATAR = 'avatars',
   DOCUMENT_FRONT = 'documents_front',
-  DOCUMENT_BACK = 'documents_back'
+  DOCUMENT_BACK = 'documents_back',
+  LOCATION_PICTURE = 'location_pictures'
   // RESOURCE_AVATAR = 'resources'
 }
 

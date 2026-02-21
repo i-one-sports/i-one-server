@@ -35,7 +35,8 @@ export class VerificationService {
       idNumber: data.idNumber,
       address: data.address,
       frontUrl,
-      backUrl
+      backUrl,
+      locationPictures: data.locationPictures
     };
 
     if (existingVerification) {
@@ -74,6 +75,7 @@ export class VerificationService {
         address: verification.address,
         frontUrl: verification.frontUrl,
         backUrl: verification.backUrl,
+        locationPictures: verification.locationPictures,
         status: verification.status
       }
     };

@@ -24,6 +24,9 @@ export class Verification extends AbstractDocument {
     @Prop({type: String})
     backUrl: string;
 
+    @Prop({type: [String]})
+    locationPictures: string[];
+
     @Prop({type: String, enum: ['PENDING', 'APPROVED', 'REJECTED'], default: 'PENDING'})
     status: string;
 

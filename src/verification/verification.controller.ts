@@ -39,6 +39,7 @@ export class VerificationController {
       [
         { name: 'frontPage', maxCount: 1 },
         { name: 'backPage', maxCount: 1 },
+        { name: 'locationPictures', maxCount: 5},
       ],
       {
         storage: multer.memoryStorage(),
@@ -52,15 +53,21 @@ export class VerificationController {
     files: {
       frontPage?: Express.Multer.File[];
       backPage?: Express.Multer.File[];
+      locationPictures?: Express.Multer.File[];
     },
     @CurrentUser() user: User,
     @Body() data: UploadVerificationDocumentDto,
   ) {
     const frontFile = files.frontPage?.[0];
     const backFile = files.backPage?.[0];
+    const locationFiles = files.locationPictures || [];
 
     if (!frontFile || !backFile) {
       throw new BadRequestException('Both front and back pages are required');
+    }
+
+    if (locationFiles.length === 0) {
+      throw new BadRequestException('At least one location picture is required');
     }
 
     const frontUrl = await this.awsService.upload(
@@ -75,9 +82,26 @@ export class VerificationController {
       `${user._id}-${data.idType}`,
     );
 
+    // Upload all location pictures
+    const locationPictureUrls = await Promise.all(
+      locationFiles.map((file, index) =>
+        this.awsService.upload(
+          file,
+          UploadType.LOCATION_PICTURE,
+          `${user._id}-${data.idType}-location-${index}`,
+        ),
+      ),
+    );
+
+    // Override locationPictures in data with uploaded URLs
+    const verificationData = {
+      ...data,
+      locationPictures: locationPictureUrls,
+    };
+
     return this.verificationService.submitVerification(
       user._id.toString(),
-      data,
+      verificationData,
       frontUrl,
       backUrl,
     );

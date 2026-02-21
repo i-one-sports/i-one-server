@@ -1,4 +1,4 @@
-import { IsEnum, IsNotEmpty, IsString } from "class-validator";
+import { IsArray, IsEnum, IsNotEmpty, IsString } from "class-validator";
 
 export enum VerificationType {
     BVN = 'BVN',
@@ -20,6 +20,10 @@ export class VerificationDto {
     @IsString()
     @IsNotEmpty()
     address: string;
+
+    @IsNotEmpty()
+    @IsArray()
+    locationPictures: string[];
 }
 
 
