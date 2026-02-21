@@ -60,6 +60,9 @@ export class User extends AbstractDocument {
   @Prop({ type: Boolean, default: null })
   otpVerified: boolean;
 
+  @Prop({ type: Boolean, default: false })
+  emailVerified: boolean;
+
   @Prop({
     type: {
       type: String,

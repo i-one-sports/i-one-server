@@ -19,6 +19,7 @@ import { CaptainsModule } from './captains/captains.module';
 import { LoggingInterceptor } from '@app/common';
 import { BillingModule } from './billing/billing.module';
 import { VerificationModule } from './verification/verification.module';
+import { CacheModule } from './cache/cache.module';
 
 
 @Injectable()
@@ -59,6 +60,7 @@ class RootCronService {
     CaptainsModule,
     BillingModule,
     VerificationModule,
+    CacheModule
   ],
   controllers: [AppController],
   providers: [

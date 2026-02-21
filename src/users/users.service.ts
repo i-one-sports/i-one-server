@@ -9,7 +9,9 @@ import {
   ForgotPasswordDto,
   registerUserRequest,
   ResetPasswordDto,
+  SendEmailVerifyDto,
   UpdateUserDto,
+  VerifyEmailOtpDto,
   VerifyOtpDto,
 } from './dto/user.dto';
 import {
@@ -21,15 +23,19 @@ import {
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { StatsService } from 'src/stats/stats.service';
+import { CacheService } from 'src/cache/cache.service';
 
 @Injectable()
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
 
+  private readonly EMAIL_VERIFY_TTL = 10 * 60; // 10 minutes
+
   constructor(
     private readonly usersRepository: UserRepository,
     private readonly mailService: MailerService,
     private readonly statsService: StatsService,
+    private readonly cacheService: CacheService,
   ) {}
   async registerUser({
     firstName,
@@ -186,6 +192,51 @@ export class UsersService {
     );
 
     return { message: 'Password reset successful' };
+  }
+
+  async sendEmailVerification({ email }: SendEmailVerifyDto) {
+    const user = await this.usersRepository.findOne({ email: email.toLowerCase() });
+
+    if (!user) {
+      throw new CustomHttpException('User with email does not exist', HttpStatus.NOT_FOUND);
+    }
+
+    if (user.emailVerified) {
+      throw new CustomHttpException('Email is already verified', HttpStatus.CONFLICT);
+    }
+
+    const otp = crypto.randomInt(100000, 999999);
+    const key = `email_verify:${email.toLowerCase()}`;
+
+    await this.cacheService.set(key, otp.toString(), this.EMAIL_VERIFY_TTL);
+
+    this.mailService
+      .sendMail(
+        user.email,
+        'Verify your email',
+        `Your email verification OTP is ${otp}. It is valid for 10 minutes.`,
+      )
+      .catch((err) => this.logger.error(`Email verification mail failed: ${err.message}`));
+
+    return { message: 'Verification OTP sent to your email' };
+  }
+
+  async confirmEmailVerification({ email, otp }: VerifyEmailOtpDto) {
+    const key = `email_verify:${email.toLowerCase()}`;
+    const stored = await this.cacheService.get(key);
+
+    if (!stored || parseInt(stored, 10) !== otp) {
+      throw new CustomHttpException('Invalid or expired OTP', HttpStatus.UNAUTHORIZED);
+    }
+
+    await this.usersRepository.findOneAndUpdate(
+      { email: email.toLowerCase() },
+      { emailVerified: true },
+    );
+
+    await this.cacheService.delete(key);
+
+    return { message: 'Email verified successfully' };
   }
 
   private async checkExistingUser(

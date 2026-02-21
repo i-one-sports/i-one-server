@@ -4,7 +4,9 @@ import {
   ForgotPasswordDto,
   registerUserRequest,
   ResetPasswordDto,
+  SendEmailVerifyDto,
   UpdateUserDto,
+  VerifyEmailOtpDto,
   VerifyOtpDto,
 } from './dto/user.dto';
 import { JwtAuthGuard } from 'src/auth/guards/jwt.guard';
@@ -23,6 +25,16 @@ export class UsersController {
   @Post('register')
   async register(@Body() request: registerUserRequest) {
     return this.usersService.registerUser(request);
+  }
+
+  @Post('verify-email/send')
+  async sendEmailVerification(@Body() data: SendEmailVerifyDto) {
+    return this.usersService.sendEmailVerification(data);
+  }
+
+  @Post('verify-email/confirm')
+  async confirmEmailVerification(@Body() data: VerifyEmailOtpDto) {
+    return this.usersService.confirmEmailVerification(data);
   }
 
   @Post('forget-password')

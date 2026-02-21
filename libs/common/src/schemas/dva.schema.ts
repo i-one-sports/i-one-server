@@ -22,7 +22,7 @@ export class DedicatedVirtualAccount extends AbstractDocument {
   @Prop({ type: String, required: true })
   accountName: string;
 
-  @Prop({ type: String, required: true, unique: true })
+  @Prop({ type: String, required: true })
   paystackCustomerCode: string;
 
   @Prop({ type: String, required: false })

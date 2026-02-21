@@ -4,7 +4,7 @@ import { AbstractDocument } from './abstract.schema';
 
 @Schema({ timestamps: true, versionKey: false })
 export class Wallet extends AbstractDocument {
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true, unique: true })
+  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   userId: Types.ObjectId;
 
   @Prop({ type: Number, default: 0, min: 0 })

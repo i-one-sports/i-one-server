@@ -124,6 +124,22 @@ export class VerifyOtpDto {
   otp: number;
 }
 
+export class SendEmailVerifyDto {
+  @IsEmail()
+  @IsNotEmpty()
+  email: string;
+}
+
+export class VerifyEmailOtpDto {
+  @IsEmail()
+  @IsNotEmpty()
+  email: string;
+
+  @IsNumber()
+  @IsNotEmpty()
+  otp: number;
+}
+
 export class ResetPasswordDto {
   @IsEmail({}, { message: 'Invalid email format' })
   @IsNotEmpty()
