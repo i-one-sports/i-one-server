@@ -4,9 +4,9 @@ import { SetRepository } from '../sets/sets.repository';
 import { CustomHttpException, MatchI } from '@app/common';
 import { Set } from '@app/common';
 import { SessionRepository } from 'src/sessions/sessions.repository';
-import { Model, Types } from 'mongoose';
-import { Session } from 'inspector/promises';
+import { Types } from 'mongoose';
 import { MatchEventService } from './match-event.service';
+import { SessionPaymentService } from 'src/billing/services/session-payment.service';
 
 @Injectable()
 export class MatchesService {
@@ -15,6 +15,7 @@ export class MatchesService {
     private readonly setRepository: SetRepository,
     private readonly sessionRepository: SessionRepository,
     private readonly matchEventService: MatchEventService,
+    private readonly sessionPaymentService: SessionPaymentService,
   ) {}
 
   private async viewSetForSession(sessionId: string): Promise<Set[]> {
@@ -29,6 +30,16 @@ export class MatchesService {
 
     if (!session) {
       throw new CustomHttpException('Session not found', HttpStatus.NOT_FOUND);
+    }
+
+    if (session.paymentRequired) {
+      const allPaid = await this.sessionPaymentService.areAllPaymentsCompleted(session._id);
+      if (!allPaid) {
+        throw new CustomHttpException(
+          'Cannot start matchup: not all members have completed payment',
+          HttpStatus.PAYMENT_REQUIRED,
+        );
+      }
     }
 
     const sessionMatchType = session.matchType;
