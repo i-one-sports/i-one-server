@@ -79,6 +79,18 @@ export class WalletController {
     );
   }
 
+  @Post('session/:sessionId/pay')
+  async initializeSessionPayment(
+    @Param('sessionId') sessionId: string,
+    @CurrentUser() user: User,
+  ) {
+    return await this.sessionPaymentService.initializeCheckout(
+      sessionId,
+      user._id.toString(),
+      user.email,
+    );
+  }
+
   @Post('bank-accounts')
   @UseGuards(IsOwnerGuard)
   async addBankAccount(

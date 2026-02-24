@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UploadedFiles,
   UseGuards,
   UseInterceptors,
@@ -18,7 +19,6 @@ import {
   UploadType,
   RolesGuard,
   Roles,
-  ROLES_KEY,
   USER_ROLE,
 } from '@app/common';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
@@ -115,8 +115,11 @@ export class VerificationController {
   }
 
   @Get('all')
-  async getAllVerifications() {
-    return this.verificationService.getAllVerifications();
+  async getAllVerifications(
+    @Query('page') page: string,
+    @Query('limit') limit: string,
+  ) {
+    return this.verificationService.getAllVerifications(Number(page) || 1, Number(limit) || 20);
   }
 
   @Roles(USER_ROLE.SUPER_ADMIN)

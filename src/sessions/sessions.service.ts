@@ -10,6 +10,7 @@ import { MATCH_TYPE } from '@app/common';
 import { CaptainsService } from 'src/captains/captains.service';
 import { CreateCaptainDto } from 'src/captains/dto/captains.dto';
 import { SessionPaymentService } from 'src/billing/services/session-payment.service';
+import { VerificationRepository } from 'src/verification/verification.repository';
 
 @Injectable()
 export class SessionsService {
@@ -20,6 +21,7 @@ export class SessionsService {
     private readonly userRepository: UserRepository,
     private readonly CaptainService: CaptainsService,
     private readonly sessionPaymentService: SessionPaymentService,
+    private readonly verificationRepository: VerificationRepository,
   ) {}
 
   async findNearbySessionMatches(lng: number, lat: number) {
@@ -118,46 +120,37 @@ export class SessionsService {
   }
 
   async startSession(userId: string, locationId: string) {
-    const user = await this.userRepository.findOne({ _id: userId });
-    const location = await this.locationRepository.findOne({ _id: locationId });
+    const [user, location] = await Promise.all([
+      this.userRepository.findOne({ _id: userId }),
+      this.locationRepository.findOne({ _id: locationId }),
+    ]);
 
     if (!location)
       throw new CustomHttpException('Location not found', HttpStatus.NOT_FOUND);
-
-    if (user == null) {
+    if (!user)
       throw new CustomHttpException('User not found', HttpStatus.NOT_FOUND);
-    }
 
-    await this.userRepository.findOneAndUpdate(
-      {
-        _id: userId,
-      },
-      { isCaptain: true },
-    );
+    const verification = await this.verificationRepository.findOne({
+      userId: new Types.ObjectId(userId),
+    });
+
+    if (!verification || verification.status === 'REJECTED') {
+      throw new CustomHttpException(
+        'Account not verified. Please submit your verification documents.',
+        HttpStatus.FORBIDDEN,
+      );
+    }
 
     const session = await this.sessionRepository.create({
       location: locationId,
       captain: userId,
     });
 
-    await this.userRepository.findOneAndUpdate(
-      { _id: userId },
-      { currentSession: session._id },
-    );
-
-    await this.locationRepository.findOneAndUpdate(
-      { _id: locationId },
-      {
-        booked: true,
-      },
-    );
-
-    const captainDetails: CreateCaptainDto = {
-      userId: userId,
-      sessionId: session._id.toString(),
-    };
-
-    await this.CaptainService.createCaptain(captainDetails);
+    await Promise.all([
+      this.userRepository.findOneAndUpdate({ _id: userId }, { currentSession: session._id }),
+      this.locationRepository.findOneAndUpdate({ _id: locationId }, { booked: true }),
+      this.CaptainService.createCaptain({ userId, sessionId: session._id.toString() }),
+    ]);
 
     return session;
   }
@@ -247,35 +240,20 @@ export class SessionsService {
     if (!session)
       throw new CustomHttpException('Session not found', HttpStatus.NOT_FOUND);
 
-    await Promise.all(
-      session.members.map(async (memberId) => {
-        const user = await this.userRepository.findOne({
-          _id: memberId.toString(),
-        });
-        if (user !== null) {
-          await this.userRepository.findOneAndUpdate(
-            { _id: memberId.toString() },
-            { currentSession: null, isCaptain: false },
-          );
-        }
-      }),
-    );
-
-    await this.sessionRepository.findOneAndUpdate(
-      {
-        _id: session._id.toString(),
-      },
-      { captain: null, inProgress: false },
-    );
-
-    await this.locationRepository.findOneAndUpdate(
-      {
-        _id: session.location,
-      },
-      {
-        booked: false,
-      },
-    );
+    await Promise.all([
+      this.userRepository.updateMany(
+        { _id: { $in: session.members } },
+        { $set: { currentSession: null } },
+      ),
+      this.sessionRepository.findOneAndUpdate(
+        { _id: session._id.toString() },
+        { captain: null, inProgress: false },
+      ),
+      this.locationRepository.findOneAndUpdate(
+        { _id: session.location },
+        { booked: false },
+      ),
+    ]);
 
     return { message: 'Session ended successfully', session };
   }
@@ -313,7 +291,7 @@ export class SessionsService {
     );
 
     if (willBeFull && updatedSession.paymentRequired) {
-      await this.onSessionFull(sessionId);
+      await this.onSessionFull(updatedSession);
     }
 
     return {
@@ -334,22 +312,17 @@ export class SessionsService {
       throw new CustomHttpException('User not found', HttpStatus.NOT_FOUND);
 
     try {
-      await this.sessionRepository.findOneAndUpdate(
-        { _id: sessionId },
-        {
-          $pull: { members: userId },
-          $set: { isFull: session.members.length - 1 >= session.maxNumber },
-        },
-      );
+      const [updatedSession] = await Promise.all([
+        this.sessionRepository.findOneAndUpdate(
+          { _id: sessionId },
+          {
+            $pull: { members: userId },
+            $set: { isFull: false },
+          },
+        ),
+        this.userRepository.findOneAndUpdate({ _id: userId }, { currentSession: null }),
+      ]);
 
-      await this.userRepository.findOneAndUpdate(
-        { _id: userId },
-        { currentSession: null },
-      );
-
-      const updatedSession = await this.sessionRepository.findOne({
-        _id: sessionId,
-      });
       return {
         message: 'User successfully left session',
         session: updatedSession,
@@ -393,30 +366,17 @@ export class SessionsService {
   }
 
   async viewSession(sessionId: string) {
-    const verifySession = await this.sessionRepository.findOne({
-      _id: sessionId,
-    });
+    const session = await this.sessionRepository
+      .findRaw()
+      .findOne({ _id: sessionId })
+      .populate({ path: 'members', select: 'firstName lastName nickname avatar' })
+      .lean();
 
-    if (verifySession === null) {
-      throw new CustomHttpException(
-        'Session does not exist',
-        HttpStatus.NOT_FOUND,
-      );
+    if (!session) {
+      throw new CustomHttpException('Session does not exist', HttpStatus.NOT_FOUND);
     }
 
-    return await this.sessionRepository
-      .findRaw()
-      .findOne({
-        _id: sessionId,
-      })
-      .populate({
-        path: 'members',
-        select: 'nickname -_id',
-      })
-      .populate({
-        path: 'members',
-        select: 'nickname -_id',
-      });
+    return session;
   }
 
   async viewAllSessions(page: number = 1, limit: number = 6) {
@@ -571,40 +531,31 @@ export class SessionsService {
     }
   }
 
-  async onSessionFull(sessionId: string) {
-    const session = await this.sessionRepository.findOne({ _id: new Types.ObjectId(sessionId) });
-    if (!session) {
-      throw new CustomHttpException('Session not found', HttpStatus.NOT_FOUND);
-    }
+  async onSessionFull(session: Session) {
+    if (!session.paymentAmount) return;
 
     const location = await this.locationRepository.findOne({ _id: session.location });
     if (!location || !location.owner) {
       throw new CustomHttpException('Location owner not found', HttpStatus.BAD_REQUEST);
     }
 
-    if (!session.paymentRequired || !session.paymentAmount) {
-      return;
-    }
-
     const paymentDeadline = new Date();
     paymentDeadline.setHours(paymentDeadline.getHours() + 24);
 
-    await this.sessionPaymentService.initializeSessionPayments(
-      session._id,
-      session.location as any,
-      location.owner as any,
-      session.members.map((m) => new Types.ObjectId(m)),
-      session.paymentAmount,
-      paymentDeadline,
-    );
-
-    await this.sessionRepository.findOneAndUpdate(
-      { _id: session._id },
-      {
-        paymentStatus: 'PENDING',
+    await Promise.all([
+      this.sessionPaymentService.initializeSessionPayments(
+        session._id,
+        session.location as any,
+        location.owner as any,
+        session.members.map((m) => new Types.ObjectId(m)),
+        session.paymentAmount,
         paymentDeadline,
-      },
-    );
+      ),
+      this.sessionRepository.findOneAndUpdate(
+        { _id: session._id },
+        { paymentStatus: 'PENDING', paymentDeadline },
+      ),
+    ]);
   }
 
   async canSessionStart(sessionId: string): Promise<boolean> {

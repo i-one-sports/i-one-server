@@ -5,7 +5,6 @@ import { Types } from 'mongoose';
 import { Verification } from '@app/common/schemas/verification.schema';
 import { WalletService } from '../billing/services/wallet.service';
 import { UserRepository } from '../users/users.repository';
-import { ne } from '@faker-js/faker';
 
 @Injectable()
 export class VerificationService {
@@ -88,9 +87,19 @@ export class VerificationService {
     });
   }
 
-  async getAllVerifications() {
-    this.logger.log('Fetching all verifications');
-    return this.verificationRepository.find({});
+  async getAllVerifications(page: number = 1, limit: number = 20) {
+    this.logger.log(`Fetching all verifications: page=${page}, limit=${limit}`);
+    const skip = (page - 1) * limit;
+
+    const [verifications, total] = await Promise.all([
+      this.verificationRepository.findRaw().find({}).skip(skip).limit(limit).lean(),
+      this.verificationRepository.findRaw().countDocuments({}),
+    ]);
+
+    return {
+      verifications,
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    };
   }
 
   async approveVerification(verificationId: string) {

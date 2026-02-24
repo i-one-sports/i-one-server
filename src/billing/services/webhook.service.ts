@@ -61,10 +61,24 @@ export class WebhookService {
     const metadata = data.metadata || {};
     const sessionId = metadata.sessionId;
     const userId = metadata.userId;
+    const amount = data.amount / 100;
 
+    // Session payment via Paystack checkout — metadata carries sessionId + userId
+    if (sessionId && userId) {
+      await this.sessionPaymentService.confirmSessionPayment(
+        new Types.ObjectId(sessionId),
+        new Types.ObjectId(userId),
+        data.reference,
+        amount,
+      );
+      this.logger.log(`Session payment confirmed: ${data.reference}`);
+      return;
+    }
+
+    // Direct DVA bank transfer — credit the owner's wallet
     const customerCode = data.customer?.customer_code;
     if (!customerCode) {
-      this.logger.error('No customer code in webhook data');
+      this.logger.error('No customer code and no session metadata in webhook');
       return;
     }
 
@@ -74,26 +88,15 @@ export class WebhookService {
       return;
     }
 
-    const amount = data.amount / 100;
+    await this.walletService.creditWallet(
+      dva.walletId,
+      amount,
+      TransactionSource.ADMIN_FUNDING,
+      data.reference,
+      { paystackData: data },
+    );
 
-    if (sessionId && userId) {
-      await this.sessionPaymentService.confirmSessionPayment(
-        new Types.ObjectId(sessionId),
-        new Types.ObjectId(userId),
-        data.reference,
-        amount,
-      );
-    } else {
-      await this.walletService.creditWallet(
-        dva.walletId,
-        amount,
-        TransactionSource.ADMIN_FUNDING,
-        data.reference,
-        { paystackData: data },
-      );
-    }
-
-    this.logger.log(`Charge processed successfully: ${data.reference}`);
+    this.logger.log(`DVA credit processed: ${data.reference}`);
   }
 
   private async handleTransferSuccess(data: any) {

@@ -1,8 +1,6 @@
 import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
 import { AbstractDocument } from "./abstract.schema";
 import { Types } from "mongoose";
-import { Session } from "inspector/promises";
-import { SessionSchema } from "./session.schema";
 
 @Schema({versionKey: false,timestamps: true})
 export class Verification extends AbstractDocument {

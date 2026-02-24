@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { SessionPaymentRepository } from '../repositories/session-payment.repository';
 import { WalletService } from './wallet.service';
+import { PaystackService } from '@app/common/providers/paystack.service';
 import { Types } from 'mongoose';
 import { PaymentStatus } from '@app/common/schemas/session-payment.schema';
 import { TransactionSource } from '@app/common/schemas/transaction.schema';
@@ -13,6 +14,7 @@ export class SessionPaymentService {
   constructor(
     private readonly sessionPaymentRepository: SessionPaymentRepository,
     private readonly walletService: WalletService,
+    private readonly paystackService: PaystackService,
   ) {}
 
   async initializeSessionPayments(
@@ -25,21 +27,17 @@ export class SessionPaymentService {
   ) {
     this.logger.log(`Initializing payments for session: ${sessionId}, members: ${memberIds.length}`);
 
-    const payments = [];
+    const existingPayments = await this.sessionPaymentRepository.find({
+      sessionId,
+      userId: { $in: memberIds },
+    });
 
-    for (const userId of memberIds) {
-      const existingPayment = await this.sessionPaymentRepository.findOne({
-        sessionId,
-        userId,
-      });
+    const existingUserIds = new Set(existingPayments.map((p) => p.userId.toString()));
+    const newMemberIds = memberIds.filter((id) => !existingUserIds.has(id.toString()));
 
-      if (existingPayment) {
-        this.logger.log(`Payment already exists for user: ${userId} in session: ${sessionId}`);
-        payments.push(existingPayment);
-        continue;
-      }
-
-      const payment = await this.sessionPaymentRepository.create({
+    if (newMemberIds.length > 0) {
+      const newPayments = newMemberIds.map((userId) => ({
+        _id: new Types.ObjectId(),
         sessionId,
         userId,
         locationId,
@@ -48,14 +46,38 @@ export class SessionPaymentService {
         status: PaymentStatus.PENDING,
         paymentReference: `SESSION_${sessionId}_USER_${userId}_${randomUUID()}`,
         expiresAt: paymentDeadline,
-      });
+      }));
 
-      payments.push(payment);
+      await this.sessionPaymentRepository.insertMany(newPayments);
+      this.logger.log(`Created ${newMemberIds.length} new payment records for session: ${sessionId}`);
+    }
+  }
+
+  async initializeCheckout(sessionId: string, userId: string, userEmail: string) {
+    const payment = await this.sessionPaymentRepository.findOne({
+      sessionId: new Types.ObjectId(sessionId),
+      userId: new Types.ObjectId(userId),
+      status: PaymentStatus.PENDING,
+    });
+
+    if (!payment) {
+      throw new NotFoundException('No pending payment found for this session');
     }
 
-    this.logger.log(`Initialized ${payments.length} payment records for session: ${sessionId}`);
+    const result = await this.paystackService.initializeTransaction(
+      userEmail,
+      payment.amount,
+      payment.paymentReference,
+      { sessionId, userId },
+    );
 
-    return payments;
+    this.logger.log(`Checkout initialized for session: ${sessionId}, user: ${userId}`);
+
+    return {
+      authorizationUrl: result.authorization_url,
+      reference: result.reference,
+      amount: payment.amount,
+    };
   }
 
   async confirmSessionPayment(
@@ -109,29 +131,42 @@ export class SessionPaymentService {
   }
 
   async areAllPaymentsCompleted(sessionId: Types.ObjectId): Promise<boolean> {
-    const payments = await this.sessionPaymentRepository.find({ sessionId });
+    const [total, unpaid] = await Promise.all([
+      this.sessionPaymentRepository.findRaw().countDocuments({ sessionId }),
+      this.sessionPaymentRepository.findRaw().countDocuments({ sessionId, status: { $ne: PaymentStatus.PAID } }),
+    ]);
 
-    if (payments.length === 0) {
-      return false;
-    }
-
-    return payments.every((payment) => payment.status === PaymentStatus.PAID);
+    return total > 0 && unpaid === 0;
   }
 
   async getSessionPaymentStatus(sessionId: string) {
-    const payments = await this.sessionPaymentRepository.find({
-      sessionId: new Types.ObjectId(sessionId),
-    });
+    const [aggResult] = await this.sessionPaymentRepository.findRaw().aggregate([
+      { $match: { sessionId: new Types.ObjectId(sessionId) } },
+      {
+        $facet: {
+          stats: [
+            {
+              $group: {
+                _id: null,
+                totalPayments: { $sum: 1 },
+                paidPayments: { $sum: { $cond: [{ $eq: ['$status', PaymentStatus.PAID] }, 1, 0] } },
+                pendingPayments: { $sum: { $cond: [{ $eq: ['$status', PaymentStatus.PENDING] }, 1, 0] } },
+              },
+            },
+          ],
+          payments: [{ $project: { __v: 0 } }],
+        },
+      },
+    ]);
 
-    const totalPayments = payments.length;
-    const paidPayments = payments.filter((p) => p.status === PaymentStatus.PAID).length;
-    const pendingPayments = payments.filter((p) => p.status === PaymentStatus.PENDING).length;
+    const stat = aggResult?.stats?.[0] ?? { totalPayments: 0, paidPayments: 0, pendingPayments: 0 };
+    const payments = aggResult?.payments ?? [];
 
     return {
-      totalPayments,
-      paidPayments,
-      pendingPayments,
-      allCompleted: totalPayments > 0 && paidPayments === totalPayments,
+      totalPayments: stat.totalPayments,
+      paidPayments: stat.paidPayments,
+      pendingPayments: stat.pendingPayments,
+      allCompleted: stat.totalPayments > 0 && stat.paidPayments === stat.totalPayments,
       payments,
     };
   }
