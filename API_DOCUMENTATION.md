@@ -877,11 +877,15 @@ Get all sets in the system.
 ## Matches
 
 ### POST /matches/matchup/:sessionId
-Generate match pairings for a session.
+Generate match pairings for a session. If the session requires payment, all members must have paid before matchups can be created.
 
 **Auth required**: Yes (JWT cookie)
 
 **Success Response** `201 Created`: Array of created match documents.
+
+**Error Responses**:
+- `402 Payment Required` — session requires payment and not all members have paid
+- `400 Bad Request` — teams already matched, or odd number of sets
 
 ---
 
