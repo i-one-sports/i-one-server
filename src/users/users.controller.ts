@@ -1,7 +1,8 @@
-import { Body, Controller, Get, Patch, Post, Put, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Put, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { UsersService } from './users.service';
 import {
   ForgotPasswordDto,
+  PromoteUserDto,
   registerUserRequest,
   ResetPasswordDto,
   SendEmailVerifyDto,
@@ -10,7 +11,7 @@ import {
   VerifyOtpDto,
 } from './dto/user.dto';
 import { JwtAuthGuard } from 'src/auth/guards/jwt.guard';
-import { CurrentUser, UploadType, User } from '@app/common';
+import { CurrentUser, Roles, RolesGuard, UploadType, User, USER_ROLE } from '@app/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import * as multer from 'multer';
 import { AwsService } from '@app/common/providers/aws.service';
@@ -89,5 +90,15 @@ export class UsersController {
     @Body() data: UpdateUserDto,
   ) {
     return this.usersService.updateProfile(user._id.toString(), data);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(USER_ROLE.SUPER_ADMIN)
+  @Patch('promote/:userId')
+  async promoteUser(
+    @Param('userId') userId: string,
+    @Body() data: PromoteUserDto,
+  ) {
+    return this.usersService.promoteUser(userId, data.role);
   }
 }

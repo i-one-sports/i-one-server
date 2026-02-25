@@ -19,6 +19,7 @@ import {
   internationalisePhoneNumber,
   MailerService,
   User,
+  USER_ROLE,
 } from '@app/common';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
@@ -335,6 +336,20 @@ export class UsersService {
 
     updatedUser.password = '';
     return updatedUser;
+  }
+
+  async promoteUser(userId: string, role: USER_ROLE.ADMIN | USER_ROLE.SUPER_ADMIN) {
+    const user = await this.usersRepository.findOne({ _id: userId });
+    if (!user) {
+      throw new CustomHttpException('User not found', HttpStatus.NOT_FOUND);
+    }
+
+    const updated = await this.usersRepository.findOneAndUpdate(
+      { _id: userId },
+      { role },
+    );
+
+    return { message: `User role set to ${role}`, user: updated };
   }
 
   public async validateUser(email: string, password: string): Promise<User> {

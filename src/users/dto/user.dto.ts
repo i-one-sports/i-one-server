@@ -1,4 +1,4 @@
-import { LocationCoordinates, PLAYER_POSITION } from '@app/common';
+import { LocationCoordinates, PLAYER_POSITION, USER_ROLE } from '@app/common';
 import {
   IsString,
   IsEmail,
@@ -138,6 +138,14 @@ export class VerifyEmailOtpDto {
   @IsNumber()
   @IsNotEmpty()
   otp: number;
+}
+
+export class PromoteUserDto {
+  @IsEnum([USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN], {
+    message: 'role must be admin or super_admin',
+  })
+  @IsNotEmpty()
+  role: USER_ROLE.ADMIN | USER_ROLE.SUPER_ADMIN;
 }
 
 export class ResetPasswordDto {
