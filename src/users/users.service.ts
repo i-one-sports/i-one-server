@@ -71,7 +71,8 @@ export class UsersService {
       nickname,
       height,
       dateOfBirth,
-      avatar
+      avatar,
+      role: isOwner ? USER_ROLE.ADMIN : USER_ROLE.USER,
     };
     try {
       const user = await this.usersRepository.create(payload);
