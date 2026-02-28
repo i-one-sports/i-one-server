@@ -45,7 +45,7 @@ export class LocationsController {
       @IsOwner() user: User,
       @Body() data: CreateLocationDto,
     ) {
-      return this.locationsService.registerLocation(data, user._id.toString());
+      return this.locationsService.registerLocation(data, user._id);
     }
 
   @UseGuards(IsOwnerGuard)  
@@ -67,7 +67,7 @@ export class LocationsController {
     
     @Get()
     async getMyLocation(@CurrentUser() user: User) {
-      return this.locationsService.getMyLocation(user._id.toString());
+      return this.locationsService.getMyLocation(user._id);
     }
 
     @UseGuards(IsOwnerGuard)

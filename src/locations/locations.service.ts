@@ -6,6 +6,7 @@ import { MatchRepository } from '../matches/matches.repository';
 import { CreateLocationDto, ViewNearbyLocationsDto } from './dto/location.dto';
 import { handleError } from 'src/helpers/errorHandler';
 import { SessionRepository } from 'src/sessions/sessions.repository';
+import { Types } from 'mongoose';
 
 @Injectable()
 export class LocationsService {
@@ -16,7 +17,7 @@ export class LocationsService {
     private readonly matchRepository: MatchRepository,
   ) {}
 
-  async registerLocation(locationData: CreateLocationDto, ownerId?: string): Promise<Location> {
+  async registerLocation(locationData: CreateLocationDto, ownerId: Types.ObjectId): Promise<Location> {
     const { name, address, location, pitchPhoto } = locationData;
 
     const alreadyExists = await this.locationRepository.findOne({
@@ -47,8 +48,9 @@ export class LocationsService {
           coordinates: location.coordinates,
         },
         pitchPhoto,
+        owner: ownerId,
       };
-      if (ownerId) payload.owner = ownerId;
+     
       return await this.locationRepository.create(payload);
     } catch (error) {
       if (error.code === 11000) {
@@ -171,18 +173,15 @@ export class LocationsService {
 
 
 
-  async getMyLocation(userId: string) {
-    const user = await this.userRepository.findOne({ _id: userId });
-
-    if (!user) {
-      throw new CustomHttpException('User not found', HttpStatus.NOT_FOUND);
+  async getMyLocation(userId: Types.ObjectId) {
+    console.log(userId)
+    const location = await this.locationRepository.findOne({ owner: userId });
+    if (!location) {
+      throw new CustomHttpException('No location found for this user', HttpStatus.NOT_FOUND);
     }
 
-    const location = user.locationInfo;
-    const address = user.locationInfo.address;
-    const coordinates = user.locationInfo.location.coordinates;
-
-    return { locationInfo: location, address, coordinates };
+ 
+    return location;
   }
 
   async getLocationById(locationId: string): Promise<Location> {
