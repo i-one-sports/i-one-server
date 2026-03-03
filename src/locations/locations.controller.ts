@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, DefaultValuePipe, Get, Param, ParseIntPipe, Post, Query, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { JwtAuthGuard } from 'src/auth/guards/jwt.guard';
 import { LocationsService } from './locations.service';
 import { CreateLocationDto, ViewNearbyLocationsDto } from './dto/location.dto';
@@ -93,10 +93,10 @@ export class LocationsController {
     async getOwnerLastMatches(
       @IsOwner() user: User,
       @Param('locationId') locationId: string,
-      @Query('limit') limit: number = 5,
-      @Query('skip') skip: number = 0,
+      @Query('limit', new DefaultValuePipe(5), ParseIntPipe) limit: number,
+      @Query('skip', new DefaultValuePipe(0), ParseIntPipe) skip: number,
     ) {
-      return this.locationsService.getOwnerLastMatches(locationId, user._id.toString(), Number(limit), Number(skip));
+      return this.locationsService.getOwnerLastMatches(locationId, user._id.toString(), limit, skip);
     }
 
     @UseGuards(IsOwnerGuard)
@@ -113,10 +113,10 @@ export class LocationsController {
     async getUpcomingSessions(
       @IsOwner() user: User,
       @Param('locationId') locationId: string,
-      @Query('limit') limit: number = 20,
-      @Query('skip') skip: number = 0,
+      @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
+      @Query('skip', new DefaultValuePipe(0), ParseIntPipe) skip: number,
     ) {
-      return this.locationsService.getUpcomingSessions(locationId, user._id.toString(), Number(limit), Number(skip));
+      return this.locationsService.getUpcomingSessions(locationId, user._id.toString(), limit, skip);
     }
 
     
