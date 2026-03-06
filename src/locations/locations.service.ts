@@ -171,9 +171,9 @@ export class LocationsService {
     return this.sessionRepository.findUpcomingSessionsByLocation(locationId, limit, skip);
   }
 
-  async getRevenue(locationId: string, ownerId: string, period: string) {
+  async getRevenue(locationId: string, ownerId: string) {
     await this.verifyOwnership(locationId, ownerId);
-    return this.sessionPaymentService.getRevenueByLocation(locationId, period);
+    return this.sessionPaymentService.getRevenueByLocation(locationId);
   }
 
   async getUsersChart(locationId: string, ownerId: string) {

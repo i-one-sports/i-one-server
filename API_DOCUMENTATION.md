@@ -635,30 +635,28 @@ Get upcoming sessions scheduled at this location.
 ---
 
 ### GET /location/:locationId/dashboard/revenue
-Get revenue earned at this location for a given time period. Only counts session payments with status `PAID`.
+Get revenue earned at this location for all time periods in a single call. Only counts session payments with status `PAID`. Returns totals for this week, this month, and this year so the frontend can switch between them without refetching.
 
 **Auth required**: Yes (JWT cookie + `IsOwnerGuard`)
 
 **Path Parameters**:
 - `locationId` — location ID
 
-**Query Parameters**:
-- `period` (string, default: `this_month`) — `this_week` | `this_month` | `this_year`
-
-**Example**: `GET /location/507f.../dashboard/revenue?period=this_month`
+**Example**: `GET /location/507f.../dashboard/revenue`
 
 **Success Response** `200 OK`:
 ```json
 {
-  "total": 200000,
-  "count": 12,
-  "period": "this_month"
+  "this_week":  { "total": 50000,  "count": 3  },
+  "this_month": { "total": 200000, "count": 12 },
+  "this_year":  { "total": 950000, "count": 58 }
 }
 ```
 
 **Field Notes**:
-- `total` — sum of all paid session payment amounts for the period (in kobo/smallest currency unit)
+- `total` — sum of paid session payment amounts for the period (in kobo/smallest currency unit)
 - `count` — number of individual payments in that period
+- Periods: `this_week` starts Sunday 00:00, `this_month` starts the 1st, `this_year` starts Jan 1st
 
 ---
 

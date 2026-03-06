@@ -124,9 +124,8 @@ export class LocationsController {
     async getRevenue(
       @IsOwner() user: User,
       @Param('locationId') locationId: string,
-      @Query('period', new DefaultValuePipe('this_month')) period: string,
     ) {
-      return this.locationsService.getRevenue(locationId, user._id.toString(), period);
+      return this.locationsService.getRevenue(locationId, user._id.toString());
     }
 
     @UseGuards(IsOwnerGuard)

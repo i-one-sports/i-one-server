@@ -184,45 +184,44 @@ export class SessionPaymentService {
     return payment;
   }
 
-  async getRevenueByLocation(locationId: string, period: string) {
+  async getRevenueByLocation(locationId: string) {
     const now = new Date();
-    let startDate: Date;
 
-    switch (period) {
-      case 'this_week':
-        startDate = new Date(now);
-        startDate.setDate(now.getDate() - now.getDay());
-        startDate.setHours(0, 0, 0, 0);
-        break;
-      case 'this_year':
-        startDate = new Date(now.getFullYear(), 0, 1);
-        break;
-      case 'this_month':
-      default:
-        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-    }
+    const weekStart = new Date(now);
+    weekStart.setDate(now.getDate() - now.getDay());
+    weekStart.setHours(0, 0, 0, 0);
 
-    const [result] = await this.sessionPaymentRepository.findRaw().aggregate([
-      {
-        $match: {
-          locationId: new Types.ObjectId(locationId),
-          status: PaymentStatus.PAID,
-          paidAt: { $gte: startDate },
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const yearStart = new Date(now.getFullYear(), 0, 1);
+
+    const aggregate = (startDate: Date) =>
+      this.sessionPaymentRepository.findRaw().aggregate([
+        {
+          $match: {
+            locationId: new Types.ObjectId(locationId),
+            status: PaymentStatus.PAID,
+            paidAt: { $gte: startDate },
+          },
         },
-      },
-      {
-        $group: {
-          _id: null,
-          total: { $sum: '$amount' },
-          count: { $sum: 1 },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: '$amount' },
+            count: { $sum: 1 },
+          },
         },
-      },
+      ]);
+
+    const [weekResult, monthResult, yearResult] = await Promise.all([
+      aggregate(weekStart),
+      aggregate(monthStart),
+      aggregate(yearStart),
     ]);
 
     return {
-      total: result?.total ?? 0,
-      count: result?.count ?? 0,
-      period,
+      this_week: { total: weekResult[0]?.total ?? 0, count: weekResult[0]?.count ?? 0 },
+      this_month: { total: monthResult[0]?.total ?? 0, count: monthResult[0]?.count ?? 0 },
+      this_year: { total: yearResult[0]?.total ?? 0, count: yearResult[0]?.count ?? 0 },
     };
   }
 }
