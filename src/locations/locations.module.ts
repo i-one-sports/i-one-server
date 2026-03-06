@@ -10,6 +10,7 @@ import { UserRepository } from 'src/users/users.repository';
 import { SessionRepository } from 'src/sessions/sessions.repository';
 import { MatchRepository } from 'src/matches/matches.repository';
 import { AwsService } from '@app/common/providers/aws.service';
+import { BillingModule } from 'src/billing/billing.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { AwsService } from '@app/common/providers/aws.service';
       { name: Session.name, schema: SessionSchema },
       { name: Match.name, schema: MatchSchema },
     ]),
+    BillingModule,
   ],
   controllers: [LocationsController],
   providers: [
@@ -27,7 +29,7 @@ import { AwsService } from '@app/common/providers/aws.service';
     UserRepository,
     SessionRepository,
     MatchRepository,
-    AwsService
+    AwsService,
   ],
   exports: [LocationsService],
 })

@@ -6,6 +6,7 @@ import { MatchRepository } from '../matches/matches.repository';
 import { CreateLocationDto, ViewNearbyLocationsDto } from './dto/location.dto';
 import { handleError } from 'src/helpers/errorHandler';
 import { SessionRepository } from 'src/sessions/sessions.repository';
+import { SessionPaymentService } from 'src/billing/services/session-payment.service';
 import { Types } from 'mongoose';
 
 @Injectable()
@@ -15,6 +16,7 @@ export class LocationsService {
     private readonly sessionRepository: SessionRepository,
     private readonly userRepository: UserRepository,
     private readonly matchRepository: MatchRepository,
+    private readonly sessionPaymentService: SessionPaymentService,
   ) {}
 
   async registerLocation(locationData: CreateLocationDto, ownerId: Types.ObjectId): Promise<Location> {
@@ -167,6 +169,18 @@ export class LocationsService {
   async getUpcomingSessions(locationId: string, ownerId: string, limit = 20, skip = 0) {
     await this.verifyOwnership(locationId, ownerId);
     return this.sessionRepository.findUpcomingSessionsByLocation(locationId, limit, skip);
+  }
+
+  async getRevenue(locationId: string, ownerId: string, period: string) {
+    await this.verifyOwnership(locationId, ownerId);
+    return this.sessionPaymentService.getRevenueByLocation(locationId, period);
+  }
+
+  async getUsersChart(locationId: string, ownerId: string) {
+    await this.verifyOwnership(locationId, ownerId);
+    const data = await this.sessionRepository.getUsersChartByLocation(locationId);
+    const total = data.reduce((sum, d) => sum + d.count, 0);
+    return { total, data };
   }
 
   

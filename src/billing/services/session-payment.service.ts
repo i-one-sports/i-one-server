@@ -183,4 +183,46 @@ export class SessionPaymentService {
 
     return payment;
   }
+
+  async getRevenueByLocation(locationId: string, period: string) {
+    const now = new Date();
+    let startDate: Date;
+
+    switch (period) {
+      case 'this_week':
+        startDate = new Date(now);
+        startDate.setDate(now.getDate() - now.getDay());
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case 'this_year':
+        startDate = new Date(now.getFullYear(), 0, 1);
+        break;
+      case 'this_month':
+      default:
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    }
+
+    const [result] = await this.sessionPaymentRepository.findRaw().aggregate([
+      {
+        $match: {
+          locationId: new Types.ObjectId(locationId),
+          status: PaymentStatus.PAID,
+          paidAt: { $gte: startDate },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          total: { $sum: '$amount' },
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    return {
+      total: result?.total ?? 0,
+      count: result?.count ?? 0,
+      period,
+    };
+  }
 }

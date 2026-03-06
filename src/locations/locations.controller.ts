@@ -119,5 +119,23 @@ export class LocationsController {
       return this.locationsService.getUpcomingSessions(locationId, user._id.toString(), limit, skip);
     }
 
-    
+    @UseGuards(IsOwnerGuard)
+    @Get(':locationId/dashboard/revenue')
+    async getRevenue(
+      @IsOwner() user: User,
+      @Param('locationId') locationId: string,
+      @Query('period', new DefaultValuePipe('this_month')) period: string,
+    ) {
+      return this.locationsService.getRevenue(locationId, user._id.toString(), period);
+    }
+
+    @UseGuards(IsOwnerGuard)
+    @Get(':locationId/dashboard/users-chart')
+    async getUsersChart(
+      @IsOwner() user: User,
+      @Param('locationId') locationId: string,
+    ) {
+      return this.locationsService.getUsersChart(locationId, user._id.toString());
+    }
+
   }

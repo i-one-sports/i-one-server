@@ -81,4 +81,35 @@ export class SessionRepository extends AbstractRepository<Session> {
       .exec();
   }
 
+  async getUsersChartByLocation(locationId: string): Promise<{ month: number; year: number; count: number }[]> {
+    const ObjectId = Types.ObjectId;
+    return this.findRaw()
+      .aggregate([
+        { $match: { location: new ObjectId(locationId) } },
+        {
+          $project: {
+            users: { $concatArrays: ['$members', [{ $ifNull: ['$captain', null] }]] },
+            month: { $month: '$startTime' },
+            year: { $year: '$startTime' },
+          },
+        },
+        { $unwind: '$users' },
+        { $match: { users: { $ne: null } } },
+        {
+          $group: {
+            _id: { month: '$month', year: '$year', user: '$users' },
+          },
+        },
+        {
+          $group: {
+            _id: { month: '$_id.month', year: '$_id.year' },
+            count: { $sum: 1 },
+          },
+        },
+        { $sort: { '_id.year': 1, '_id.month': 1 } },
+        { $project: { _id: 0, month: '$_id.month', year: '$_id.year', count: 1 } },
+      ])
+      .exec();
+  }
+
 }

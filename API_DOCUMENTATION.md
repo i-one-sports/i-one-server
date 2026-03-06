@@ -8,7 +8,7 @@
 5. [Email Verification](#email-verification)
 6. [Verification (KYC)](#verification-kyc)
 7. [Locations](#locations)
-8. [Owner Dashboard](#owner-dashboard)
+8. [Owner Dashboard](#owner-dashboard) — includes `/revenue` and `/users-chart`
 9. [Sessions](#sessions)
 10. [Sets](#sets)
 11. [Matches](#matches)
@@ -631,6 +631,64 @@ Get upcoming sessions scheduled at this location.
 - `skip` (number, default: 0)
 
 **Success Response** `200 OK`: Array of session documents.
+
+---
+
+### GET /location/:locationId/dashboard/revenue
+Get revenue earned at this location for a given time period. Only counts session payments with status `PAID`.
+
+**Auth required**: Yes (JWT cookie + `IsOwnerGuard`)
+
+**Path Parameters**:
+- `locationId` — location ID
+
+**Query Parameters**:
+- `period` (string, default: `this_month`) — `this_week` | `this_month` | `this_year`
+
+**Example**: `GET /location/507f.../dashboard/revenue?period=this_month`
+
+**Success Response** `200 OK`:
+```json
+{
+  "total": 200000,
+  "count": 12,
+  "period": "this_month"
+}
+```
+
+**Field Notes**:
+- `total` — sum of all paid session payment amounts for the period (in kobo/smallest currency unit)
+- `count` — number of individual payments in that period
+
+---
+
+### GET /location/:locationId/dashboard/users-chart
+Get the number of unique users (members + captains) who played at this location, grouped by month and year. Used to render the bar chart on the owner dashboard.
+
+**Auth required**: Yes (JWT cookie + `IsOwnerGuard`)
+
+**Path Parameters**:
+- `locationId` — location ID
+
+**Success Response** `200 OK`:
+```json
+{
+  "total": 25000,
+  "data": [
+    { "month": 1, "year": 2025, "count": 18 },
+    { "month": 2, "year": 2025, "count": 65 },
+    { "month": 3, "year": 2025, "count": 20 },
+    { "month": 4, "year": 2025, "count": 20 },
+    { "month": 5, "year": 2025, "count": 10 },
+    { "month": 6, "year": 2025, "count": 22 }
+  ]
+}
+```
+
+**Field Notes**:
+- `total` — sum of all `count` values across all months
+- `month` — integer 1–12 (January = 1)
+- `count` — unique users who participated in sessions at this location that month
 
 ---
 
