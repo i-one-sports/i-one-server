@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { SessionRepository } from '../sessions/sessions.repository';
 import { LocationRepository } from '../locations/locations.repository';
 import { MatchRepository } from '../matches/matches.repository';
@@ -11,9 +11,12 @@ import { CaptainsService } from 'src/captains/captains.service';
 import { CreateCaptainDto } from 'src/captains/dto/captains.dto';
 import { SessionPaymentService } from 'src/billing/services/session-payment.service';
 import { VerificationRepository } from 'src/verification/verification.repository';
+import { NotificationService } from 'src/notifications/notification.service';
 
 @Injectable()
 export class SessionsService {
+  private readonly logger = new Logger(SessionsService.name);
+
   constructor(
     private readonly sessionRepository: SessionRepository,
     private readonly locationRepository: LocationRepository,
@@ -22,6 +25,7 @@ export class SessionsService {
     private readonly CaptainService: CaptainsService,
     private readonly sessionPaymentService: SessionPaymentService,
     private readonly verificationRepository: VerificationRepository,
+    private readonly notificationService: NotificationService,
   ) {}
 
   async findNearbySessionMatches(lng: number, lat: number) {
@@ -152,6 +156,17 @@ export class SessionsService {
       this.CaptainService.createCaptain({ userId, sessionId: session._id.toString() }),
     ]);
 
+    if (location.owner) {
+      this.notificationService.emit({
+        targetUserId: location.owner.toString(),
+        type: 'SESSION_BOOKED',
+        title: 'New Session Booked',
+        body: `A session has been booked at ${location.name}`,
+        payload: { sessionId: session._id.toString(), locationId },
+        timestamp: Date.now(),
+      }).catch((err) => this.logger.error('Failed to emit SESSION_BOOKED notification', err));
+    }
+
     return session;
   }
 
@@ -229,6 +244,19 @@ export class SessionsService {
         members: [userId],
       },
     );
+
+    this.locationRepository.findOne({ _id: session.location }).then((location) => {
+      if (location?.owner) {
+        this.notificationService.emit({
+          targetUserId: location.owner.toString(),
+          type: 'SESSION_CONFIGURED',
+          title: 'Session Configured',
+          body: `A session at ${location.name} has been configured and is ready`,
+          payload: { sessionId, locationId: session.location.toString() },
+          timestamp: Date.now(),
+        }).catch((err) => this.logger.error('Failed to emit SESSION_CONFIGURED notification', err));
+      }
+    }).catch((err) => this.logger.error('Failed to fetch location for notification', err));
 
     return newSession;
   }

@@ -1,4 +1,4 @@
-import { Injectable, HttpStatus } from '@nestjs/common';
+import { Injectable, HttpStatus, Logger } from '@nestjs/common';
 import { MatchRepository } from './matches.repository';
 import { SetRepository } from '../sets/sets.repository';
 import { CustomHttpException, MatchI } from '@app/common';
@@ -10,6 +10,8 @@ import { SessionPaymentService } from 'src/billing/services/session-payment.serv
 
 @Injectable()
 export class MatchesService {
+  private readonly logger = new Logger(MatchesService.name);
+
   constructor(
     private readonly matchRepository: MatchRepository,
     private readonly setRepository: SetRepository,
@@ -193,7 +195,7 @@ export class MatchesService {
       },
       teamOneScore: updatedMatch.teamOneScore,
       teamTwoScore: updatedMatch.teamTwoScore,
-    });
+    }).catch((err) => this.logger.error('Failed to emit increment score event', err));
 
     return updatedMatch;
   }
@@ -227,7 +229,7 @@ export class MatchesService {
       },
       teamOneScore: updatedMatch.teamOneScore,
       teamTwoScore: updatedMatch.teamTwoScore,
-    });
+    }).catch((err) => this.logger.error('Failed to emit decrement score event', err));
     return updatedMatch;
   }
 }

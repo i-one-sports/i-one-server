@@ -16,10 +16,11 @@
 13. [Stats](#stats)
 14. [Captains](#captains)
 15. [Wallet & Payments](#wallet--payments)
-16. [Admin](#admin)
-17. [Webhooks](#webhooks)
-18. [Error Handling](#error-handling)
-19. [Types & Interfaces](#types--interfaces)
+16. [Notifications](#notifications)
+17. [Admin](#admin)
+18. [Webhooks](#webhooks)
+19. [Error Handling](#error-handling)
+20. [Types & Interfaces](#types--interfaces)
 
 ---
 
@@ -912,12 +913,29 @@ Get all sets for a session.
 
 ---
 
-### GET /sets/:setId
-Get a single set by ID.
+### GET /sets/team/:setId
+Get a single team (set) by ID with its `players` fully populated. Use this when the user clicks on a team to see its members.
 
 **Auth required**: Yes (JWT cookie)
 
-**Success Response** `200 OK`: Single set document.
+**Path Parameters**:
+- `setId` — the set/team ID
+
+**Success Response** `200 OK`:
+```json
+{
+  "_id": "507f...",
+  "session": "507f...",
+  "name": "Team 1",
+  "players": [
+    { "_id": "507f...", "firstName": "John", "lastName": "Doe", "nickname": "johndoe", "avatar": "https://..." },
+    { "_id": "507f...", "firstName": "Jane", "lastName": "Smith", "nickname": "janesmith", "avatar": "https://..." }
+  ]
+}
+```
+
+**Error Responses**:
+- `404` — set not found
 
 ---
 
@@ -1367,6 +1385,64 @@ Withdraw funds to a bank account.
 **Error Responses**:
 - `400` — insufficient balance
 - `404` — no default bank account found
+
+---
+
+## Notifications
+
+Real-time in-app notifications delivered over SSE. The server pushes events to the connected user — no polling needed.
+
+**How it works:**
+- The frontend opens `GET /notifications/stream` once on login and keeps it open
+- When a relevant event occurs (e.g. a session is booked at the owner's location), the server pushes it down the open connection instantly
+- Events are user-targeted — each user only receives their own notifications
+- Built on Redis Pub/Sub so events are delivered correctly even when running multiple server instances
+
+### GET /notifications/stream (SSE)
+Open a persistent notification stream for the authenticated user.
+
+**Auth required**: Yes (JWT cookie)
+
+**Headers**: `Accept: text/event-stream`, `Cache-Control: no-cache`
+
+**Events**:
+```
+// On connect
+data: {"type":"connected","userId":"507f...","timestamp":1234567890}
+
+// Session booked at owner's location (sent to location owner)
+data: {
+  "targetUserId": "507f...",
+  "type": "SESSION_BOOKED",
+  "title": "New Session Booked",
+  "body": "A session has been booked at Lagos Sports Complex",
+  "payload": { "sessionId": "507f...", "locationId": "507f..." },
+  "timestamp": 1234567890
+}
+
+// Session configured at owner's location (sent to location owner)
+data: {
+  "targetUserId": "507f...",
+  "type": "SESSION_CONFIGURED",
+  "title": "Session Configured",
+  "body": "A session at Lagos Sports Complex has been configured and is ready",
+  "payload": { "sessionId": "507f...", "locationId": "507f..." },
+  "timestamp": 1234567890
+}
+
+// Heartbeat (every 30s — keeps connection alive through proxies)
+data: {"type":"heartbeat","timestamp":1234567890}
+```
+
+**Event Types**:
+| Type | Trigger | Recipient |
+|---|---|---|
+| `SESSION_BOOKED` | User calls `POST /sessions/start` at a location | Location owner |
+| `SESSION_CONFIGURED` | Captain calls `POST /sessions/create/:sessionId` | Location owner |
+
+**Notes**:
+- Reconnect automatically if the connection drops — browsers handle this natively with `EventSource`
+- The heartbeat fires every 30 seconds to prevent proxy timeouts
 
 ---
 

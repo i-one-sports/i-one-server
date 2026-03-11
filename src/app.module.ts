@@ -20,6 +20,8 @@ import { LoggingInterceptor } from '@app/common';
 import { BillingModule } from './billing/billing.module';
 import { VerificationModule } from './verification/verification.module';
 import { CacheModule } from './cache/cache.module';
+import { NotificationsModule } from './notifications/notifications.module';
+import { RedisModule } from './redis/redis.module';
 
 
 @Injectable()
@@ -60,7 +62,9 @@ class RootCronService {
     CaptainsModule,
     BillingModule,
     VerificationModule,
-    CacheModule
+    CacheModule,
+    RedisModule,
+    NotificationsModule
   ],
   controllers: [AppController],
   providers: [

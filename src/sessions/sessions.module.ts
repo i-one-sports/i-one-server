@@ -18,6 +18,7 @@ import { MatchRepository } from 'src/matches/matches.repository';
 import { SessionRepository } from './sessions.repository';
 import { CaptainsModule } from 'src/captains/captains.module';
 import { BillingModule } from 'src/billing/billing.module';
+import { NotificationsModule } from 'src/notifications/notifications.module';
 import { Verification, VerificationSchema } from '@app/common/schemas/verification.schema';
 import { VerificationRepository } from 'src/verification/verification.repository';
 
@@ -32,6 +33,7 @@ import { VerificationRepository } from 'src/verification/verification.repository
     ]),
     CaptainsModule,
     BillingModule,
+    NotificationsModule,
   ],
   controllers: [SessionsController],
   providers: [

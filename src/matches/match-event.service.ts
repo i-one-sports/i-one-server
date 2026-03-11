@@ -1,7 +1,8 @@
 import { MatchScoreUpdateEvent } from '@app/common';
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Subject, interval, Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
+import { RedisPubSubService } from 'src/redis/redis-pubsub.service';
 
 interface ConnectionInfo {
   connectionId: string;
@@ -12,10 +13,23 @@ interface ConnectionInfo {
   connectedAt: Date;
 }
 
+const CHANNEL = 'app:match-scores';
+
 @Injectable()
-export class MatchEventService implements OnModuleDestroy {
+export class MatchEventService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MatchEventService.name);
   private matchscore$ = new Subject<MatchScoreUpdateEvent>();
+
+  private readonly messageHandler = (message: string) => {
+    try {
+      const event: MatchScoreUpdateEvent = JSON.parse(message);
+      this.matchscore$.next(event);
+    } catch (err) {
+      this.logger.error('Failed to parse match score event from Redis', err);
+    }
+  };
+
+  constructor(private readonly redisPubSub: RedisPubSubService) {}
   
   // Track connections per user for better scalability
   private userConnections = new Map<string, Set<string>>(); // userId -> Set of connectionIds
@@ -34,12 +48,17 @@ export class MatchEventService implements OnModuleDestroy {
     }))
   );
 
+  async onModuleInit() {
+    await this.redisPubSub.subscribe(CHANNEL, this.messageHandler);
+    this.logger.log('MatchEventService subscribed to Redis pub/sub channel');
+  }
+
   /**
-   * Emit match score update to all listeners
+   * Emit match score update to all listeners across all instances
    */
-  emitMatchScoreUpdate(event: MatchScoreUpdateEvent): void {
+  async emitMatchScoreUpdate(event: MatchScoreUpdateEvent): Promise<void> {
     this.logger.log(`Emitting match score update for match ${event.matchId}`);
-    this.matchscore$.next(event);
+    await this.redisPubSub.publish(CHANNEL, JSON.stringify(event));
   }
 
   /**
@@ -247,16 +266,15 @@ export class MatchEventService implements OnModuleDestroy {
   /**
    * Cleanup on module destroy to prevent memory leaks
    */
-  onModuleDestroy(): void {
+  async onModuleDestroy(): Promise<void> {
     this.logger.log('Cleaning up MatchEventService resources');
-    
-    // Complete and unsubscribe from Subject
+
     this.matchscore$.complete();
-    
-    // Clear all maps
     this.userConnections.clear();
     this.connectionDetails.clear();
-    
+
+    await this.redisPubSub.unsubscribe(CHANNEL, this.messageHandler);
+
     this.logger.log('MatchEventService cleanup complete');
   }
 }

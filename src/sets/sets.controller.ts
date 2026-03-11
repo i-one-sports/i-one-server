@@ -17,7 +17,7 @@ export class SetsController {
     return await this.setsService.viewSetForSession(sessionId);
   }
 
-  @Get(':setId')
+  @Get('team/:setId')
   async viewSingleSet(@Param('setId') setId: string) {
     return this.setsService.viewSingleSet(setId);
   }
