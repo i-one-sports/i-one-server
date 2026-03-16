@@ -1,7 +1,7 @@
-import { Body, Controller, DefaultValuePipe, Get, Param, ParseIntPipe, Post, Query, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, DefaultValuePipe, Get, Param, ParseIntPipe, Patch, Post, Query, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { JwtAuthGuard } from 'src/auth/guards/jwt.guard';
 import { LocationsService } from './locations.service';
-import { CreateLocationDto, ViewNearbyLocationsDto } from './dto/location.dto';
+import { CreateLocationDto, UpdatePitchConditionDto, ViewNearbyLocationsDto } from './dto/location.dto';
 import { CurrentUser, IsOwner, UploadType, User, IsOwnerGuard } from '@app/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import * as multer from 'multer'
@@ -135,6 +135,16 @@ export class LocationsController {
       @Param('locationId') locationId: string,
     ) {
       return this.locationsService.getUsersChart(locationId, user._id.toString());
+    }
+
+    @UseGuards(IsOwnerGuard)
+    @Patch(':locationId/pitch-condition')
+    async updatePitchCondition(
+      @IsOwner() user: User,
+      @Param('locationId') locationId: string,
+      @Body() data: UpdatePitchConditionDto,
+    ) {
+      return this.locationsService.updatePitchCondition(locationId, user._id.toString(), data);
     }
 
   }

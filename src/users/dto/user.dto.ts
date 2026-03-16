@@ -148,6 +148,21 @@ export class PromoteUserDto {
   role: USER_ROLE.ADMIN | USER_ROLE.SUPER_ADMIN;
 }
 
+export class ChangePasswordDto {
+  @IsString()
+  @IsNotEmpty()
+  oldPassword: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(6, { message: 'Password must be at least 6 characters long' })
+  newPassword: string;
+
+  @IsString()
+  @IsNotEmpty()
+  confirmNewPassword: string;
+}
+
 export class ResetPasswordDto {
   @IsEmail({}, { message: 'Invalid email format' })
   @IsNotEmpty()

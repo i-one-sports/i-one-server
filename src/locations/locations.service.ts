@@ -3,7 +3,7 @@ import { LocationRepository } from './locations.repository';
 import { UserRepository } from '../users/users.repository';
 import { CustomHttpException, IsOwner, Location } from '@app/common';
 import { MatchRepository } from '../matches/matches.repository';
-import { CreateLocationDto, ViewNearbyLocationsDto } from './dto/location.dto';
+import { CreateLocationDto, UpdatePitchConditionDto, ViewNearbyLocationsDto } from './dto/location.dto';
 import { handleError } from 'src/helpers/errorHandler';
 import { SessionRepository } from 'src/sessions/sessions.repository';
 import { SessionPaymentService } from 'src/billing/services/session-payment.service';
@@ -186,6 +186,17 @@ export class LocationsService {
   
 
 
+
+  async updatePitchCondition(locationId: string, ownerId: string, dto: UpdatePitchConditionDto) {
+    await this.verifyOwnership(locationId, ownerId);
+
+    const updated = await this.locationRepository.findOneAndUpdate(
+      { _id: locationId },
+      { pitchCondition: dto.pitchCondition },
+    );
+
+    return { message: 'Pitch condition updated', location: updated };
+  }
 
   async getMyLocation(userId: Types.ObjectId) {
     console.log(userId)

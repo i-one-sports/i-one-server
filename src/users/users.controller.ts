@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post, Put, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { UsersService } from './users.service';
 import {
+  ChangePasswordDto,
   ForgotPasswordDto,
   PromoteUserDto,
   registerUserRequest,
@@ -81,6 +82,15 @@ export class UsersController {
   @Get('profile')
   async getProfile(@CurrentUser() user: User) {
     return this.usersService.getProfile(user._id.toString());
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('change-password')
+  async changePassword(
+    @CurrentUser() user: User,
+    @Body() data: ChangePasswordDto,
+  ) {
+    return this.usersService.changePassword(user._id.toString(), data);
   }
 
   @UseGuards(JwtAuthGuard)

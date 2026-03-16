@@ -27,6 +27,11 @@ export interface UserI {
   nickname: string;
 }
 
+export interface GoalScorerI {
+  player: UserI & { _id: string };
+  team: 'teamOne' | 'teamTwo';
+}
+
 export interface MatchI {
   teamOne: SetI;
   teamTwo: SetI;
@@ -34,6 +39,7 @@ export interface MatchI {
   teamTwoScore: number;
   isStarted: boolean;
   session: SessionI;
+  goalScorers: GoalScorerI[];
 }
 
 export interface SetI {
@@ -78,4 +84,8 @@ export interface MatchScoreUpdateEvent {
   };
   teamOneScore: number;
   teamTwoScore: number;
+  latestScorer?: {
+    player: string | Types.ObjectId;
+    team: 'teamOne' | 'teamTwo';
+  };
 }

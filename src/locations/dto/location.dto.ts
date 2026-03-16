@@ -1,5 +1,5 @@
-import { LocationCoordinates } from '@app/common';
-import { IsBoolean, IsNotEmpty, IsOptional, IsString, ValidateNested, IsArray, IsNumber, IsIn } from 'class-validator';
+import { LocationCoordinates, PITCH_CONDITION } from '@app/common';
+import { IsBoolean, IsEnum, IsNotEmpty, IsOptional, IsString, ValidateNested, IsArray, IsNumber, IsIn } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class LocationCoordinatesDto {
@@ -36,6 +36,14 @@ export class CreateLocationDto {
   @IsBoolean()
   @IsOptional()
   tournament?: boolean;
+}
+
+export class UpdatePitchConditionDto {
+  @IsEnum(PITCH_CONDITION, {
+    message: `pitchCondition must be one of: ${Object.values(PITCH_CONDITION).join(', ')}`,
+  })
+  @IsNotEmpty()
+  pitchCondition: PITCH_CONDITION;
 }
 
 export class ViewNearbyLocationsDto {

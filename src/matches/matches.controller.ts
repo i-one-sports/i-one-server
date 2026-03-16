@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Get,
   Param,
@@ -31,6 +32,7 @@ import {
   finalize
 } from 'rxjs';
 import { MatchScoreUpdateEvent, CurrentUser } from '@app/common';
+import { RecordGoalScorerDto } from './dto/match.dto';
 
 @Controller('matches')
 @UseGuards(JwtAuthGuard)
@@ -65,6 +67,14 @@ export class MatchesController {
   }
 
 
+
+  @Post('goal-scorer/:matchId')
+  async recordGoalScorer(
+    @Param('matchId') matchId: string,
+    @Body() data: RecordGoalScorerDto,
+  ) {
+    return this.matchesService.recordGoalScorer(matchId, data.playerId, data.team);
+  }
 
   @Post('end/:matchId')
   async endMatchInSession(@Param('matchId') matchId: string) {

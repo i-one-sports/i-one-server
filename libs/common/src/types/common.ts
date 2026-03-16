@@ -29,3 +29,12 @@ export enum USER_ROLE {
   ADMIN = 'admin',
   SUPER_ADMIN = 'super_admin',
 }
+
+export enum PITCH_CONDITION {
+  EXCELLENT = 'excellent',
+  GOOD = 'good',
+  FAIR = 'fair',
+  POOR = 'poor',
+  WET = 'wet',
+  UNDER_MAINTENANCE = 'under_maintenance',
+}

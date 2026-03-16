@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AbstractRepository, Match } from '@app/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 
 @Injectable()
 export class MatchRepository extends AbstractRepository<Match> {
@@ -31,6 +31,40 @@ export class MatchRepository extends AbstractRepository<Match> {
       );
       return null;
     }
+  }
+
+  async viewMatchDetailsDeep(matchId: string): Promise<Match | null> {
+    return this.model
+      .findById(matchId)
+      .populate([
+        { path: 'teamOne', populate: { path: 'players' } },
+        { path: 'teamTwo', populate: { path: 'players' } },
+        { path: 'goalScorers.player' },
+      ])
+      .lean() as any;
+  }
+
+  async addGoalScorer(
+    matchId: string,
+    playerId: string,
+    team: 'teamOne' | 'teamTwo',
+  ): Promise<Match | null> {
+    const scoreField = team === 'teamOne' ? 'teamOneScore' : 'teamTwoScore';
+    return this.model
+      .findByIdAndUpdate(
+        matchId,
+        {
+          $inc: { [scoreField]: 1 },
+          $push: { goalScorers: { player: new Types.ObjectId(playerId), team } },
+        },
+        { new: true },
+      )
+      .populate([
+        { path: 'teamOne', populate: { path: 'players' } },
+        { path: 'teamTwo', populate: { path: 'players' } },
+        { path: 'goalScorers.player' },
+      ])
+      .lean() as any;
   }
 
   async RedecrementMatchScore(

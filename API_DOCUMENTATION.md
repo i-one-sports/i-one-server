@@ -214,6 +214,34 @@ Update the authenticated user's profile.
 
 ---
 
+### PATCH /user/change-password
+Change the authenticated user's password. Requires the current password for verification.
+
+**Auth required**: Yes (JWT cookie)
+
+**Request Body**:
+```json
+{
+  "oldPassword": "currentPassword123",
+  "newPassword": "newSecurePassword123",
+  "confirmNewPassword": "newSecurePassword123"
+}
+```
+
+**Field Notes**:
+- `newPassword`: minimum 6 characters
+
+**Success Response** `200 OK`:
+```json
+{ "message": "Password changed successfully" }
+```
+
+**Error Responses**:
+- `401` — old password is incorrect
+- `409` — new passwords do not match
+
+---
+
 ### POST /user/forget-password
 Send a password reset OTP to the user's email. OTP is stored in the database and is valid for 15 minutes.
 
@@ -691,6 +719,36 @@ Get the number of unique users (members + captains) who played at this location,
 
 ---
 
+### PATCH /location/:locationId/pitch-condition
+Update the pitch condition for a location. Owner only.
+
+**Auth required**: Yes (JWT cookie + `IsOwnerGuard`)
+
+**Path Parameters**:
+- `locationId` — location ID
+
+**Request Body**:
+```json
+{ "pitchCondition": "good" }
+```
+
+**Field Notes**:
+- `pitchCondition`: `"excellent"` | `"good"` | `"fair"` | `"poor"` | `"wet"` | `"under_maintenance"`
+
+**Success Response** `200 OK`:
+```json
+{
+  "message": "Pitch condition updated",
+  "location": { "_id": "507f...", "name": "Arena Lagos", "pitchCondition": "good", ... }
+}
+```
+
+**Error Responses**:
+- `403` — not the owner of this location
+- `404` — location not found
+
+---
+
 ## Sessions
 
 All session endpoints require authentication.
@@ -982,11 +1040,66 @@ Mark a match as started.
 ---
 
 ### GET /matches/details/:matchId
-Get full details of a match.
+Get full details of a match, including both teams with their players populated and all goal scorers.
 
 **Auth required**: Yes (JWT cookie)
 
-**Success Response** `200 OK`: Match document.
+**Success Response** `200 OK`:
+```json
+{
+  "_id": "507f1f77bcf86cd799439011",
+  "teamOne": {
+    "_id": "507f...",
+    "name": "Team 1",
+    "players": [
+      { "_id": "507f...", "firstName": "John", "lastName": "Doe", "nickname": "johndoe", "position": "ST" }
+    ]
+  },
+  "teamTwo": {
+    "_id": "507f...",
+    "name": "Team 2",
+    "players": [
+      { "_id": "507f...", "firstName": "Jane", "lastName": "Smith", "nickname": "janesmith", "position": "MF" }
+    ]
+  },
+  "teamOneScore": 1,
+  "teamTwoScore": 4,
+  "isStarted": true,
+  "matchType": "friendly",
+  "goalScorers": [
+    { "player": { "_id": "507f...", "firstName": "John", "nickname": "johndoe" }, "team": "teamOne" },
+    { "player": { "_id": "507f...", "firstName": "Jane", "nickname": "janesmith" }, "team": "teamTwo" }
+  ]
+}
+```
+
+**Error Responses**:
+- `404` — match not found
+
+---
+
+### POST /matches/goal-scorer/:matchId
+Record a goal scorer for a match. Can be called multiple times (one call per goal).
+
+**Auth required**: Yes (JWT cookie)
+
+**Request Body**:
+```json
+{
+  "playerId": "507f1f77bcf86cd799439011",
+  "team": "teamOne"
+}
+```
+
+**Field Notes**:
+- `playerId`: MongoDB ObjectId of the player who scored
+- `team`: `"teamOne"` or `"teamTwo"` — the team the scorer belongs to
+
+**Success Response** `200 OK`: Updated match document with full population (same structure as `GET /matches/details/:matchId`).
+
+**Error Responses**:
+- `400` — match has not started yet
+- `404` — match not found
 
 ---
 
@@ -1037,8 +1150,11 @@ Real-time score stream for a single match.
 // On connect
 data: {"type":"connected","message":"Connection established","matchId":"...","userId":"...","timestamp":1234567890}
 
-// Score update
-data: {"matchId":"...","sessionId":"...","teamOneScore":3,"teamTwoScore":1}
+// Score update (from increment/decrement)
+data: {"matchId":"...","sessionId":"...","teamOne":{"id":"...","name":"Team 1"},"teamTwo":{"id":"...","name":"Team 2"},"teamOneScore":3,"teamTwoScore":1}
+
+// Score update with goal scorer (from POST /matches/goal-scorer/:matchId)
+data: {"matchId":"...","sessionId":"...","teamOne":{"id":"...","name":"Team 1"},"teamTwo":{"id":"...","name":"Team 2"},"teamOneScore":3,"teamTwoScore":1,"latestScorer":{"player":"507f...","team":"teamOne"}}
 
 // Heartbeat (every 30s)
 data: {"type":"heartbeat","timestamp":1234567890}

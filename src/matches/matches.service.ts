@@ -154,16 +154,46 @@ export class MatchesService {
   }
 
   async viewMatchDetails(matchId: string) {
-    const match = await this.matchRepository.findOneAndPopulate(
-      { _id: matchId },
-      ['teamOne', 'teamTwo'],
-    );
+    const match = await this.matchRepository.viewMatchDetailsDeep(matchId);
 
     if (!match) {
       throw new CustomHttpException('Match not found', HttpStatus.NOT_FOUND);
     }
 
     return match;
+  }
+
+  async recordGoalScorer(matchId: string, playerId: string, team: 'teamOne' | 'teamTwo') {
+    const match = await this.matchRepository.findOne({ _id: matchId });
+
+    if (!match) {
+      throw new CustomHttpException('Match not found', HttpStatus.NOT_FOUND);
+    }
+
+    if (!match.isStarted) {
+      throw new CustomHttpException('Match has not started yet', HttpStatus.BAD_REQUEST);
+    }
+
+    const updated = await this.matchRepository.addGoalScorer(matchId, playerId, team);
+
+    // broadcast to SSE clients with updated scores + scorer info
+    this.matchEventService.emitMatchScoreUpdate({
+      matchId: new Types.ObjectId(matchId),
+      sessionId: updated.session,
+      teamOne: {
+        id: (updated.teamOne as any)._id,
+        name: (updated.teamOne as any).name,
+      },
+      teamTwo: {
+        id: (updated.teamTwo as any)._id,
+        name: (updated.teamTwo as any).name,
+      },
+      teamOneScore: updated.teamOneScore,
+      teamTwoScore: updated.teamTwoScore,
+      latestScorer: { player: playerId, team },
+    }).catch((err) => this.logger.error('Failed to emit goal scorer event', err));
+
+    return updated;
   }
 
   async incrementMatchScore(

@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { UserRepository } from './users.repository';
 import {
+  ChangePasswordDto,
   ForgotPasswordDto,
   registerUserRequest,
   ResetPasswordDto,
@@ -351,6 +352,30 @@ export class UsersService {
     );
 
     return { message: `User role set to ${role}`, user: updated };
+  }
+
+  public async changePassword(userId: string, dto: ChangePasswordDto): Promise<{ message: string }> {
+    const user = await this.usersRepository.findOne({ _id: userId });
+
+    if (!user) {
+      throw new CustomHttpException('User not found', HttpStatus.NOT_FOUND);
+    }
+
+    const isCorrectPassword = await bcrypt.compare(dto.oldPassword, user.password);
+    if (!isCorrectPassword) {
+      throw new CustomHttpException('Old password is incorrect', HttpStatus.UNAUTHORIZED);
+    }
+
+    if (dto.newPassword !== dto.confirmNewPassword) {
+      throw new CustomHttpException('Passwords do not match', HttpStatus.CONFLICT);
+    }
+
+    await this.usersRepository.findOneAndUpdate(
+      { _id: userId },
+      { password: await bcrypt.hash(dto.newPassword, 10) },
+    );
+
+    return { message: 'Password changed successfully' };
   }
 
   public async validateUser(email: string, password: string): Promise<User> {

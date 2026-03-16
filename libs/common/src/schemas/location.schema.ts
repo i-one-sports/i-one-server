@@ -1,7 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Types } from 'mongoose';
 import { AbstractDocument } from './abstract.schema';
-import { LocationCoordinates } from '../types/common';
+import { LocationCoordinates, PITCH_CONDITION } from '../types/common';
 
 @Schema({ timestamps: true })
 export class Location extends AbstractDocument {
@@ -40,6 +40,9 @@ export class Location extends AbstractDocument {
 
   @Prop({ type: Types.ObjectId, ref: 'User', required: false })
   owner?: string;
+
+  @Prop({ type: String, enum: PITCH_CONDITION, required: false })
+  pitchCondition?: PITCH_CONDITION;
 
   createdAt?: Date;
 
