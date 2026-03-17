@@ -37,9 +37,9 @@ export class MatchRepository extends AbstractRepository<Match> {
     return this.model
       .findById(matchId)
       .populate([
-        { path: 'teamOne', populate: { path: 'players' } },
-        { path: 'teamTwo', populate: { path: 'players' } },
-        { path: 'goalScorers.player' },
+        { path: 'teamOne', populate: { path: 'players', select: '-password' } },
+        { path: 'teamTwo', populate: { path: 'players', select: '-password' } },
+        { path: 'goalScorers.player', select: '-password' },
       ])
       .lean() as any;
   }
@@ -60,9 +60,9 @@ export class MatchRepository extends AbstractRepository<Match> {
         { new: true },
       )
       .populate([
-        { path: 'teamOne', populate: { path: 'players' } },
-        { path: 'teamTwo', populate: { path: 'players' } },
-        { path: 'goalScorers.player' },
+        { path: 'teamOne', populate: { path: 'players', select: '-password' } },
+        { path: 'teamTwo', populate: { path: 'players', select: '-password' } },
+        { path: 'goalScorers.player', select: '-password' },
       ])
       .lean() as any;
   }

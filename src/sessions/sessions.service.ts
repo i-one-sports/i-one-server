@@ -416,8 +416,8 @@ export class SessionsService {
       this.sessionRepository
         .findRaw()
         .find({ finished: false })
-        .populate('captain')
-        .populate('members')
+        .populate('captain', '-password')
+        .populate('members', '-password')
         .populate('location')
         .skip(skip)
         .limit(limitNum)
