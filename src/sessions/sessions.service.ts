@@ -76,6 +76,20 @@ export class SessionsService {
         );
       }
 
+      if (!Number.isFinite(timeDurationMins) || timeDurationMins <= 0) {
+        throw new CustomHttpException(
+          'timeDuration must be a positive number of minutes',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      if (timeDurationMins % 60 !== 0) {
+        throw new CustomHttpException(
+          'Hourly pricing requires timeDuration in full-hour blocks (60, 120, 180...)',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
       const hourUnits = Math.max(1, Math.ceil(timeDurationMins / 60));
       return {
         paymentRequired: true,
