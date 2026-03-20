@@ -55,5 +55,6 @@ SessionPaymentSchema.index({ sessionId: 1, userId: 1 }, { unique: true });
 SessionPaymentSchema.index({ sessionId: 1, status: 1 });
 SessionPaymentSchema.index({ userId: 1, status: 1, createdAt: -1 });
 SessionPaymentSchema.index({ ownerId: 1, status: 1, createdAt: -1 });
+SessionPaymentSchema.index({ ownerId: 1, locationId: 1, paidAt: -1 });
 SessionPaymentSchema.index({ paymentReference: 1 }, { sparse: true, unique: true });
 SessionPaymentSchema.index({ expiresAt: 1 }, { sparse: true });

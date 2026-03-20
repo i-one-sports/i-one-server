@@ -38,3 +38,13 @@ export enum PITCH_CONDITION {
   WET = 'wet',
   UNDER_MAINTENANCE = 'under_maintenance',
 }
+
+export enum LOCATION_TIER {
+  FREE = 'free',
+  PAID = 'paid',
+}
+
+export enum LOCATION_PRICING_OPTION {
+  HOURLY = 'hourly',
+  MONTHLY = 'monthly',
+}

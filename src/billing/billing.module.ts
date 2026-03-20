@@ -5,6 +5,8 @@ import { Transaction, TransactionSchema } from '@app/common/schemas/transaction.
 import { DedicatedVirtualAccount, DvaSchema } from '@app/common/schemas/dva.schema';
 import { SessionPayment, SessionPaymentSchema } from '@app/common/schemas/session-payment.schema';
 import { BankAccount, BankAccountSchema } from '@app/common/schemas/bank-account.schema';
+import { Session, SessionSchema } from '@app/common/schemas/session.schema';
+import { Set, SetSchema } from '@app/common/schemas/sets.schema';
 
 import { WalletRepository } from './repositories/wallet.repository';
 import { TransactionRepository } from './repositories/transaction.repository';
@@ -16,10 +18,12 @@ import { WalletService } from './services/wallet.service';
 import { SessionPaymentService } from './services/session-payment.service';
 import { WebhookService } from './services/webhook.service';
 import { WithdrawalService } from './services/withdrawal.service';
+import { LocationBillingService } from './services/location-billing.service';
 
 import { WalletController } from './controllers/wallet.controller';
 import { WebhookController } from './controllers/webhook.controller';
 import { AdminBillingController } from './controllers/admin-billing.controller';
+import { LocationBillingController } from './controllers/location-billing.controller';
 
 import { PaystackService } from '@app/common/providers/paystack.service';
 
@@ -31,12 +35,15 @@ import { PaystackService } from '@app/common/providers/paystack.service';
       { name: DedicatedVirtualAccount.name, schema: DvaSchema },
       { name: SessionPayment.name, schema: SessionPaymentSchema },
       { name: BankAccount.name, schema: BankAccountSchema },
+      { name: Session.name, schema: SessionSchema },
+      { name: Set.name, schema: SetSchema },
     ]),
   ],
   controllers: [
     WalletController,
     WebhookController,
     AdminBillingController,
+    LocationBillingController,
   ],
   providers: [
     WalletRepository,
@@ -48,6 +55,7 @@ import { PaystackService } from '@app/common/providers/paystack.service';
     SessionPaymentService,
     WebhookService,
     WithdrawalService,
+    LocationBillingService,
     PaystackService,
   ],
   exports: [

@@ -6,6 +6,7 @@ import { Types } from 'mongoose';
 import { PaymentStatus } from '@app/common/schemas/session-payment.schema';
 import { TransactionSource } from '@app/common/schemas/transaction.schema';
 import { randomUUID } from 'crypto';
+import { LOCATION_PRICING_OPTION } from '@app/common';
 
 @Injectable()
 export class SessionPaymentService {
@@ -24,6 +25,7 @@ export class SessionPaymentService {
     memberIds: Types.ObjectId[],
     amount: number,
     paymentDeadline?: Date,
+    pricingOption?: LOCATION_PRICING_OPTION,
   ) {
     this.logger.log(`Initializing payments for session: ${sessionId}, members: ${memberIds.length}`);
 
@@ -46,6 +48,7 @@ export class SessionPaymentService {
         status: PaymentStatus.PENDING,
         paymentReference: `SESSION_${sessionId}_USER_${userId}_${randomUUID()}`,
         expiresAt: paymentDeadline,
+        metadata: pricingOption ? { pricingOption } : undefined,
       }));
 
       await this.sessionPaymentRepository.insertMany(newPayments);
@@ -136,7 +139,46 @@ export class SessionPaymentService {
       this.sessionPaymentRepository.findRaw().countDocuments({ sessionId, status: { $ne: PaymentStatus.PAID } }),
     ]);
 
-    return total > 0 && unpaid === 0;
+    return total === 0 || unpaid === 0;
+  }
+
+  async getUsersWithActiveRecurringPayment(
+    locationId: Types.ObjectId,
+    userIds: Types.ObjectId[],
+    pricingOption: LOCATION_PRICING_OPTION,
+  ): Promise<Set<string>> {
+    if (!userIds.length || pricingOption === LOCATION_PRICING_OPTION.HOURLY) {
+      return new Set<string>();
+    }
+
+    const now = new Date();
+    const validityMs = 30 * 24 * 60 * 60 * 1000;
+
+    const paidRecords = await this.sessionPaymentRepository.find({
+      locationId,
+      userId: { $in: userIds },
+      status: PaymentStatus.PAID,
+      'metadata.pricingOption': pricingOption,
+    });
+
+    const latestPaidByUser = new Map<string, Date>();
+    for (const record of paidRecords) {
+      if (!record.paidAt) continue;
+      const userId = record.userId.toString();
+      const currentLatest = latestPaidByUser.get(userId);
+      if (!currentLatest || new Date(record.paidAt) > currentLatest) {
+        latestPaidByUser.set(userId, new Date(record.paidAt));
+      }
+    }
+
+    const activeUsers = new Set<string>();
+    for (const [userId, paidAt] of latestPaidByUser.entries()) {
+      if (now.getTime() - paidAt.getTime() < validityMs) {
+        activeUsers.add(userId);
+      }
+    }
+
+    return activeUsers;
   }
 
   async getSessionPaymentStatus(sessionId: string) {
@@ -166,7 +208,7 @@ export class SessionPaymentService {
       totalPayments: stat.totalPayments,
       paidPayments: stat.paidPayments,
       pendingPayments: stat.pendingPayments,
-      allCompleted: stat.totalPayments > 0 && stat.paidPayments === stat.totalPayments,
+      allCompleted: stat.paidPayments === stat.totalPayments,
       payments,
     };
   }

@@ -1,7 +1,13 @@
 import { Injectable, HttpStatus } from '@nestjs/common';
 import { LocationRepository } from './locations.repository';
 import { UserRepository } from '../users/users.repository';
-import { CustomHttpException, IsOwner, Location } from '@app/common';
+import {
+  CustomHttpException,
+  IsOwner,
+  LOCATION_PRICING_OPTION,
+  LOCATION_TIER,
+  Location,
+} from '@app/common';
 import { MatchRepository } from '../matches/matches.repository';
 import { CreateLocationDto, UpdatePitchConditionDto, ViewNearbyLocationsDto } from './dto/location.dto';
 import { handleError } from 'src/helpers/errorHandler';
@@ -20,7 +26,18 @@ export class LocationsService {
   ) {}
 
   async registerLocation(locationData: CreateLocationDto, ownerId: Types.ObjectId): Promise<Location> {
-    const { name, address, location, pitchPhoto } = locationData;
+    const {
+      openingHour,
+      closingHour,
+      name,
+      address,
+      location,
+      pitchPhoto,
+      tier,
+      pricingOption,
+      paymentPerPersonHourly,
+      paymentPerPersonMonthly,
+    } = locationData;
 
     const alreadyExists = await this.locationRepository.findOne({
       'location.coordinates': {
@@ -43,8 +60,11 @@ export class LocationsService {
 
     try {
       const payload: any = {
+        openingHour,
+        closingHour,
         name,
         address,
+        tier,
         location: {
           type: 'Point',
           coordinates: location.coordinates,
@@ -52,6 +72,18 @@ export class LocationsService {
         pitchPhoto,
         owner: ownerId,
       };
+
+      if (tier === LOCATION_TIER.PAID) {
+        payload.pricingOption = pricingOption;
+
+        if (pricingOption === LOCATION_PRICING_OPTION.HOURLY) {
+          payload.paymentPerPersonHourly = paymentPerPersonHourly;
+        }
+
+        if (pricingOption === LOCATION_PRICING_OPTION.MONTHLY) {
+          payload.paymentPerPersonMonthly = paymentPerPersonMonthly;
+        }
+      }
      
       return await this.locationRepository.create(payload);
     } catch (error) {

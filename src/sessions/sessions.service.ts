@@ -3,7 +3,14 @@ import { SessionRepository } from '../sessions/sessions.repository';
 import { LocationRepository } from '../locations/locations.repository';
 import { MatchRepository } from '../matches/matches.repository';
 import { UserRepository } from '../users/users.repository';
-import { CustomHttpException, Session, SessionI, User } from '@app/common';
+import {
+  CustomHttpException,
+  LOCATION_PRICING_OPTION,
+  LOCATION_TIER,
+  Session,
+  SessionI,
+  User,
+} from '@app/common';
 import { UpdateQuery, FilterQuery, Types } from 'mongoose';
 import { createSessionRequest } from './dto/sessions.dto';
 import { MATCH_TYPE } from '@app/common';
@@ -16,6 +23,82 @@ import { NotificationService } from 'src/notifications/notification.service';
 @Injectable()
 export class SessionsService {
   private readonly logger = new Logger(SessionsService.name);
+
+  private parseHourToMinutes(time?: string): number | null {
+    if (!time) return null;
+
+    const match = /^(\d{2}):(\d{2})$/.exec(time);
+    if (!match) return null;
+
+    const hours = Number(match[1]);
+    const minutes = Number(match[2]);
+    if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+
+    return hours * 60 + minutes;
+  }
+
+  private validateSessionWithinOperatingHours(location: any, startTime: Date, stopTime: Date) {
+    const openingMinutes = this.parseHourToMinutes(location?.openingHour);
+    const closingMinutes = this.parseHourToMinutes(location?.closingHour);
+
+    if (openingMinutes === null || closingMinutes === null) {
+      return;
+    }
+
+    if (startTime.toDateString() !== stopTime.toDateString()) {
+      throw new CustomHttpException(
+        'Session time is outside location opening and closing hours',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const startMinutes = startTime.getHours() * 60 + startTime.getMinutes();
+    const stopMinutes = stopTime.getHours() * 60 + stopTime.getMinutes();
+
+    if (startMinutes < openingMinutes || stopMinutes > closingMinutes) {
+      throw new CustomHttpException(
+        'Session time is outside location opening and closing hours',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+  }
+
+  private buildPaymentConfig(location: any, timeDurationMins: number) {
+    if (location?.tier !== LOCATION_TIER.PAID) {
+      return { paymentRequired: false, paymentAmount: 0 };
+    }
+
+    if (location.pricingOption === LOCATION_PRICING_OPTION.HOURLY) {
+      if (!location.paymentPerPersonHourly || location.paymentPerPersonHourly <= 0) {
+        throw new CustomHttpException(
+          'Hourly pricing is selected but paymentPerPersonHourly is missing',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      const hourUnits = Math.max(1, Math.ceil(timeDurationMins / 60));
+      return {
+        paymentRequired: true,
+        paymentAmount: location.paymentPerPersonHourly * hourUnits,
+      };
+    }
+
+    if (location.pricingOption === LOCATION_PRICING_OPTION.MONTHLY) {
+      if (!location.paymentPerPersonMonthly || location.paymentPerPersonMonthly <= 0) {
+        throw new CustomHttpException(
+          'Monthly pricing is selected but paymentPerPersonMonthly is missing',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      return { paymentRequired: true, paymentAmount: location.paymentPerPersonMonthly };
+    }
+
+    throw new CustomHttpException(
+      'Location pricing option is missing for paid tier',
+      HttpStatus.BAD_REQUEST,
+    );
+  }
 
   constructor(
     private readonly sessionRepository: SessionRepository,
@@ -152,19 +235,18 @@ export class SessionsService {
 
     await Promise.all([
       this.userRepository.findOneAndUpdate({ _id: userId }, { currentSession: session._id }),
-      this.locationRepository.findOneAndUpdate({ _id: locationId }, { booked: true }),
       this.CaptainService.createCaptain({ userId, sessionId: session._id.toString() }),
     ]);
 
     if (location.owner) {
       this.notificationService.emit({
         targetUserId: location.owner.toString(),
-        type: 'SESSION_BOOKED',
-        title: 'New Session Booked',
-        body: `A session has been booked at ${location.name}`,
+        type: 'SESSION_CREATED',
+        title: 'New Session Created',
+        body: `A session has been created at ${location.name}`,
         payload: { sessionId: session._id.toString(), locationId },
         timestamp: Date.now(),
-      }).catch((err) => this.logger.error('Failed to emit SESSION_BOOKED notification', err));
+      }).catch((err) => this.logger.error('Failed to emit SESSION_CREATED notification', err));
     }
 
     return session;
@@ -201,6 +283,14 @@ export class SessionsService {
     const addedStopTime = new Date(
       new Date(startTime).getTime() + timeDuration * 60000,
     );
+
+    const location = await this.locationRepository.findOne({ _id: session.location });
+    if (!location) {
+      throw new CustomHttpException('Location not found', HttpStatus.NOT_FOUND);
+    }
+
+    this.validateSessionWithinOperatingHours(location, new Date(startTime), addedStopTime);
+    const paymentConfig = this.buildPaymentConfig(location, timeDuration);
 
     const existingSchedule = await this.sessionRepository.findOne({
       startTime,
@@ -242,6 +332,10 @@ export class SessionsService {
         winningDecider,
         maxNumber,
         members: [userId],
+        paymentRequired: paymentConfig.paymentRequired,
+        paymentAmount: paymentConfig.paymentAmount,
+        paymentStatus: paymentConfig.paymentRequired ? 'NOT_INITIATED' : 'COMPLETED',
+        allPaymentsCompleted: !paymentConfig.paymentRequired,
       },
     );
 
@@ -276,10 +370,6 @@ export class SessionsService {
       this.sessionRepository.findOneAndUpdate(
         { _id: session._id.toString() },
         { captain: null, inProgress: false },
-      ),
-      this.locationRepository.findOneAndUpdate(
-        { _id: session.location },
-        { booked: false },
       ),
     ]);
 
@@ -471,6 +561,14 @@ export class SessionsService {
       new Date(startTime).getTime() + timeDuration * 60000,
     );
 
+    const location = await this.locationRepository.findOne({ _id: session.location });
+    if (!location) {
+      throw new CustomHttpException('Location not found', HttpStatus.NOT_FOUND);
+    }
+
+    this.validateSessionWithinOperatingHours(location, new Date(startTime), addedStopTime);
+    const paymentConfig = this.buildPaymentConfig(location, timeDuration);
+
     const existingSchedule = await this.sessionRepository.findOne({
       startTime,
       stopTime: addedStopTime,
@@ -502,6 +600,10 @@ export class SessionsService {
         startTime,
         timeDuration,
         stopTime: addedStopTime,
+        paymentRequired: paymentConfig.paymentRequired,
+        paymentAmount: paymentConfig.paymentAmount,
+        paymentStatus: paymentConfig.paymentRequired ? 'NOT_INITIATED' : 'COMPLETED',
+        allPaymentsCompleted: !paymentConfig.paymentRequired,
       },
     );
 
@@ -560,28 +662,58 @@ export class SessionsService {
   }
 
   async onSessionFull(session: Session) {
-    if (!session.paymentAmount) return;
+    if (!session.paymentAmount || session.paymentAmount <= 0) return;
 
     const location = await this.locationRepository.findOne({ _id: session.location });
     if (!location || !location.owner) {
       throw new CustomHttpException('Location owner not found', HttpStatus.BAD_REQUEST);
     }
 
+    if (location.tier !== LOCATION_TIER.PAID) {
+      await this.sessionRepository.findOneAndUpdate(
+        { _id: session._id },
+        { paymentRequired: false, paymentStatus: 'COMPLETED', allPaymentsCompleted: true },
+      );
+      return;
+    }
+
     const paymentDeadline = new Date();
     paymentDeadline.setHours(paymentDeadline.getHours() + 24);
+
+    const memberIds = session.members.map((m) => new Types.ObjectId(m));
+    let payableMemberIds = memberIds;
+
+    if (location.pricingOption === LOCATION_PRICING_OPTION.MONTHLY) {
+      const activePaidUsers = await this.sessionPaymentService.getUsersWithActiveRecurringPayment(
+        session.location as any,
+        memberIds,
+        location.pricingOption,
+      );
+
+      payableMemberIds = memberIds.filter((memberId) => !activePaidUsers.has(memberId.toString()));
+    }
+
+    if (payableMemberIds.length === 0) {
+      await this.sessionRepository.findOneAndUpdate(
+        { _id: session._id },
+        { paymentStatus: 'COMPLETED', allPaymentsCompleted: true },
+      );
+      return;
+    }
 
     await Promise.all([
       this.sessionPaymentService.initializeSessionPayments(
         session._id,
         session.location as any,
         location.owner as any,
-        session.members.map((m) => new Types.ObjectId(m)),
+        payableMemberIds,
         session.paymentAmount,
         paymentDeadline,
+        location.pricingOption,
       ),
       this.sessionRepository.findOneAndUpdate(
         { _id: session._id },
-        { paymentStatus: 'PENDING', paymentDeadline },
+        { paymentStatus: 'PENDING', paymentDeadline, allPaymentsCompleted: false },
       ),
     ]);
   }

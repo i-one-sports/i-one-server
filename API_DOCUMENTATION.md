@@ -16,11 +16,12 @@
 13. [Stats](#stats)
 14. [Captains](#captains)
 15. [Wallet & Payments](#wallet--payments)
-16. [Notifications](#notifications)
-17. [Admin](#admin)
-18. [Webhooks](#webhooks)
-19. [Error Handling](#error-handling)
-20. [Types & Interfaces](#types--interfaces)
+16. [Location Billing](#location-billing) — owner transaction history & team payment validator
+17. [Notifications](#notifications)
+18. [Admin](#admin)
+19. [Webhooks](#webhooks)
+20. [Error Handling](#error-handling)
+21. [Types & Interfaces](#types--interfaces)
 
 ---
 
@@ -508,9 +509,23 @@ Register a new sports location. Owner only.
   "pitchPhoto": "https://s3.amazonaws.com/pitches/photo.jpg",
   "friendly": true,
   "tournament": true,
-  "tournamentFee": 5000
+  "tournamentFee": 5000,
+  "tier": "paid",
+  "pricingOption": "hourly",
+  "paymentPerPersonHourly": 1500,
+  "paymentPerPersonMonthly": 20000,
+  "openingHour": "08:00",
+  "closingHour": "22:00"
 }
 ```
+
+**Field Notes**:
+- `tier`: `"free"` | `"paid"` (required)
+- `pricingOption`: `"hourly"` | `"monthly"` — required when `tier` is `"paid"`
+- `paymentPerPersonHourly`: amount per player per session — required when `pricingOption` is `"hourly"`
+- `paymentPerPersonMonthly`: amount per player per month — required when `pricingOption` is `"monthly"`
+- `openingHour` / `closingHour`: operating hours in `HH:mm` 24-hour format (e.g. `"08:00"`, `"22:00"`). Sessions cannot be booked outside these hours.
+- Sessions that span midnight are rejected
 
 **Success Response** `201 Created`: Full location document.
 
@@ -826,6 +841,9 @@ Configure a session that was started. Only the session captain can call this.
 **Notes**:
 - `maxNumber` is computed as `setNumber × playersPerTeam`
 - Returns `409` if the time slot conflicts with another session at the same location
+- Returns `400` if `startTime`/`stopTime` falls outside the location's `openingHour`–`closingHour` window
+- Returns `400` if the session spans midnight
+- `paymentRequired` and `paymentAmount` are automatically derived from the location's `tier` and `pricingOption` — no need to pass them manually
 
 **Success Response** `200 OK`: Updated session document.
 
@@ -848,7 +866,9 @@ Join an existing session as a member.
 ```
 
 **Notes**:
-- If this join fills the session (`members.length === maxNumber`) **and** `paymentRequired` is true, payment records are automatically initialized for all members
+- If this join fills the session (`members.length === maxNumber`) **and** `paymentRequired` is true, payment records are automatically initialized for all members who still owe payment
+- For **monthly** pricing: a member who already paid within the last 30 days at this location is **skipped** — no new payment record is created for them
+- For **hourly** pricing: every member always gets a fresh payment record for each session
 
 **Error Responses**:
 - `400` — session is already full
@@ -936,6 +956,7 @@ Reschedule a session to a new time.
 
 **Error Responses**:
 - `409` — overlaps with another session at the same location
+- `400` — new time falls outside the location's operating hours or spans midnight
 
 ---
 
@@ -1504,6 +1525,148 @@ Withdraw funds to a bank account.
 
 ---
 
+## Location Billing
+
+Endpoints for location owners to view session payment history grouped by team and validate per-team payment completeness.
+
+All endpoints under `/billing/location` require `IsOwnerGuard`.
+
+---
+
+### GET /billing/location/:locationId/transactions
+Get paginated transaction history for a location, grouped by calendar date. Each entry represents one team (Set) within one session.
+
+**Auth required**: Yes (JWT cookie + `IsOwnerGuard`)
+
+**Path Parameters**:
+- `locationId` — location ID
+
+**Query Parameters**:
+- `page` (number, default: 1)
+- `limit` (number, default: 20)
+
+**Success Response** `200 OK`:
+```json
+{
+  "data": [
+    {
+      "date": "2026-03-20",
+      "entries": [
+        {
+          "teamName": "Team 1",
+          "sessionId": "507f...",
+          "setId": "507f...",
+          "sessionStartTime": "2026-03-20T17:00:00.000Z",
+          "pricingOption": "hourly",
+          "paymentAmount": 1500,
+          "teamSize": 5,
+          "membersPaid": 5,
+          "totalPaid": 7500,
+          "expectedTotal": 7500,
+          "paymentStatus": "COMPLETE",
+          "paidAt": "2026-03-20T17:05:00.000Z"
+        },
+        {
+          "teamName": "Team 2",
+          "sessionId": "507f...",
+          "setId": "507f...",
+          "sessionStartTime": "2026-03-20T17:00:00.000Z",
+          "pricingOption": "hourly",
+          "paymentAmount": 1500,
+          "teamSize": 5,
+          "membersPaid": 3,
+          "totalPaid": 4500,
+          "expectedTotal": 7500,
+          "paymentStatus": "PARTIAL",
+          "paidAt": "2026-03-20T17:10:00.000Z"
+        }
+      ]
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 20,
+    "total": 45,
+    "totalPages": 3
+  }
+}
+```
+
+**Field Notes**:
+- `paymentStatus`: `"COMPLETE"` (all team members paid) | `"PARTIAL"` (some paid) | `"UNPAID"` (none paid)
+- `date` — ISO date string (`YYYY-MM-DD`) derived from the latest payment timestamp in that group
+- Only `PAID` payments are included — pending/failed records are excluded
+
+---
+
+### GET /billing/location/:locationId/sessions/:sessionId/team-status
+Validate payment completeness for every team in a single session. Shows each team's players, what was expected vs collected, and the shortfall.
+
+**Auth required**: Yes (JWT cookie + `IsOwnerGuard`)
+
+**Path Parameters**:
+- `locationId` — location ID
+- `sessionId` — session ID
+
+**Success Response** `200 OK`:
+```json
+{
+  "sessionId": "507f...",
+  "sessionStartTime": "2026-03-20T17:00:00.000Z",
+  "sessionStopTime": "2026-03-20T18:30:00.000Z",
+  "paymentAmount": 1500,
+  "pricingOption": "hourly",
+  "sessionPaymentStatus": "PENDING",
+  "grandExpected": 15000,
+  "grandPaid": 10500,
+  "shortfall": 4500,
+  "allTeamsPaid": false,
+  "teams": [
+    {
+      "setId": "507f...",
+      "teamName": "Team 1",
+      "totalPlayers": 5,
+      "playersPaid": 5,
+      "playersUnpaid": 0,
+      "expectedTotal": 7500,
+      "totalPaid": 7500,
+      "shortfall": 0,
+      "status": "COMPLETE",
+      "playerDetails": [
+        { "userId": "507f...", "status": "PAID", "amountPaid": 1500, "paidAt": "2026-03-20T17:05:00.000Z" }
+      ]
+    },
+    {
+      "setId": "507f...",
+      "teamName": "Team 2",
+      "totalPlayers": 5,
+      "playersPaid": 3,
+      "playersUnpaid": 2,
+      "expectedTotal": 7500,
+      "totalPaid": 4500,
+      "shortfall": 3000,
+      "status": "PARTIAL",
+      "playerDetails": [
+        { "userId": "507f...", "status": "PAID",     "amountPaid": 1500, "paidAt": "2026-03-20T17:08:00.000Z" },
+        { "userId": "507f...", "status": "NOT_PAID", "amountPaid": 0,    "paidAt": null }
+      ]
+    }
+  ]
+}
+```
+
+**Field Notes**:
+- `status` per team: `"COMPLETE"` | `"PARTIAL"` | `"UNPAID"`
+- `playerDetails[].status`: `"PAID"` | `"PENDING"` | `"NOT_PAID"`
+- `shortfall` — amount still outstanding (0 when complete)
+- `allTeamsPaid` — `true` only when every team in the session has status `"COMPLETE"`
+
+**Error Responses**:
+- `404` — session not found
+- `403` — session does not belong to this owner's location
+
+---
+
 ## Notifications
 
 Real-time in-app notifications delivered over SSE. The server pushes events to the connected user — no polling needed.
@@ -1526,12 +1689,12 @@ Open a persistent notification stream for the authenticated user.
 // On connect
 data: {"type":"connected","userId":"507f...","timestamp":1234567890}
 
-// Session booked at owner's location (sent to location owner)
+// Session created at owner's location (sent to location owner)
 data: {
   "targetUserId": "507f...",
-  "type": "SESSION_BOOKED",
-  "title": "New Session Booked",
-  "body": "A session has been booked at Lagos Sports Complex",
+  "type": "SESSION_CREATED",
+  "title": "New Session Created",
+  "body": "A session has been created at Lagos Sports Complex",
   "payload": { "sessionId": "507f...", "locationId": "507f..." },
   "timestamp": 1234567890
 }
@@ -1553,7 +1716,7 @@ data: {"type":"heartbeat","timestamp":1234567890}
 **Event Types**:
 | Type | Trigger | Recipient |
 |---|---|---|
-| `SESSION_BOOKED` | User calls `POST /sessions/start` at a location | Location owner |
+| `SESSION_CREATED` | User calls `POST /sessions/start` at a location | Location owner |
 | `SESSION_CONFIGURED` | Captain calls `POST /sessions/create/:sessionId` | Location owner |
 
 **Notes**:
@@ -1724,13 +1887,18 @@ interface Location {
   _id: string;
   name: string;
   address: string;
-  booked: boolean;
   pitchPhoto?: string;
   location: { type: 'Point'; coordinates: [number, number] };
   friendly: boolean;
   tournament: boolean;
   tournamentFee?: number;
-  owner?: string;             // User ID
+  owner?: string;                   // User ID
+  tier: 'free' | 'paid';
+  pricingOption?: 'hourly' | 'monthly';
+  paymentPerPersonHourly?: number;  // set when pricingOption === 'hourly'
+  paymentPerPersonMonthly?: number; // set when pricingOption === 'monthly'
+  openingHour?: string;             // HH:mm, e.g. "08:00"
+  closingHour?: string;             // HH:mm, e.g. "22:00"
   createdAt: string;
   updatedAt: string;
 }
@@ -1768,6 +1936,22 @@ interface SessionPayment {
   transactionId?: string;
   paidAt?: Date;
   expiresAt?: Date;
+  metadata?: {
+    pricingOption?: 'hourly' | 'monthly'; // used for recurring payment checks
+    [key: string]: any;
+  };
+  createdAt: string;
+  updatedAt: string;
+}
+```
+
+### Set (Team)
+```typescript
+interface Set {
+  _id: string;
+  session: string;   // Session ID
+  name: string;      // e.g. "Team 1", "Team 2"
+  players: string[]; // User IDs
   createdAt: string;
   updatedAt: string;
 }
