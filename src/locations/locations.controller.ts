@@ -1,11 +1,14 @@
 import { Body, Controller, DefaultValuePipe, Get, Param, ParseIntPipe, Patch, Post, Query, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { JwtAuthGuard } from 'src/auth/guards/jwt.guard';
 import { LocationsService } from './locations.service';
-import { CreateLocationDto, UpdatePitchConditionDto, ViewNearbyLocationsDto } from './dto/location.dto';
+import { CreateLocationDto, UpdateLocationPricingDto, UpdatePitchConditionDto, ViewNearbyLocationsDto } from './dto/location.dto';
 import { CurrentUser, IsOwner, UploadType, User, IsOwnerGuard } from '@app/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import * as multer from 'multer'
 import { AwsService } from '@app/common/providers/aws.service';
+import { RolesGuard } from '@app/common/guards/roles.guard';
+import { Roles } from '@app/common/decorators/roles.decorator';
+import { USER_ROLE } from '@app/common';
 
 @Controller('location')
 @UseGuards(JwtAuthGuard)
@@ -145,6 +148,16 @@ export class LocationsController {
       @Body() data: UpdatePitchConditionDto,
     ) {
       return this.locationsService.updatePitchCondition(locationId, user._id.toString(), data);
+    }
+
+    @Patch('admin/:locationId/pricing-options')
+    @UseGuards(RolesGuard)
+    @Roles(USER_ROLE.SUPER_ADMIN)
+    async adminUpdateLocationPricing(
+      @Param('locationId') locationId: string,
+      @Body() data: UpdateLocationPricingDto,
+    ) {
+      return this.locationsService.adminUpdateLocationPricing(locationId, data);
     }
 
   }

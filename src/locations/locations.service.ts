@@ -9,7 +9,7 @@ import {
   Location,
 } from '@app/common';
 import { MatchRepository } from '../matches/matches.repository';
-import { CreateLocationDto, UpdatePitchConditionDto, ViewNearbyLocationsDto } from './dto/location.dto';
+import { CreateLocationDto, UpdateLocationPricingDto, UpdatePitchConditionDto, ViewNearbyLocationsDto } from './dto/location.dto';
 import { handleError } from 'src/helpers/errorHandler';
 import { SessionRepository } from 'src/sessions/sessions.repository';
 import { SessionPaymentService } from 'src/billing/services/session-payment.service';
@@ -228,6 +228,68 @@ export class LocationsService {
     );
 
     return { message: 'Pitch condition updated', location: updated };
+  }
+
+  async adminUpdateLocationPricing(locationId: string, dto: UpdateLocationPricingDto) {
+    const location = await this.locationRepository.findOne({ _id: locationId });
+    if (!location) {
+      throw new CustomHttpException('Location not found', HttpStatus.NOT_FOUND);
+    }
+
+    const updatePayload: any = {
+      tier: dto.tier,
+    };
+
+    if (dto.tier === LOCATION_TIER.FREE) {
+      updatePayload.pricingOption = undefined;
+      updatePayload.paymentPerPersonHourly = undefined;
+      updatePayload.paymentPerPersonMonthly = undefined;
+    }
+
+    if (dto.tier === LOCATION_TIER.PAID) {
+      if (!dto.pricingOption) {
+        throw new CustomHttpException(
+          'pricingOption is required for paid locations',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      updatePayload.pricingOption = dto.pricingOption;
+
+      if (dto.pricingOption === LOCATION_PRICING_OPTION.HOURLY) {
+        if (!dto.paymentPerPersonHourly || dto.paymentPerPersonHourly <= 0) {
+          throw new CustomHttpException(
+            'paymentPerPersonHourly must be greater than 0 for hourly pricing',
+            HttpStatus.BAD_REQUEST,
+          );
+        }
+
+        updatePayload.paymentPerPersonHourly = dto.paymentPerPersonHourly;
+        updatePayload.paymentPerPersonMonthly = undefined;
+      }
+
+      if (dto.pricingOption === LOCATION_PRICING_OPTION.MONTHLY) {
+        if (!dto.paymentPerPersonMonthly || dto.paymentPerPersonMonthly <= 0) {
+          throw new CustomHttpException(
+            'paymentPerPersonMonthly must be greater than 0 for monthly pricing',
+            HttpStatus.BAD_REQUEST,
+          );
+        }
+
+        updatePayload.paymentPerPersonMonthly = dto.paymentPerPersonMonthly;
+        updatePayload.paymentPerPersonHourly = undefined;
+      }
+    }
+
+    const updatedLocation = await this.locationRepository.findOneAndUpdate(
+      { _id: locationId },
+      updatePayload,
+    );
+
+    return {
+      message: 'Location pricing options updated successfully',
+      location: updatedLocation,
+    };
   }
 
   async getMyLocation(userId: Types.ObjectId) {

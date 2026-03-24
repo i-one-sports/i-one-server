@@ -103,6 +103,35 @@ export class UpdatePitchConditionDto {
   pitchCondition: PITCH_CONDITION;
 }
 
+export class UpdateLocationPricingDto {
+  @IsEnum(LOCATION_TIER)
+  @IsNotEmpty()
+  tier: LOCATION_TIER;
+
+  @ValidateIf((dto: UpdateLocationPricingDto) => dto.tier === LOCATION_TIER.PAID)
+  @IsEnum(LOCATION_PRICING_OPTION)
+  @IsNotEmpty()
+  pricingOption?: LOCATION_PRICING_OPTION;
+
+  @ValidateIf(
+    (dto: UpdateLocationPricingDto) =>
+      dto.tier === LOCATION_TIER.PAID &&
+      dto.pricingOption === LOCATION_PRICING_OPTION.HOURLY,
+  )
+  @IsNumber()
+  @Min(1)
+  paymentPerPersonHourly?: number;
+
+  @ValidateIf(
+    (dto: UpdateLocationPricingDto) =>
+      dto.tier === LOCATION_TIER.PAID &&
+      dto.pricingOption === LOCATION_PRICING_OPTION.MONTHLY,
+  )
+  @IsNumber()
+  @Min(1)
+  paymentPerPersonMonthly?: number;
+}
+
 export class ViewNearbyLocationsDto {
   longitude: string;
   latitude: string;

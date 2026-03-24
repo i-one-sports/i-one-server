@@ -831,7 +831,7 @@ Configure a session that was started. Only the session captain can call this.
 {
   "setNumber": 3,
   "playersPerTeam": 5,
-  "timeDuration": 90,
+  "timeDuration": 120,
   "minsPerSet": 30,
   "startTime": "2025-11-10T14:00:00.000Z",
   "winningDecider": "PENALTY"
@@ -844,6 +844,8 @@ Configure a session that was started. Only the session captain can call this.
 - Returns `400` if `startTime`/`stopTime` falls outside the location's `openingHour`–`closingHour` window
 - Returns `400` if the session spans midnight
 - `paymentRequired` and `paymentAmount` are automatically derived from the location's `tier` and `pricingOption` — no need to pass them manually
+- For `hourly` pricing, `timeDuration` must be in full-hour blocks only (`60`, `120`, `180`, ...)
+- Hourly charge per player is computed as: `paymentPerPersonHourly × (timeDuration / 60)`
 
 **Success Response** `200 OK`: Updated session document.
 
@@ -1742,6 +1744,59 @@ Get wallet and DVA details for any user. Super admin only.
   "dva": { ...dvaDocument }
 }
 ```
+
+---
+
+### PATCH /location/admin/:locationId/pricing-options
+Update location pricing options. Super admin only.
+
+**Auth required**: Yes (JWT cookie + `SUPER_ADMIN` role)
+
+**Path Parameters**:
+- `locationId` — location ID
+
+**Request Body**:
+```json
+{
+  "tier": "paid",
+  "pricingOption": "hourly",
+  "paymentPerPersonHourly": 1500
+}
+```
+
+**Other valid payloads**:
+```json
+{
+  "tier": "paid",
+  "pricingOption": "monthly",
+  "paymentPerPersonMonthly": 20000
+}
+```
+
+```json
+{
+  "tier": "free"
+}
+```
+
+**Field Notes**:
+- `tier`: `"free"` | `"paid"` (required)
+- If `tier` is `"paid"`, `pricingOption` is required
+- If `pricingOption` is `"hourly"`, `paymentPerPersonHourly` must be greater than `0`
+- If `pricingOption` is `"monthly"`, `paymentPerPersonMonthly` must be greater than `0`
+- Setting `tier` to `"free"` clears `pricingOption`, `paymentPerPersonHourly`, and `paymentPerPersonMonthly`
+
+**Success Response** `200 OK`:
+```json
+{
+  "message": "Location pricing options updated successfully",
+  "location": { ...updatedLocationDocument }
+}
+```
+
+**Error Responses**:
+- `400` — invalid pricing payload for selected tier/pricing option
+- `404` — location not found
 
 ---
 
