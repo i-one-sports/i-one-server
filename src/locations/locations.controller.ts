@@ -6,9 +6,6 @@ import { CurrentUser, IsOwner, UploadType, User, IsOwnerGuard } from '@app/commo
 import { FileInterceptor } from '@nestjs/platform-express';
 import * as multer from 'multer'
 import { AwsService } from '@app/common/providers/aws.service';
-import { RolesGuard } from '@app/common/guards/roles.guard';
-import { Roles } from '@app/common/decorators/roles.decorator';
-import { USER_ROLE } from '@app/common';
 
 @Controller('location')
 @UseGuards(JwtAuthGuard)
@@ -150,14 +147,14 @@ export class LocationsController {
       return this.locationsService.updatePitchCondition(locationId, user._id.toString(), data);
     }
 
-    @Patch('admin/:locationId/pricing-options')
-    @UseGuards(RolesGuard)
-    @Roles(USER_ROLE.SUPER_ADMIN)
-    async adminUpdateLocationPricing(
+    @UseGuards(IsOwnerGuard)
+    @Patch(':locationId/pricing-options')
+    async updateLocationPricing(
+      @IsOwner() user: User,
       @Param('locationId') locationId: string,
       @Body() data: UpdateLocationPricingDto,
     ) {
-      return this.locationsService.adminUpdateLocationPricing(locationId, data);
+      return this.locationsService.updateLocationPricing(locationId, user._id.toString(), data);
     }
 
   }

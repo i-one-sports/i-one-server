@@ -230,11 +230,8 @@ export class LocationsService {
     return { message: 'Pitch condition updated', location: updated };
   }
 
-  async adminUpdateLocationPricing(locationId: string, dto: UpdateLocationPricingDto) {
-    const location = await this.locationRepository.findOne({ _id: locationId });
-    if (!location) {
-      throw new CustomHttpException('Location not found', HttpStatus.NOT_FOUND);
-    }
+  async updateLocationPricing(locationId: string, ownerId: string, dto: UpdateLocationPricingDto) {
+    await this.verifyOwnership(locationId, ownerId);
 
     const updatePayload: any = {
       tier: dto.tier,

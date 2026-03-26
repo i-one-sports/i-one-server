@@ -1747,10 +1747,10 @@ Get wallet and DVA details for any user. Super admin only.
 
 ---
 
-### PATCH /location/admin/:locationId/pricing-options
-Update location pricing options. Super admin only.
+### PATCH /location/:locationId/pricing-options
+Update pricing options for a location. Owner only.
 
-**Auth required**: Yes (JWT cookie + `SUPER_ADMIN` role)
+**Auth required**: Yes (JWT cookie + `IsOwnerGuard`)
 
 **Path Parameters**:
 - `locationId` — location ID
@@ -1796,6 +1796,7 @@ Update location pricing options. Super admin only.
 
 **Error Responses**:
 - `400` — invalid pricing payload for selected tier/pricing option
+- `403` — not the owner of this location
 - `404` — location not found
 
 ---
