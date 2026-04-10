@@ -213,6 +213,15 @@ export class SessionPaymentService {
     };
   }
 
+  async getSessionMemberPaymentMap(sessionId: string): Promise<Map<string, PaymentStatus>> {
+    const payments = await this.sessionPaymentRepository
+      .findRaw()
+      .find({ sessionId: new Types.ObjectId(sessionId) }, { userId: 1, status: 1, _id: 0 })
+      .lean();
+
+    return new Map(payments.map((p: any) => [p.userId.toString(), p.status]));
+  }
+
   async getUserSessionPayment(sessionId: string, userId: string) {
     const payment = await this.sessionPaymentRepository.findOne({
       sessionId: new Types.ObjectId(sessionId),

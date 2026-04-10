@@ -913,11 +913,44 @@ Join an existing session as a member.
 ---
 
 ### GET /sessions/:sessionId
-Get a session with its members populated.
+Get a session with its members populated. If the session requires payment, each member includes a `paymentStatus` field for the paid/unpaid badge.
 
 **Auth required**: Yes (JWT cookie)
 
-**Success Response** `200 OK`: Session document with members populated (`firstName`, `lastName`, `nickname`, `avatar`).
+**Success Response** `200 OK`:
+```json
+{
+  "_id": "507f...",
+  "paymentRequired": true,
+  "members": [
+    {
+      "_id": "507f...",
+      "firstName": "Emeka",
+      "lastName": "Obi",
+      "nickname": "Striker9",
+      "avatar": "https://...",
+      "paymentStatus": "PAID"
+    },
+    {
+      "_id": "507f...",
+      "firstName": "Tunde",
+      "lastName": "Adewale",
+      "nickname": "TundeDF",
+      "avatar": null,
+      "paymentStatus": "PENDING"
+    }
+  ]
+}
+```
+
+**`paymentStatus` values per member**:
+| Value | Meaning |
+|---|---|
+| `PAID` | Member has paid |
+| `PENDING` | Payment initialized but not yet completed |
+| `FAILED` | Payment attempt failed |
+| `REFUNDED` | Payment was refunded |
+| `NOT_REQUIRED` | Session is free — no payment needed |
 
 ---
 

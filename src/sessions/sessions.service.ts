@@ -502,10 +502,18 @@ export class SessionsService {
       .findRaw()
       .findOne({ _id: sessionId })
       .populate({ path: 'members', select: 'firstName lastName nickname avatar' })
-      .lean();
+      .lean() as any;
 
     if (!session) {
       throw new CustomHttpException('Session does not exist', HttpStatus.NOT_FOUND);
+    }
+
+    if (session.paymentRequired && session.members?.length) {
+      const paymentMap = await this.sessionPaymentService.getSessionMemberPaymentMap(sessionId);
+      session.members = session.members.map((member: any) => ({
+        ...member,
+        paymentStatus: paymentMap.get(member._id.toString()) ?? 'PENDING',
+      }));
     }
 
     return session;
