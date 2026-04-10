@@ -68,6 +68,14 @@ export class SessionsController {
     return this.sessionsService.joinSession(user._id.toString(), sessionId);
   }
 
+  @Get('by-location/:locationId')
+  async getSessionsByLocationAndDate(
+    @Param('locationId') locationId: string,
+    @Query('date') date: string,
+  ) {
+    return this.sessionsService.getSessionsByLocationAndDate(locationId, date);
+  }
+
   @Get(':sessionId')
   async viewSession(@Param('sessionId') sessionId: string) {
     return this.sessionsService.viewSession(sessionId);

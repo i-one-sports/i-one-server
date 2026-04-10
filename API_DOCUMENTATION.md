@@ -781,6 +781,40 @@ Find active sessions near a coordinate.
 
 ---
 
+### GET /sessions/by-location/:locationId?date=YYYY-MM-DD
+Get all sessions at a specific location on a given date, sorted by start time ascending. Used to power the match schedule calendar (frontend sends the selected date, gets back that day's sessions).
+
+**Auth required**: Yes (JWT cookie)
+
+**Path Parameters**:
+- `locationId` — the location ID
+
+**Query Parameters**:
+- `date` *(required)* — date in `YYYY-MM-DD` format (e.g. `2026-04-08`)
+
+**Success Response** `200 OK`:
+```json
+[
+  {
+    "_id": "507f...",
+    "location": { "_id": "507f...", "name": "Arena Lagos", "address": "..." },
+    "captain": { "_id": "507f...", "firstName": "Emeka", "nickname": "Striker9" },
+    "members": [ ... ],
+    "startTime": "2026-04-08T10:00:00.000Z",
+    "stopTime": "2026-04-08T12:00:00.000Z",
+    "matchType": "friendly",
+    "isFull": false,
+    "finished": false
+  }
+]
+```
+
+**Notes**:
+- Returns an empty array `[]` if no sessions exist for that location on that date
+- Date range is evaluated in UTC (`00:00:00.000` → `23:59:59.999`)
+
+---
+
 ### GET /sessions/all
 Get all non-finished sessions, paginated.
 

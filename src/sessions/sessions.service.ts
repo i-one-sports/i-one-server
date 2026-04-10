@@ -211,7 +211,7 @@ export class SessionsService {
       ]);
 
       return matches;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error Finding sessions:', error);
       throw new CustomHttpException(
         'Error Finding sessions: ' + (error?.message || error),
@@ -511,6 +511,26 @@ export class SessionsService {
     return session;
   }
 
+  async getSessionsByLocationAndDate(locationId: string, date: string) {
+    const start = new Date(date);
+    start.setUTCHours(0, 0, 0, 0);
+    const end = new Date(date);
+    end.setUTCHours(23, 59, 59, 999);
+
+    const sessions = await this.sessionRepository
+      .findRaw()
+      .find({
+        location: locationId,
+        startTime: { $gte: start, $lte: end },
+      })
+      .populate('captain', '-password')
+      .populate('members', '-password')
+      .populate('location')
+      .sort({ startTime: 1 });
+
+    return sessions;
+  }
+
   async viewAllSessions(page: number = 1, limit: number = 6) {
     const pageNum = Number(page) || 1;
     const limitNum = Number(limit) || 6;
@@ -642,7 +662,7 @@ export class SessionsService {
       console.log('Updating with update:', update);
 
       return updatedResult;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error updating sessions:', error);
       throw new CustomHttpException(
         'Error updating sessions: ' + (error?.message || error),
@@ -666,7 +686,7 @@ export class SessionsService {
         return true;
       }
       return false;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error checking captain status:', error);
       throw new CustomHttpException(
         'Error checking captain status: ' + (error?.message || error),
