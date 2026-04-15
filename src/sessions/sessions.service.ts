@@ -528,7 +528,7 @@ export class SessionsService {
     const sessions = await this.sessionRepository
       .findRaw()
       .find({
-        location: locationId,
+        location: new Types.ObjectId(locationId),
         startTime: { $gte: start, $lte: end },
       })
       .populate('captain', '-password')
