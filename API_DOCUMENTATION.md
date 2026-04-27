@@ -1288,36 +1288,222 @@ Get current SSE connection statistics.
 
 ## Tournaments
 
+Tournaments are per-location, single-elimination (knockout) bracket competitions. Supported sizes: **8, 16, or 32 teams**. The organizer creates the tournament, teams register, then the organizer starts it — which generates the bracket via random draw. Winners advance automatically when scores are recorded; the organizer can also manually advance a team (for draws / overrides).
+
+### Status flow
+`registration` → `started` → `completed`
+
+### Bracket structure
+Each match in the bracket has:
+- `matchIndex` — sequential 0-based ID used in all match endpoints
+- `round` / `roundName` — e.g. `1` / `"Quarter-final"`
+- `home` / `away` — `{ teamId, name, logo }` (null until bracket is filled)
+- `homeScore` / `awayScore` — null until recorded
+- `winner` — populated after result is recorded
+- `scheduledTime` — set by organizer, null by default
+- `nextMatchIndex` / `nextMatchSlot` — where the winner goes next (null for the final)
+
+---
+
 ### POST /tournaments/create/:locationId
-Create a new tournament at a location.
+Create a tournament at a location. Only authenticated users can create.
 
 **Auth required**: Yes (JWT cookie)
 
 **Path Parameters**:
-- `locationId` — location ID
+- `locationId` — the location this tournament belongs to
 
 **Request Body**:
 ```json
 {
-  "name": "Lagos Cup 2025",
-  "description": "Annual Lagos tournament",
+  "name": "Victoria Island Cup",
+  "description": "Annual VI knockout tournament",
   "prizeMoney": 500000,
-  "format": "KNOCKOUT",
-  "maxTeams": 16,
-  "registrationDeadline": "2025-11-01T00:00:00.000Z",
-  "startDate": "2025-11-10T09:00:00.000Z",
-  "durationDays": 7,
-  "registrationFee": 2000
+  "registrationFee": 2000,
+  "maxTeams": 8,
+  "registrationDeadline": "2026-05-01T00:00:00.000Z",
+  "startDate": "2026-05-10T09:00:00.000Z",
+  "durationDays": 2
 }
 ```
 
 **Field Notes**:
-- `format`: `"KNOCKOUT"` | `"GROUPS"` (default: `"KNOCKOUT"`)
-- `maxTeams`: defaults to 16
-- `endDate` is auto-computed as `startDate + durationDays`
-- A unique `code` (e.g. `"I-ONE-ABCDEFG"`) is auto-generated
+- `maxTeams`: **must be `8`, `16`, or `32`**
+- `endDate` is auto-computed (`startDate + durationDays`)
+- A unique 6-character `code` is auto-generated (uppercase alphanumeric)
 
-**Success Response** `201 Created`: Tournament document including `code`, `status: "REGISTRATION"`, `organizer`, and computed `endDate`.
+**Success Response** `201 Created`: Full tournament document with `status: "registration"`.
+
+---
+
+### GET /tournaments/location/:locationId
+Get all tournaments for a location. Lightweight — no team population.
+
+**Auth required**: Yes (JWT cookie)
+
+**Success Response** `200 OK`:
+```json
+[
+  {
+    "_id": "507f...",
+    "name": "Victoria Island Cup",
+    "status": "registration",
+    "maxTeams": 8,
+    "registeredTeams": ["507f...", "507f..."],
+    "startDate": "2026-05-10T09:00:00.000Z",
+    "endDate": "2026-05-12T09:00:00.000Z",
+    "registrationDeadline": "2026-05-01T00:00:00.000Z",
+    "prizeMoney": 500000,
+    "registrationFee": 2000,
+    "code": "AB1C2D",
+    "winner": null
+  }
+]
+```
+
+---
+
+### GET /tournaments/:id
+Get full tournament details — bracket (all rounds), registered teams (name + logo), and organizer info. Single query, no N+1.
+
+**Auth required**: Yes (JWT cookie)
+
+**Success Response** `200 OK`:
+```json
+{
+  "_id": "507f...",
+  "name": "Victoria Island Cup",
+  "status": "started",
+  "maxTeams": 8,
+  "bracket": [
+    {
+      "matchIndex": 0,
+      "round": 1,
+      "roundName": "Quarter-final",
+      "home": { "teamId": "507f...", "name": "Team Alpha", "logo": "" },
+      "away": { "teamId": "507f...", "name": "Team Beta", "logo": "" },
+      "homeScore": null,
+      "awayScore": null,
+      "winner": null,
+      "completed": false,
+      "scheduledTime": null,
+      "nextMatchIndex": 4,
+      "nextMatchSlot": "home"
+    }
+  ],
+  "registeredTeams": [
+    { "_id": "507f...", "name": "Team Alpha", "logo": "", "captain": "507f..." }
+  ],
+  "organizer": { "_id": "507f...", "firstName": "Kiara", "lastName": "Schulist" },
+  "winner": null
+}
+```
+
+---
+
+### POST /tournaments/:id/team
+Create a team and register it to the tournament in one step. Only valid during `registration` status.
+
+**Auth required**: Yes (JWT cookie)
+
+**Request Body**:
+```json
+{
+  "teamName": "Team Alpha",
+  "logo": "https://...",
+  "captainId": "507f...",
+  "playerIds": ["507f...", "507f..."]
+}
+```
+
+**Field Notes**:
+- `captainId` is automatically added to `playerIds`
+- `logo` is optional
+
+**Error Responses**:
+- `400` — tournament full or not in registration phase
+- `404` — tournament or captain not found
+
+---
+
+### DELETE /tournaments/:id/team/:teamId
+Remove a team from the tournament. Only valid during `registration` status.
+
+**Auth required**: Yes (JWT cookie)
+
+---
+
+### POST /tournaments/:id/start
+Generate the knockout bracket from registered teams (random draw). Only the organizer can call this. Requires at least 2 registered teams. Teams fewer than `maxTeams` receive byes (auto-advance in round 1).
+
+**Auth required**: Yes (JWT cookie)
+
+**Success Response** `200 OK`:
+```json
+{ "message": "Tournament started", "bracket": [ ...all matches... ] }
+```
+
+**Error Responses**:
+- `400` — fewer than 2 teams, or tournament already started
+- `403` — not the organizer
+
+---
+
+### PATCH /tournaments/:id/match/:matchIndex/result
+Record a match score. The winner is automatically determined and placed into the next match slot. If it's the final, the tournament is marked `completed` and the `winner` is set.
+
+**Auth required**: Yes (JWT cookie, organizer only)
+
+**Request Body**:
+```json
+{ "homeScore": 3, "awayScore": 1 }
+```
+
+**Field Notes**:
+- Draws (`homeScore === awayScore`) are **rejected** — use `/advance` to manually pick the winner
+- Single atomic DB update — no extra queries
+
+**Success Response** `200 OK`:
+```json
+{ "message": "Result recorded", "winner": { "teamId": "507f...", "name": "Team Alpha", "logo": "" }, "isFinal": false }
+```
+
+**Error Responses**:
+- `400` — draw, match already completed, or match not ready (waiting for both teams to advance)
+- `403` — not the organizer
+
+---
+
+### PATCH /tournaments/:id/match/:matchIndex/advance
+Manually pick the winner of a match (for draws, penalties, or organizer override). Winner advances to the next round automatically.
+
+**Auth required**: Yes (JWT cookie, organizer only)
+
+**Request Body**:
+```json
+{ "winner": "home" }
+```
+
+- `winner`: `"home"` | `"away"`
+
+**Success Response** `200 OK`:
+```json
+{ "message": "Team advanced", "winner": { "teamId": "507f...", "name": "Team Alpha", "logo": "" }, "isFinal": false }
+```
+
+---
+
+### PATCH /tournaments/:id/match/:matchIndex/schedule
+Set the scheduled time for a bracket match. Organizer only.
+
+**Auth required**: Yes (JWT cookie, organizer only)
+
+**Request Body**:
+```json
+{ "scheduledTime": "2026-05-10T14:00:00.000Z" }
+```
+
+**Success Response** `200 OK`: `{ "message": "Match scheduled" }`
 
 ---
 

@@ -1,191 +1,86 @@
-import {
-  IsNotEmpty,
-  IsString,
-  IsNumber,
-  IsArray,
-  IsOptional,
-  IsEnum,
-  IsDate,
-  IsMongoId,
-  Matches,
-} from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
-import {
-  TournamentStatus,
-  TournamentFormat,
-  LocationCoordinates,
-} from '@app/common';
+import { IsNotEmpty, IsString, IsNumber, IsOptional, IsDate, IsMongoId, IsIn, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
-export class TournamentLocationDto {
-  @ApiProperty()
-  @IsNotEmpty()
-  @IsString()
-  name: string;
-
-  @ApiProperty({ required: false })
-  @IsString()
-  address: string;
-
-  @ApiProperty({ required: false })
-  @IsNotEmpty()
-  @IsString()
-  city: string;
-
-  @ApiProperty({ required: false })
-  @IsNotEmpty()
-  @IsString()
-  country: string;
-
-  @ApiProperty({ required: false })
-  location: LocationCoordinates;
-}
-
 export class CreateTournamentDto {
-  @ApiProperty()
   @IsNotEmpty()
   @IsString()
   name: string;
 
-  @ApiProperty({ required: false })
   @IsOptional()
   @IsString()
   description?: string;
 
-  @ApiProperty({ required: true })
   @IsNotEmpty()
   @IsNumber()
+  @Min(0)
   prizeMoney: number;
 
-  @ApiProperty({ enum: TournamentFormat, default: TournamentFormat.KNOCKOUT })
-  @IsOptional()
-  @IsEnum(TournamentFormat)
-  format?: TournamentFormat;
-
-  @ApiProperty({ required: false, default: 16 })
-  @IsOptional()
+  @IsNotEmpty()
   @IsNumber()
-  maxTeams?: number;
+  @Min(0)
+  registrationFee: number;
 
+  // Must be 8, 16, or 32
+  @IsNotEmpty()
+  @IsIn([8, 16, 32], { message: 'maxTeams must be 8, 16, or 32' })
+  maxTeams: number;
 
-  @ApiProperty({ required: true })
   @IsNotEmpty()
   @IsDate()
   @Type(() => Date)
   registrationDeadline: Date;
 
-  @ApiProperty({ required: true })
   @IsNotEmpty()
   @IsDate()
   @Type(() => Date)
   startDate: Date;
 
-  @ApiProperty({ required: true })
   @IsNotEmpty()
   @IsNumber()
+  @Min(1)
   durationDays: number;
-
-  @ApiProperty({ required: true })
-  @IsNotEmpty()
-  @IsNotEmpty()
-  registrationFee: number;
-
-  // System generated fields:
-  // - code
-  // - status
-  // - organizer
-  // - location
-  // - registeredTeams (starts empty)
-  // - endDate (calculated from startDate + durationDays)
-
 }
 
-export class UpdateTournamentDto {
-  @ApiProperty({ required: false })
+export class CreateTeamAndRegisterDto {
+  @IsNotEmpty()
+  @IsString()
+  teamName: string;
+
   @IsOptional()
   @IsString()
-  name?: string;
+  logo?: string;
 
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsString()
-  description?: string;
-
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsNumber()
-  prizeMoney?: number;
-
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsNumber()
-  registrationFee?: number;
-
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsDate()
-  @Type(() => Date)
-  registrationDeadline?: Date;
-
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsDate()
-  @Type(() => Date)
-  startDate?: Date;
-
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsNumber()
-  durationDays?: number;
-}
-
-export class RegisterTeamDto {
-  @ApiProperty()
   @IsNotEmpty()
   @IsMongoId()
-  teamId: string;
-}
+  captainId: string;
 
-export class CreateMatchDto {
-  @ApiProperty()
-  @IsNotEmpty()
-  @IsMongoId()
-  homeTeamId: string;
-
-  @ApiProperty()
-  @IsNotEmpty()
-  @IsMongoId()
-  awayTeamId: string;
-
-  @ApiProperty()
-  @IsNotEmpty()
-  @IsDate()
-  @Type(() => Date)
-  scheduledDate: Date;
-
-  @ApiProperty()
-  @IsNotEmpty()
-  locationIndex: number;
-
-  @ApiProperty()
-  @IsNotEmpty()
-  @IsString()
-  stage: string;
-
-  @ApiProperty({ required: false })
   @IsOptional()
-  @IsString()
-  group?: string;
+  @IsMongoId({ each: true })
+  playerIds?: string[];
 }
 
-export class UpdateMatchResultDto {
-  @ApiProperty()
+export class RecordMatchResultDto {
   @IsNotEmpty()
   @IsNumber()
+  @Min(0)
   homeScore: number;
 
-  @ApiProperty()
   @IsNotEmpty()
   @IsNumber()
+  @Min(0)
   awayScore: number;
+}
+
+export class ManualAdvanceDto {
+  @IsNotEmpty()
+  @IsString()
+  @IsIn(['home', 'away'], { message: 'winner must be "home" or "away"' })
+  winner: 'home' | 'away';
+}
+
+export class ScheduleMatchDto {
+  @IsNotEmpty()
+  @IsDate()
+  @Type(() => Date)
+  scheduledTime: Date;
 }

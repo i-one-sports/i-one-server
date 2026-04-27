@@ -58,16 +58,8 @@ export enum UploadType {
 
 export enum TournamentStatus {
   REGISTRATION = 'registration',
-  GROUP_STAGE = 'group_stage',
-  KNOCKOUT_PHASE = 'knockout_phase',
+  STARTED = 'started',
   COMPLETED = 'completed',
-}
-
-export enum TournamentFormat {
-  UCL_CLASSIC = 'ucl_classic',
-  SWISS = 'swiss',
-  KNOCKOUT = 'knockout',
-  LEAGUE = 'league',
 }
 
 export interface MatchScoreUpdateEvent {
