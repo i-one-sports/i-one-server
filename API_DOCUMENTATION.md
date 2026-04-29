@@ -243,6 +243,26 @@ Change the authenticated user's password. Requires the current password for veri
 
 ---
 
+### DELETE /user/account
+Permanently delete the authenticated user's account. Clears the auth cookie on success.
+
+**Auth required**: Yes (JWT cookie)
+
+**Blockers** — the request will be rejected if:
+- User is currently in an active session → leave the session first (`DELETE /sessions/leave/:sessionId`)
+- User is a player in a team registered in an active tournament (`registration` or `started`) → leave the tournament team first
+
+**Success Response** `200 OK`:
+```json
+{ "message": "Account deleted successfully" }
+```
+
+**Error Responses**:
+- `400` — user is in an active session or active tournament
+- `404` — user not found
+
+---
+
 ### POST /user/forget-password
 Send a password reset OTP to the user's email. OTP is stored in the database and is valid for 15 minutes.
 

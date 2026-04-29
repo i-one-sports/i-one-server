@@ -3,7 +3,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
 import { UserRepository } from './users.repository';
-import { MailerService, User, UserSchema } from '@app/common';
+import { MailerService, Team, TeamSchema, Tournament, TournamentSchema, User, UserSchema } from '@app/common';
 import { AuthService } from '../auth/auth.service';
 import { UserLocalStrategy } from '../auth/strategy/local.strategy';
 import { UsersJwtStrategy } from '../auth/strategy/jwt.strategy';
@@ -14,7 +14,11 @@ import { AwsService } from '@app/common/providers/aws.service';
 
 @Module({
   imports: [
-    MongooseModule.forFeature([{ name: User.name, schema: UserSchema }]),
+    MongooseModule.forFeature([
+      { name: User.name, schema: UserSchema },
+      { name: Team.name, schema: TeamSchema },
+      { name: Tournament.name, schema: TournamentSchema },
+    ]),
     StatsModule,
   ],
   controllers: [UsersController],

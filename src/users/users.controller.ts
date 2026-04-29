@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Patch, Post, Put, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Response } from 'express';
 import { UsersService } from './users.service';
 import {
   ChangePasswordDto,
@@ -110,5 +111,16 @@ export class UsersController {
     @Body() data: PromoteUserDto,
   ) {
     return this.usersService.promoteUser(userId, data.role);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete('account')
+  async deleteAccount(
+    @CurrentUser() user: User,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.usersService.deleteAccount(user._id.toString());
+    res.clearCookie('Authentication');
+    return result;
   }
 }

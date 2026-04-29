@@ -4,6 +4,8 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model, Types } from 'mongoose';
 import { UserRepository } from './users.repository';
 import {
   ChangePasswordDto,
@@ -19,6 +21,8 @@ import {
   CustomHttpException,
   internationalisePhoneNumber,
   MailerService,
+  Team,
+  Tournament,
   User,
   USER_ROLE,
 } from '@app/common';
@@ -38,6 +42,8 @@ export class UsersService {
     private readonly mailService: MailerService,
     private readonly statsService: StatsService,
     private readonly cacheService: CacheService,
+    @InjectModel(Team.name) private readonly teamModel: Model<Team>,
+    @InjectModel(Tournament.name) private readonly tournamentModel: Model<Tournament>,
   ) {}
   async registerUser({
     firstName,
@@ -82,7 +88,7 @@ export class UsersService {
       this.sendWelcomeEmail(user).catch(err => console.error('Welcome email failed:', err));
       this.logger.log(`User registered successfully: ${user._id} (${email})`);
       return user;
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(`User registration failed for ${email}: ${error.message}`);
       throw new CustomHttpException(
         `can not process request. Try again later ${JSON.stringify(error)}`,
@@ -291,7 +297,7 @@ export class UsersService {
 
       profile.password = '';
       return profile;
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error({
         message: `Failed to fetch user profile ${id} `,
         error,
@@ -376,6 +382,44 @@ export class UsersService {
     );
 
     return { message: 'Password changed successfully' };
+  }
+
+  public async deleteAccount(userId: string): Promise<{ message: string }> {
+    const user = await this.usersRepository.findOne({ _id: userId });
+    if (!user) throw new CustomHttpException('User not found', HttpStatus.NOT_FOUND);
+
+    // Blocker 1: active session
+    if (user.currentSession) {
+      throw new CustomHttpException(
+        'You must leave your current session before deleting your account',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    // Blocker 2: active tournament — find any team the user is in, then check if that team is in a live tournament
+    const teams = await this.teamModel
+      .find({ players: new Types.ObjectId(userId) }, { _id: 1 })
+      .lean();
+
+    if (teams.length > 0) {
+      const teamIds = teams.map((t) => t._id);
+      const activeTournament = await this.tournamentModel
+        .findOne(
+          { registeredTeams: { $in: teamIds }, status: { $in: ['registration', 'started'] } },
+          { name: 1 },
+        )
+        .lean();
+
+      if (activeTournament) {
+        throw new CustomHttpException(
+          `You are part of an active tournament (${(activeTournament as any).name}). Leave or finish it before deleting your account`,
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+    }
+
+    await this.usersRepository.findRaw().deleteOne({ _id: userId });
+    return { message: 'Account deleted successfully' };
   }
 
   public async validateUser(email: string, password: string): Promise<User> {
