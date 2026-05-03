@@ -13,7 +13,6 @@ export class AuthService {
   ) {}
 
   async login(user: User, response: Response): Promise<void> {
-    console.log(user);
     const payload: TokenPayload = {
       userId: user._id as any,
     };
@@ -31,11 +30,9 @@ export class AuthService {
     });
 
     response.json({
-      message: "Login successful",
-      user
+      message: 'Login successful',
+      user,
     });
-
-    response.send()
   }
 
   logout(response: Response): void {

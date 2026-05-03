@@ -13,20 +13,16 @@
     "baseUrl": "./",
     "incremental": true,
     "skipLibCheck": true,
-    "moduleResolution":"Node16",
-    "types": ["node"],
+    "moduleResolution": "Node16",
+    "types": ["node", "jest"],
     "strictNullChecks": false,
     "noImplicitAny": false,
     "strictBindCallApply": false,
     "forceConsistentCasingInFileNames": false,
     "noFallthroughCasesInSwitch": false,
     "paths": {
-      "@app/common": [
-        "libs/common/src"
-      ],
-      "@app/common/*": [
-        "libs/common/src/*"
-      ]
+      "@app/common": ["libs/common/src"],
+      "@app/common/*": ["libs/common/src/*"]
     }
   }
 }

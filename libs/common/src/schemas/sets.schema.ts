@@ -5,7 +5,7 @@ import { AbstractDocument } from './abstract.schema';
 @Schema({ timestamps: true, versionKey: false })
 export class Set extends AbstractDocument {
   @Prop({ type: Types.ObjectId, ref: 'Session' })
-  session: string;
+  session: Types.ObjectId;
 
   @Prop(String)
   name: string;

@@ -56,7 +56,7 @@ export class SetsService {
         .fill(null)
         .map((_, index) => ({
           _id: new Types.ObjectId(),
-          session: sessionId,
+          session: new Types.ObjectId(sessionId),
           name: `Team ${index + 1}`,
           players: [],
         }));

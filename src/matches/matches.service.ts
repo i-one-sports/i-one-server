@@ -35,7 +35,9 @@ export class MatchesService {
     }
 
     if (session.paymentRequired) {
-      const allPaid = await this.sessionPaymentService.areAllPaymentsCompleted(session._id);
+      const allPaid = await this.sessionPaymentService.areAllPaymentsCompleted(
+        session._id,
+      );
       if (!allPaid) {
         throw new CustomHttpException(
           'Cannot start matchup: not all members have completed payment',
@@ -86,8 +88,10 @@ export class MatchesService {
       availableSets.splice(randomIndex2, 1);
 
       matchUps.push({
+        _id: new Types.ObjectId(),
         teamOne: randomTeam1,
         teamTwo: randomTeam2,
+        session: sessionId,
         matchType: sessionMatchType,
       });
     }
@@ -163,7 +167,11 @@ export class MatchesService {
     return match;
   }
 
-  async recordGoalScorer(matchId: string, playerId: string, team: 'teamOne' | 'teamTwo') {
+  async recordGoalScorer(
+    matchId: string,
+    playerId: string,
+    team: 'teamOne' | 'teamTwo',
+  ) {
     const match = await this.matchRepository.findOne({ _id: matchId });
 
     if (!match) {
@@ -171,35 +179,43 @@ export class MatchesService {
     }
 
     if (!match.isStarted) {
-      throw new CustomHttpException('Match has not started yet', HttpStatus.BAD_REQUEST);
+      throw new CustomHttpException(
+        'Match has not started yet',
+        HttpStatus.BAD_REQUEST,
+      );
     }
 
-    const updated = await this.matchRepository.addGoalScorer(matchId, playerId, team);
+    const updated = await this.matchRepository.addGoalScorer(
+      matchId,
+      playerId,
+      team,
+    );
 
     // broadcast to SSE clients with updated scores + scorer info
-    this.matchEventService.emitMatchScoreUpdate({
-      matchId: new Types.ObjectId(matchId),
-      sessionId: updated.session,
-      teamOne: {
-        id: (updated.teamOne as any)._id,
-        name: (updated.teamOne as any).name,
-      },
-      teamTwo: {
-        id: (updated.teamTwo as any)._id,
-        name: (updated.teamTwo as any).name,
-      },
-      teamOneScore: updated.teamOneScore,
-      teamTwoScore: updated.teamTwoScore,
-      latestScorer: { player: playerId, team },
-    }).catch((err) => this.logger.error('Failed to emit goal scorer event', err));
+    this.matchEventService
+      .emitMatchScoreUpdate({
+        matchId: new Types.ObjectId(matchId),
+        sessionId: updated.session,
+        teamOne: {
+          id: (updated.teamOne as any)._id,
+          name: (updated.teamOne as any).name,
+        },
+        teamTwo: {
+          id: (updated.teamTwo as any)._id,
+          name: (updated.teamTwo as any).name,
+        },
+        teamOneScore: updated.teamOneScore,
+        teamTwoScore: updated.teamTwoScore,
+        latestScorer: { player: playerId, team },
+      })
+      .catch((err) =>
+        this.logger.error('Failed to emit goal scorer event', err),
+      );
 
     return updated;
   }
 
-  async incrementMatchScore(
-    matchId: string,
-    team: 'teamOne' | 'teamTwo',
-  ) {
+  async incrementMatchScore(matchId: string, team: 'teamOne' | 'teamTwo') {
     const updatedMatch = await this.matchRepository.IncrementMatchScore(
       matchId,
       team,
@@ -212,28 +228,29 @@ export class MatchesService {
     }
 
     //broadcast to sse clients
-    this.matchEventService.emitMatchScoreUpdate({
-      matchId: new Types.ObjectId(matchId),
-      sessionId: updatedMatch.session,
-      teamOne: {
-        id: (updatedMatch.teamOne as any)._id,
-        name: (updatedMatch.teamOne as any).name,
-      },
-      teamTwo: {
-        id: (updatedMatch.teamTwo as any)._id,
-        name: (updatedMatch.teamTwo as any).name,
-      },
-      teamOneScore: updatedMatch.teamOneScore,
-      teamTwoScore: updatedMatch.teamTwoScore,
-    }).catch((err) => this.logger.error('Failed to emit increment score event', err));
+    this.matchEventService
+      .emitMatchScoreUpdate({
+        matchId: new Types.ObjectId(matchId),
+        sessionId: updatedMatch.session,
+        teamOne: {
+          id: (updatedMatch.teamOne as any)._id,
+          name: (updatedMatch.teamOne as any).name,
+        },
+        teamTwo: {
+          id: (updatedMatch.teamTwo as any)._id,
+          name: (updatedMatch.teamTwo as any).name,
+        },
+        teamOneScore: updatedMatch.teamOneScore,
+        teamTwoScore: updatedMatch.teamTwoScore,
+      })
+      .catch((err) =>
+        this.logger.error('Failed to emit increment score event', err),
+      );
 
     return updatedMatch;
   }
 
-  async decrementMatchScore(
-    matchId: string,
-    team: 'teamOne' | 'teamTwo',
-  ) {
+  async decrementMatchScore(matchId: string, team: 'teamOne' | 'teamTwo') {
     const updatedMatch = await this.matchRepository.RedecrementMatchScore(
       matchId,
       team,
@@ -246,20 +263,24 @@ export class MatchesService {
     }
 
     //broadcast to sse clients
-    this.matchEventService.emitMatchScoreUpdate({
-      matchId: new Types.ObjectId(matchId),
-      sessionId: updatedMatch.session,
-      teamOne: {
-        id: (updatedMatch.teamOne as any)._id,
-        name: (updatedMatch.teamOne as any).name,
-      },
-      teamTwo: {
-        id: (updatedMatch.teamTwo as any)._id,
-        name: (updatedMatch.teamTwo as any).name,
-      },
-      teamOneScore: updatedMatch.teamOneScore,
-      teamTwoScore: updatedMatch.teamTwoScore,
-    }).catch((err) => this.logger.error('Failed to emit decrement score event', err));
+    this.matchEventService
+      .emitMatchScoreUpdate({
+        matchId: new Types.ObjectId(matchId),
+        sessionId: updatedMatch.session,
+        teamOne: {
+          id: (updatedMatch.teamOne as any)._id,
+          name: (updatedMatch.teamOne as any).name,
+        },
+        teamTwo: {
+          id: (updatedMatch.teamTwo as any)._id,
+          name: (updatedMatch.teamTwo as any).name,
+        },
+        teamOneScore: updatedMatch.teamOneScore,
+        teamTwoScore: updatedMatch.teamTwoScore,
+      })
+      .catch((err) =>
+        this.logger.error('Failed to emit decrement score event', err),
+      );
     return updatedMatch;
   }
 }

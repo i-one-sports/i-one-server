@@ -1,13 +1,33 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { MatchEventService } from './match-event.service';
 import { MatchScoreUpdateEvent } from '@app/common';
+import { RedisPubSubService } from 'src/redis/redis-pubsub.service';
 
 describe('MatchEventService - Memory Leak & Connection Tests', () => {
   let service: MatchEventService;
+  let redisPubSub: {
+    publish: jest.Mock;
+    subscribe: jest.Mock;
+    unsubscribe: jest.Mock;
+  };
 
   beforeEach(async () => {
+    redisPubSub = {
+      publish: jest.fn(async (_channel: string, message: string) => {
+        JSON.parse(message);
+      }),
+      subscribe: jest.fn(),
+      unsubscribe: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
-      providers: [MatchEventService],
+      providers: [
+        MatchEventService,
+        {
+          provide: RedisPubSubService,
+          useValue: redisPubSub,
+        },
+      ],
     }).compile();
 
     service = module.get<MatchEventService>(MatchEventService);
@@ -41,7 +61,7 @@ describe('MatchEventService - Memory Leak & Connection Tests', () => {
 
     it('should enforce max connections per user', () => {
       const userId = 'user123';
-      
+
       // Add connections up to the limit
       for (let i = 0; i < 10; i++) {
         service.addConnection(userId, 'match', { matchId: `match${i}` });
@@ -55,7 +75,7 @@ describe('MatchEventService - Memory Leak & Connection Tests', () => {
 
     it('should enforce max connections per match', () => {
       const matchId = 'match123';
-      
+
       // Add connections up to the limit (500 users)
       for (let i = 0; i < 500; i++) {
         service.addConnection(`user${i}`, 'match', { matchId });
@@ -85,7 +105,9 @@ describe('MatchEventService - Memory Leak & Connection Tests', () => {
       const matchId = 'match123';
       const users = ['user1', 'user2', 'user3'];
 
-      users.forEach(userId => service.addConnection(userId, 'match', { matchId }));
+      users.forEach((userId) =>
+        service.addConnection(userId, 'match', { matchId }),
+      );
 
       const stats = service.getConnectionStats();
       expect(stats.matchConnections.length).toBe(1);
@@ -97,7 +119,9 @@ describe('MatchEventService - Memory Leak & Connection Tests', () => {
       const userId = 'user123';
       const matches = ['match1', 'match2', 'match3'];
 
-      matches.forEach(matchId => service.addConnection(userId, 'match', { matchId }));
+      matches.forEach((matchId) =>
+        service.addConnection(userId, 'match', { matchId }),
+      );
 
       const stats = service.getConnectionStats();
       expect(stats.totalUsers).toBe(1);
@@ -115,7 +139,7 @@ describe('MatchEventService - Memory Leak & Connection Tests', () => {
       service.removeConnection(connId);
 
       const stats = service.getConnectionStats();
-      
+
       // Maps should be completely empty, preventing memory leaks
       expect(stats.totalUsers).toBe(0);
       expect(stats.totalConnections).toBe(0);
@@ -127,13 +151,13 @@ describe('MatchEventService - Memory Leak & Connection Tests', () => {
       for (let i = 0; i < iterations; i++) {
         const userId = `user${i}`;
         const matchId = `match${i}`;
-        
+
         const connId = service.addConnection(userId, 'match', { matchId });
         service.removeConnection(connId);
       }
 
       const stats = service.getConnectionStats();
-      
+
       // After all cycles, everything should be cleaned up
       expect(stats.totalUsers).toBe(0);
       expect(stats.totalConnections).toBe(0);
@@ -147,7 +171,7 @@ describe('MatchEventService - Memory Leak & Connection Tests', () => {
       service.onModuleDestroy();
 
       const stats = service.getConnectionStats();
-      
+
       // Everything should be cleared
       expect(stats.totalUsers).toBe(0);
       expect(stats.totalConnections).toBe(0);
@@ -155,7 +179,7 @@ describe('MatchEventService - Memory Leak & Connection Tests', () => {
   });
 
   describe('Event Emission', () => {
-    it('should emit match score updates', (done) => {
+    it('should publish match score updates to Redis', async () => {
       const matchId = 'match123';
       const event: MatchScoreUpdateEvent = {
         matchId,
@@ -163,37 +187,40 @@ describe('MatchEventService - Memory Leak & Connection Tests', () => {
         teamTwoScore: 5,
         teamOne: {
           id: '',
-          name: ''
+          name: '',
         },
         teamTwo: {
           id: '',
-          name: ''
-        }
+          name: '',
+        },
       };
 
-      service.getScoreUpdates().subscribe((update) => {
-        expect(update.matchId).toBe(matchId);
-        expect(update.teamOneScore).toBe(10);
-        done();
-      });
+      await service.emitMatchScoreUpdate(event);
 
-      service.emitMatchScoreUpdate(event);
+      expect(redisPubSub.publish).toHaveBeenCalledWith(
+        'app:match-scores',
+        JSON.stringify(event),
+      );
     });
 
     it('should emit heartbeat every 30 seconds', (done) => {
+      jest.useFakeTimers();
       let heartbeatCount = 0;
-      
+
       const subscription = service.getHeartbeat().subscribe((heartbeat) => {
         expect(heartbeat.type).toBe('heartbeat');
         expect(heartbeat.timestamp).toBeDefined();
         heartbeatCount++;
-        
+
         if (heartbeatCount >= 1) {
           subscription.unsubscribe();
           done();
         }
       });
-    }, 35000); // Timeout after 35 seconds
+
+      jest.advanceTimersByTime(30000);
+      jest.useRealTimers();
+    });
   });
 
   describe('Connection Statistics', () => {
@@ -210,11 +237,15 @@ describe('MatchEventService - Memory Leak & Connection Tests', () => {
       expect(stats.totalConnections).toBe(4);
 
       // Check user1 has 2 matches
-      const user1Stats = stats.userConnections.find(u => u.userId === 'user1');
+      const user1Stats = stats.userConnections.find(
+        (u) => u.userId === 'user1',
+      );
       expect(user1Stats?.connectionCount).toBe(2);
 
       // Check match1 has 2 users
-      const match1Stats = stats.matchConnections.find(m => m.matchId === 'match1');
+      const match1Stats = stats.matchConnections.find(
+        (m) => m.matchId === 'match1',
+      );
       expect(match1Stats?.connectionCount).toBe(2);
       expect(match1Stats?.uniqueUsers).toBe(2);
     });
