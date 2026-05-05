@@ -1,6 +1,6 @@
-import { Injectable, NestInterceptor, ExecutionContext, CallHandler, Logger } from '@nestjs/common';
-import { Observable } from 'rxjs';
-import { tap } from 'rxjs/operators';
+import { Injectable, NestInterceptor, ExecutionContext, CallHandler, Logger, HttpException } from '@nestjs/common';
+import { Observable, throwError } from 'rxjs';
+import { tap, catchError } from 'rxjs/operators';
 
 @Injectable()
 export class LoggingInterceptor implements NestInterceptor {
@@ -16,11 +16,20 @@ export class LoggingInterceptor implements NestInterceptor {
     this.logger.log(`[${method}] ${url} - Start - User-Agent: ${userAgent}`);
 
     return next.handle().pipe(
-      tap((data) => {
+      tap(() => {
         const { statusCode } = response;
         const contentLength = response.get('Content-Length') || 'unknown';
         const duration = Date.now() - now;
         this.logger.log(`[${method}] ${url} - ${statusCode} - ${contentLength} bytes - ${duration}ms`);
+      }),
+      catchError((error) => {
+        const statusCode = error instanceof HttpException ? error.getStatus() : 500;
+        const duration = Date.now() - now;
+        const message = error instanceof HttpException
+          ? (error.getResponse() as any)?.message || error.message
+          : error.message;
+        this.logger.error(`[${method}] ${url} - ${statusCode} - ${duration}ms - ${message}`);
+        return throwError(() => error);
       }),
     );
   }
