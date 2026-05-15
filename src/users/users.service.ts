@@ -1,15 +1,17 @@
 import {
+  BadRequestException,
   HttpStatus,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
+import { InjectConnection, InjectModel } from '@nestjs/mongoose';
+import { Connection, Model, Types } from 'mongoose';
 import { UserRepository } from './users.repository';
 import {
   ChangePasswordDto,
   ForgotPasswordDto,
+  RegisterOwnerRequest,
   registerUserRequest,
   ResetPasswordDto,
   SendEmailVerifyDto,
@@ -20,6 +22,10 @@ import {
 import {
   CustomHttpException,
   internationalisePhoneNumber,
+  LOCATION_PRICING_OPTION,
+  LOCATION_STATUS,
+  LOCATION_TIER,
+  Location,
   MailerService,
   Team,
   Tournament,
@@ -30,6 +36,9 @@ import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { StatsService } from 'src/stats/stats.service';
 import { CacheService } from 'src/cache/cache.service';
+import { LocationRepository } from 'src/locations/locations.repository';
+import { BankAccountRepository } from 'src/billing/repositories/bank-account.repository';
+import { PaystackService } from '@app/common/providers/paystack.service';
 
 @Injectable()
 export class UsersService {
@@ -44,7 +53,122 @@ export class UsersService {
     private readonly cacheService: CacheService,
     @InjectModel(Team.name) private readonly teamModel: Model<Team>,
     @InjectModel(Tournament.name) private readonly tournamentModel: Model<Tournament>,
+    private readonly locationRepository: LocationRepository,
+    private readonly bankAccountRepository: BankAccountRepository,
+    private readonly paystackService: PaystackService,
+    @InjectConnection() private readonly connection: Connection,
   ) {}
+
+  async registerOwner(request: RegisterOwnerRequest) {
+    const { user: userDto, location: locationDto, payout } = request;
+    const formattedEmail = userDto.email.toLowerCase();
+    const formattedPhone = internationalisePhoneNumber(userDto.phoneNumber);
+    const nickname = userDto.nickname || this.buildOwnerNickname(formattedEmail);
+
+    this.logger.log(`Registering owner: ${formattedEmail}`);
+
+    await this.checkExistingOwnerUser(formattedPhone, formattedEmail, nickname);
+    await this.ensureLocationIsAvailable(locationDto.location.coordinates);
+    this.validateOwnerLocationPricing(locationDto);
+
+    const accountName = await this.resolvePayoutAccount(
+      payout.accountNumber,
+      payout.bankCode,
+    );
+
+    const hashedPassword = await bcrypt.hash(userDto.password, 10);
+
+    const { createdUser, createdLocation, createdBankAccount } =
+      await this.connection.transaction(async (session) => {
+        const user = await this.usersRepository.create(
+          {
+            email: formattedEmail,
+            phoneNumber: formattedPhone,
+            password: hashedPassword,
+            firstName: userDto.firstName,
+            lastName: userDto.lastName,
+            address: locationDto.address,
+            location: {
+              type: 'Point',
+              coordinates: locationDto.location.coordinates,
+            },
+            isOwner: false,
+            role: USER_ROLE.ADMIN,
+            ownerRole: userDto.role,
+            nickname,
+            ownerOnboardingStatus: 'PENDING_VERIFICATION',
+            newsletterOptIn: request.newsletterOptIn ?? false,
+            termsAcceptedAt: new Date(),
+          },
+          { session },
+        );
+
+        const locationPayload: Partial<Location> = {
+          openingHour: locationDto.openingHour,
+          closingHour: locationDto.closingHour,
+          name: locationDto.name,
+          address: locationDto.address,
+          tier: locationDto.tier,
+          location: {
+            type: 'Point',
+            coordinates: locationDto.location.coordinates,
+          },
+          pitchPhoto: locationDto.pitchPhoto,
+          pitchMax: locationDto.pitchMax,
+          pitchSize: locationDto.pitchSize,
+          owner: user._id,
+          status: LOCATION_STATUS.PENDING_VERIFICATION,
+        };
+
+        if (locationDto.tier === LOCATION_TIER.PAID) {
+          locationPayload.pricingOption = locationDto.pricingOption;
+
+          if (locationDto.pricingOption === LOCATION_PRICING_OPTION.HOURLY) {
+            locationPayload.paymentPerPersonHourly = locationDto.paymentPerPersonHourly;
+          }
+
+          if (locationDto.pricingOption === LOCATION_PRICING_OPTION.MONTHLY) {
+            locationPayload.paymentPerPersonMonthly = locationDto.paymentPerPersonMonthly;
+          }
+        }
+
+        const location = await this.locationRepository.create(locationPayload, {
+          session,
+        });
+
+        const bankAccount = await this.bankAccountRepository.create(
+          {
+            userId: user._id,
+            accountNumber: payout.accountNumber,
+            bankCode: payout.bankCode,
+            bankName: payout.bankName,
+            accountName,
+            isDefault: true,
+            status: 'PENDING',
+          },
+          { session },
+        );
+
+        return {
+          createdUser: user,
+          createdLocation: location,
+          createdBankAccount: bankAccount,
+        };
+      });
+
+    await this.statsService.initializeStat(createdUser._id.toString());
+    this.sendWelcomeEmail(createdUser).catch((err) =>
+      this.logger.error(`Welcome email failed: ${err.message}`),
+    );
+
+    return {
+      message: 'Owner registration submitted successfully',
+      user: this.toSafeUser(createdUser),
+      location: createdLocation,
+      payout: createdBankAccount,
+    };
+  }
+
   async registerUser({
     firstName,
     lastName,
@@ -74,17 +198,16 @@ export class UsersService {
       firstName,
       location,
       position,
-      isOwner,
+      isOwner: false,
       nickname,
       height,
       dateOfBirth,
       avatar,
-      role: isOwner ? USER_ROLE.ADMIN : USER_ROLE.USER,
+      role: USER_ROLE.USER,
     };
     try {
       const user = await this.usersRepository.create(payload);
       await this.statsService.initializeStat(user._id.toString());
-      // Send welcome email asynchronously to avoid blocking the response
       this.sendWelcomeEmail(user).catch(err => console.error('Welcome email failed:', err));
       this.logger.log(`User registered successfully: ${user._id} (${email})`);
       return user;
@@ -101,6 +224,116 @@ export class UsersService {
     const subject = 'Welcome to I-One App!';
     const body = `Hello ${user.firstName},\n\nWelcome to I-One App! We're excited to have you on board.\n\nBest regards,\nThe I-One Team`;
     await this.mailService.sendMail(user.email, subject, body);
+  }
+
+  private buildOwnerNickname(email: string) {
+    const prefix = email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '_');
+    return `${prefix}_${crypto.randomInt(1000, 9999)}`;
+  }
+
+  private toSafeUser(user: User): Omit<User, 'password'> {
+    const maybeDocument = user as User & { toObject?: () => User };
+    const rawUser = typeof maybeDocument.toObject === 'function'
+      ? maybeDocument.toObject()
+      : user;
+    const { password, ...safeUser } = rawUser;
+    return safeUser;
+  }
+
+  private async checkExistingOwnerUser(
+    phoneNumber: string,
+    email: string,
+    nickname: string,
+  ) {
+    const existingPhone = await this.usersRepository.findOne({ phoneNumber });
+    if (existingPhone) {
+      throw new CustomHttpException(
+        'Phone Number is  already registered.',
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    const existingEmail = await this.usersRepository.findOne({ email });
+    if (existingEmail) {
+      throw new CustomHttpException(
+        'Email is  already registered.',
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    const existingNickname = await this.usersRepository.findOne({ nickname });
+    if (existingNickname) {
+      throw new CustomHttpException(
+        'Nickname already exists',
+        HttpStatus.CONFLICT,
+      );
+    }
+  }
+
+  private async ensureLocationIsAvailable(coordinates: [number, number]) {
+    const alreadyExists = await this.locationRepository.findOne({
+      'location.coordinates': {
+        $near: {
+          $geometry: {
+            type: 'Point',
+            coordinates,
+          },
+          $maxDistance: 1,
+        },
+      },
+    });
+
+    if (alreadyExists) {
+      throw new CustomHttpException(
+        'Location already registered',
+        HttpStatus.CONFLICT,
+      );
+    }
+  }
+
+  private validateOwnerLocationPricing(location: RegisterOwnerRequest['location']) {
+    if (location.tier !== LOCATION_TIER.PAID) return;
+
+    if (!location.pricingOption) {
+      throw new BadRequestException('pricingOption is required for paid locations');
+    }
+
+    if (
+      location.pricingOption === LOCATION_PRICING_OPTION.HOURLY &&
+      (!location.paymentPerPersonHourly || location.paymentPerPersonHourly <= 0)
+    ) {
+      throw new BadRequestException(
+        'paymentPerPersonHourly must be greater than 0 for hourly pricing',
+      );
+    }
+
+    if (
+      location.pricingOption === LOCATION_PRICING_OPTION.MONTHLY &&
+      (!location.paymentPerPersonMonthly || location.paymentPerPersonMonthly <= 0)
+    ) {
+      throw new BadRequestException(
+        'paymentPerPersonMonthly must be greater than 0 for monthly pricing',
+      );
+    }
+  }
+
+  private async resolvePayoutAccount(accountNumber: string, bankCode: string) {
+    try {
+      const resolved = await this.paystackService.resolveAccount(
+        accountNumber,
+        bankCode,
+      );
+      const accountName = resolved?.data?.account_name;
+
+      if (!accountName) {
+        throw new Error('Missing account name');
+      }
+
+      return accountName;
+    } catch (error) {
+      this.logger.error(`Failed to resolve owner payout account: ${error.message}`);
+      throw new BadRequestException('Unable to verify bank account');
+    }
   }
 
   async getUser(id: string) {

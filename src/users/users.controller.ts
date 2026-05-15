@@ -5,6 +5,7 @@ import {
   ChangePasswordDto,
   ForgotPasswordDto,
   PromoteUserDto,
+  RegisterOwnerRequest,
   registerUserRequest,
   ResetPasswordDto,
   SendEmailVerifyDto,
@@ -28,6 +29,11 @@ export class UsersController {
   @Post('register')
   async register(@Body() request: registerUserRequest) {
     return this.usersService.registerUser(request);
+  }
+
+  @Post('register-owner')
+  async registerOwner(@Body() request: RegisterOwnerRequest) {
+    return this.usersService.registerOwner(request);
   }
 
   @Post('verify-email/send')

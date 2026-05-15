@@ -48,3 +48,9 @@ export enum LOCATION_PRICING_OPTION {
   HOURLY = 'hourly',
   MONTHLY = 'monthly',
 }
+
+export enum LOCATION_STATUS {
+  PENDING_VERIFICATION = 'pending_verification',
+  ACTIVE = 'active',
+  REJECTED = 'rejected',
+}

@@ -25,6 +25,9 @@ export class User extends AbstractDocument {
   nickname: string;
 
   @Prop(String)
+  ownerRole?: string;
+
+  @Prop(String)
   avatar?: string
 
   @Prop()
@@ -47,6 +50,19 @@ export class User extends AbstractDocument {
 
   @Prop({ type: Types.ObjectId, ref: 'Wallet', required: false })
   walletId: Types.ObjectId;
+
+  @Prop({
+    type: String,
+    enum: ['PENDING_VERIFICATION', 'APPROVED', 'REJECTED'],
+    required: false,
+  })
+  ownerOnboardingStatus?: string;
+
+  @Prop({ type: Boolean, default: false })
+  newsletterOptIn?: boolean;
+
+  @Prop({ type: Date, required: false })
+  termsAcceptedAt?: Date;
 
   @Prop({ type: Types.ObjectId, ref: 'Session', default: null })
   currentSession: string;

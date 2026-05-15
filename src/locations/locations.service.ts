@@ -5,6 +5,7 @@ import {
   CustomHttpException,
   IsOwner,
   LOCATION_PRICING_OPTION,
+  LOCATION_STATUS,
   LOCATION_TIER,
   Location,
 } from '@app/common';
@@ -37,6 +38,8 @@ export class LocationsService {
       pricingOption,
       paymentPerPersonHourly,
       paymentPerPersonMonthly,
+      pitchMax,
+      pitchSize,
     } = locationData;
 
     const alreadyExists = await this.locationRepository.findOne({
@@ -70,7 +73,10 @@ export class LocationsService {
           coordinates: location.coordinates,
         },
         pitchPhoto,
+        pitchMax,
+        pitchSize,
         owner: ownerId,
+        status: LOCATION_STATUS.ACTIVE,
       };
 
       if (tier === LOCATION_TIER.PAID) {
@@ -98,11 +104,20 @@ export class LocationsService {
   }
 
   async viewAllLocations(): Promise<Location[]> {
-    return await this.locationRepository.find({});
+    return await this.locationRepository.find({
+      $or: [
+        { status: LOCATION_STATUS.ACTIVE },
+        { status: { $exists: false } },
+      ],
+    });
   }
 
   async viewNearbyLocations(lng: number, lat: number) {
     return await this.locationRepository.find({
+      $or: [
+        { status: LOCATION_STATUS.ACTIVE },
+        { status: { $exists: false } },
+      ],
       'location.coordinates': {
         $near: {
           $geometry: {

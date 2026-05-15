@@ -25,7 +25,7 @@ export class BankAccount extends AbstractDocument {
   @Prop({ type: Boolean, default: false })
   isDefault: boolean;
 
-  @Prop({ type: String, enum: ['ACTIVE', 'INACTIVE'], default: 'ACTIVE' })
+  @Prop({ type: String, enum: ['PENDING', 'ACTIVE', 'INACTIVE'], default: 'ACTIVE' })
   status: string;
 
   createdAt?: Date;

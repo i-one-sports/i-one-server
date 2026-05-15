@@ -5,6 +5,9 @@ import { Types } from 'mongoose';
 import { Verification } from '@app/common/schemas/verification.schema';
 import { WalletService } from '../billing/services/wallet.service';
 import { UserRepository } from '../users/users.repository';
+import { WithdrawalService } from '../billing/services/withdrawal.service';
+import { LocationRepository } from '../locations/locations.repository';
+import { LOCATION_STATUS } from '@app/common';
 
 @Injectable()
 export class VerificationService {
@@ -14,6 +17,8 @@ export class VerificationService {
     private readonly verificationRepository: VerificationRepository,
     private readonly walletService: WalletService,
     private readonly userRepository: UserRepository,
+    private readonly withdrawalService: WithdrawalService,
+    private readonly locationRepository: LocationRepository,
   ) {}
 
   async submitVerification(
@@ -144,8 +149,22 @@ export class VerificationService {
         {
           isOwner: true,
           walletId: wallet._id,
+          ownerOnboardingStatus: 'APPROVED',
         }
       );
+
+      await Promise.all([
+        this.locationRepository.findRaw().updateMany(
+          {
+            owner: updatedVerification.userId,
+            status: LOCATION_STATUS.PENDING_VERIFICATION,
+          },
+          { $set: { status: LOCATION_STATUS.ACTIVE } },
+        ),
+        this.withdrawalService.activatePendingBankAccounts(
+          updatedVerification.userId.toString(),
+        ),
+      ]);
 
       this.logger.log(`Wallet and DVA created for user: ${updatedVerification.userId}`);
 
@@ -188,6 +207,20 @@ export class VerificationService {
       
       throw new BadRequestException('Verification is already rejected');
     }
+
+    await Promise.all([
+      this.userRepository.findOneAndUpdate(
+        { _id: updatedVerification.userId },
+        { ownerOnboardingStatus: 'REJECTED' },
+      ),
+      this.locationRepository.findRaw().updateMany(
+        {
+          owner: updatedVerification.userId,
+          status: LOCATION_STATUS.PENDING_VERIFICATION,
+        },
+        { $set: { status: LOCATION_STATUS.REJECTED } },
+      ),
+    ]);
 
     return {
       message: 'Verification rejected successfully',

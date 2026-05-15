@@ -87,6 +87,46 @@ export class WithdrawalService {
     return defaultAccount;
   }
 
+  async activatePendingBankAccounts(userId: string) {
+    const pendingAccounts = await this.bankAccountRepository.find({
+      userId: new Types.ObjectId(userId),
+      status: 'PENDING',
+    });
+
+    if (pendingAccounts.length === 0) {
+      return [];
+    }
+
+    const activeAccounts = await this.bankAccountRepository.find({
+      userId: new Types.ObjectId(userId),
+      status: 'ACTIVE',
+    });
+
+    const activatedAccounts = [];
+    for (let index = 0; index < pendingAccounts.length; index += 1) {
+      const account = pendingAccounts[index];
+      const recipientData = await this.paystackService.createTransferRecipient(
+        'nuban',
+        account.accountName,
+        account.accountNumber,
+        account.bankCode,
+      );
+
+      const activated = await this.bankAccountRepository.findOneAndUpdate(
+        { _id: account._id },
+        {
+          paystackRecipientCode: recipientData.recipient_code,
+          isDefault: activeAccounts.length === 0 && index === 0,
+          status: 'ACTIVE',
+        },
+      );
+
+      activatedAccounts.push(activated);
+    }
+
+    return activatedAccounts;
+  }
+
   async setDefaultBankAccount(userId: string, bankAccountId: string) {
     await this.bankAccountRepository.findRaw().updateMany(
       { userId: new Types.ObjectId(userId) },

@@ -61,6 +61,7 @@ import { PaystackService } from '@app/common/providers/paystack.service';
   exports: [
     WalletService,
     SessionPaymentService,
+    WithdrawalService,
   ],
 })
 export class BillingModule {}

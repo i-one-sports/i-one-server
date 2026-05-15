@@ -7,14 +7,19 @@ import { Verification, VerificationSchema } from '@app/common/schemas/verificati
 import { AwsService } from '@app/common/providers/aws.service';
 import { BillingModule } from '../billing/billing.module';
 import { UsersModule } from '../users/users.module';
+import { Location, LocationSchema } from '@app/common';
+import { LocationRepository } from '../locations/locations.repository';
 
 @Module({
   imports: [
-    MongooseModule.forFeature([{ name: Verification.name, schema: VerificationSchema }]),
+    MongooseModule.forFeature([
+      { name: Verification.name, schema: VerificationSchema },
+      { name: Location.name, schema: LocationSchema },
+    ]),
     BillingModule,
     UsersModule,
   ],
   controllers: [VerificationController],
-  providers: [VerificationService, VerificationRepository, AwsService]
+  providers: [VerificationService, VerificationRepository, LocationRepository, AwsService]
 })
 export class VerificationModule {}

@@ -4,6 +4,7 @@ import { AbstractDocument } from './abstract.schema';
 import {
   LocationCoordinates,
   LOCATION_PRICING_OPTION,
+  LOCATION_STATUS,
   LOCATION_TIER,
   PITCH_CONDITION,
 } from '../types/common';
@@ -70,10 +71,23 @@ export class Location extends AbstractDocument {
   tournamentFee: number;
 
   @Prop({ type: Types.ObjectId, ref: 'User', required: false })
-  owner?: string;
+  owner?: Types.ObjectId;
 
   @Prop({ type: String, enum: PITCH_CONDITION, required: false })
   pitchCondition?: PITCH_CONDITION;
+
+  @Prop({ type: String, required: false })
+  pitchMax?: string;
+
+  @Prop({ type: String, required: false })
+  pitchSize?: string;
+
+  @Prop({
+    type: String,
+    enum: LOCATION_STATUS,
+    default: LOCATION_STATUS.ACTIVE,
+  })
+  status: LOCATION_STATUS;
 
   createdAt?: Date;
 

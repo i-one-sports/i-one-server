@@ -2,8 +2,15 @@ import { HttpStatus } from '@nestjs/common';
 import { Types } from 'mongoose';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
-import { CustomHttpException, USER_ROLE } from '@app/common';
+import {
+  CustomHttpException,
+  LOCATION_PRICING_OPTION,
+  LOCATION_STATUS,
+  LOCATION_TIER,
+  USER_ROLE,
+} from '@app/common';
 import { UsersService } from './users.service';
+import { RegisterOwnerRequest } from './dto/user.dto';
 
 jest.mock('bcrypt', () => ({
   hash: jest.fn(),
@@ -28,6 +35,10 @@ describe('UsersService', () => {
   let cacheService: { set: jest.Mock; get: jest.Mock; delete: jest.Mock };
   let teamModel: { find: jest.Mock };
   let tournamentModel: { findOne: jest.Mock };
+  let locationRepository: { findOne: jest.Mock; create: jest.Mock };
+  let bankAccountRepository: { create: jest.Mock };
+  let paystackService: { resolveAccount: jest.Mock };
+  let connection: { transaction: jest.Mock };
 
   const userId = new Types.ObjectId();
 
@@ -51,6 +62,19 @@ describe('UsersService', () => {
     };
     teamModel = { find: jest.fn() };
     tournamentModel = { findOne: jest.fn() };
+    locationRepository = {
+      findOne: jest.fn(),
+      create: jest.fn(),
+    };
+    bankAccountRepository = {
+      create: jest.fn(),
+    };
+    paystackService = {
+      resolveAccount: jest.fn(),
+    };
+    connection = {
+      transaction: jest.fn((callback) => callback({})),
+    };
 
     service = new UsersService(
       usersRepository as any,
@@ -59,6 +83,10 @@ describe('UsersService', () => {
       cacheService as any,
       teamModel as any,
       tournamentModel as any,
+      locationRepository as never,
+      bankAccountRepository as never,
+      paystackService as never,
+      connection as never,
     );
   });
 
@@ -96,7 +124,8 @@ describe('UsersService', () => {
         expect.objectContaining({
           email: 'jane@example.com',
           password: 'hashed-password',
-          role: USER_ROLE.ADMIN,
+          isOwner: false,
+          role: USER_ROLE.USER,
         }),
       );
       expect(statsService.initializeStat).toHaveBeenCalledWith(
@@ -127,6 +156,146 @@ describe('UsersService', () => {
       ).rejects.toMatchObject({ status: HttpStatus.CONFLICT });
 
       expect(usersRepository.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('registerOwner', () => {
+    it('creates pending owner onboarding records and does not expose the password', async () => {
+      const locationId = new Types.ObjectId();
+      const bankAccountId = new Types.ObjectId();
+
+      (bcrypt.hash as jest.Mock).mockResolvedValue('hashed-password');
+      usersRepository.findOne.mockResolvedValue(null);
+      locationRepository.findOne.mockResolvedValue(null);
+      paystackService.resolveAccount.mockResolvedValue({
+        data: { account_name: 'Jane Doe Sports Ltd' },
+      });
+      usersRepository.create.mockResolvedValue({
+        _id: userId,
+        email: 'owner@example.com',
+        firstName: 'Jane',
+        password: 'hashed-password',
+      });
+      locationRepository.create.mockResolvedValue({
+        _id: locationId,
+        owner: userId,
+        status: LOCATION_STATUS.PENDING_VERIFICATION,
+      });
+      bankAccountRepository.create.mockResolvedValue({
+        _id: bankAccountId,
+        userId,
+        status: 'PENDING',
+      });
+
+      const ownerRequest: RegisterOwnerRequest = {
+          user: {
+            firstName: 'Jane',
+            lastName: 'Doe',
+            nickname: 'owner_jane',
+            email: 'OWNER@EXAMPLE.COM',
+            phoneNumber: '08012345678',
+            password: 'secret123',
+            role: 'Manager',
+          },
+          location: {
+            name: 'Jane Arena',
+            address: 'No 11, Trinity Estate',
+            openingHour: '09:00',
+            closingHour: '12:00',
+            pitchMax: '5 x 5',
+            pitchSize: '175m x 180m',
+            tier: LOCATION_TIER.PAID,
+            pricingOption: LOCATION_PRICING_OPTION.HOURLY,
+            paymentPerPersonHourly: 2500,
+            location: { coordinates: [3.1, 6.4] },
+          },
+          payout: {
+            bankCode: '058',
+            bankName: 'GTBank',
+            accountNumber: '0123456789',
+          },
+          termsAccepted: true,
+          newsletterOptIn: true,
+        };
+
+      await expect(service.registerOwner(ownerRequest)).resolves.toMatchObject({
+        message: 'Owner registration submitted successfully',
+        user: {
+          _id: userId,
+          email: 'owner@example.com',
+        },
+        location: {
+          _id: locationId,
+          status: LOCATION_STATUS.PENDING_VERIFICATION,
+        },
+        payout: {
+          _id: bankAccountId,
+          status: 'PENDING',
+        },
+      });
+
+      expect(usersRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          email: 'owner@example.com',
+          password: 'hashed-password',
+          isOwner: false,
+          role: USER_ROLE.ADMIN,
+          ownerRole: 'Manager',
+          ownerOnboardingStatus: 'PENDING_VERIFICATION',
+          termsAcceptedAt: expect.any(Date),
+        }),
+        expect.any(Object),
+      );
+      expect(locationRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          owner: userId,
+          status: LOCATION_STATUS.PENDING_VERIFICATION,
+          pitchMax: '5 x 5',
+          pitchSize: '175m x 180m',
+          paymentPerPersonHourly: 2500,
+        }),
+        expect.any(Object),
+      );
+      expect(bankAccountRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId,
+          accountName: 'Jane Doe Sports Ltd',
+          status: 'PENDING',
+        }),
+        expect.any(Object),
+      );
+      expect(statsService.initializeStat).toHaveBeenCalledWith(userId.toString());
+
+      const freeOwnerRequest: RegisterOwnerRequest = {
+        user: {
+          firstName: 'Jane',
+          lastName: 'Doe',
+          nickname: 'owner_jane_2',
+          email: 'owner2@example.com',
+          phoneNumber: '08012345679',
+          password: 'secret123',
+        },
+        location: {
+          name: 'Jane Arena 2',
+          address: 'No 12, Trinity Estate',
+          openingHour: '09:00',
+          closingHour: '12:00',
+          tier: LOCATION_TIER.FREE,
+          location: { coordinates: [3.2, 6.5] },
+        },
+        payout: {
+          bankCode: '058',
+          bankName: 'GTBank',
+          accountNumber: '0123456789',
+        },
+        termsAccepted: true,
+      };
+
+      const result = await service.registerOwner(freeOwnerRequest);
+
+      expect(Object.prototype.hasOwnProperty.call(result.user, 'password')).toBe(
+        false,
+      );
     });
   });
 

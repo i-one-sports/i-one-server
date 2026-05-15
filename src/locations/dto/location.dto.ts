@@ -81,6 +81,14 @@ export class CreateLocationDto {
   @IsString()
   pitchPhoto?: string;
 
+  @IsString()
+  @IsOptional()
+  pitchMax?: string;
+
+  @IsString()
+  @IsOptional()
+  pitchSize?: string;
+
   @IsNotEmpty()
   @ValidateNested()
   @Type(() => LocationCoordinatesDto)
