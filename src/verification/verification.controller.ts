@@ -44,6 +44,18 @@ export class VerificationController {
       {
         storage: multer.memoryStorage(),
         limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+        fileFilter: (_req, file, callback) => {
+          const allowedTypes = ['image/jpeg', 'image/png', 'application/pdf'];
+          if (allowedTypes.includes(file.mimetype)) {
+            callback(null, true);
+            return;
+          }
+
+          callback(
+            new BadRequestException('Only JPEG, PNG, or PDF files are allowed'),
+            false,
+          );
+        },
       },
     ),
   )
@@ -114,6 +126,7 @@ export class VerificationController {
     );
   }
 
+  @Roles(USER_ROLE.SUPER_ADMIN)
   @Get('all')
   async getAllVerifications(
     @Query('page') page: string,

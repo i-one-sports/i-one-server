@@ -20,7 +20,9 @@ export class VerificationDto {
     @IsString()
     @IsNotEmpty()
     address: string;
+}
 
+export class VerificationDocumentData extends VerificationDto {
     @IsNotEmpty()
     @IsArray()
     locationPictures: string[];

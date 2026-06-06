@@ -7,6 +7,7 @@ import {
   LOCATION_PRICING_OPTION,
   LOCATION_STATUS,
   LOCATION_TIER,
+  OWNER_ONBOARDING_STATUS,
   USER_ROLE,
 } from '@app/common';
 import { UsersService } from './users.service';
@@ -241,7 +242,7 @@ describe('UsersService', () => {
           isOwner: false,
           role: USER_ROLE.ADMIN,
           ownerRole: 'Manager',
-          ownerOnboardingStatus: 'PENDING_VERIFICATION',
+          ownerOnboardingStatus: OWNER_ONBOARDING_STATUS.PENDING_VERIFICATION,
           termsAcceptedAt: expect.any(Date),
         }),
         expect.any(Object),

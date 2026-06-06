@@ -2,7 +2,11 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Types } from 'mongoose';
 import { AbstractDocument } from './abstract.schema';
 import { LocationCoordinates } from '../types/common';
-import { PLAYER_POSITION, USER_ROLE } from '../types/common';
+import {
+  OWNER_ONBOARDING_STATUS,
+  PLAYER_POSITION,
+  USER_ROLE,
+} from '../types/common';
 
 @Schema({ timestamps: true })
 export class User extends AbstractDocument {
@@ -53,10 +57,10 @@ export class User extends AbstractDocument {
 
   @Prop({
     type: String,
-    enum: ['PENDING_VERIFICATION', 'APPROVED', 'REJECTED'],
+    enum: OWNER_ONBOARDING_STATUS,
     required: false,
   })
-  ownerOnboardingStatus?: string;
+  ownerOnboardingStatus?: OWNER_ONBOARDING_STATUS;
 
   @Prop({ type: Boolean, default: false })
   newsletterOptIn?: boolean;
