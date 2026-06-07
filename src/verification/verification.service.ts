@@ -1,5 +1,5 @@
 import { Injectable, Logger, NotFoundException, BadRequestException, InternalServerErrorException } from '@nestjs/common';
-import { UploadVerificationDocumentDto } from './dto/verification.dto';
+import { VerificationDocumentData } from './dto/verification.dto';
 import { VerificationRepository } from './verification.repository';
 import { Types } from 'mongoose';
 import { Verification } from '@app/common/schemas/verification.schema';
@@ -7,7 +7,7 @@ import { WalletService } from '../billing/services/wallet.service';
 import { UserRepository } from '../users/users.repository';
 import { WithdrawalService } from '../billing/services/withdrawal.service';
 import { LocationRepository } from '../locations/locations.repository';
-import { LOCATION_STATUS } from '@app/common';
+import { LOCATION_STATUS, OWNER_ONBOARDING_STATUS } from '@app/common';
 
 @Injectable()
 export class VerificationService {
@@ -23,7 +23,7 @@ export class VerificationService {
 
   async submitVerification(
     userId: string,
-    data: UploadVerificationDocumentDto,
+    data: VerificationDocumentData,
     frontUrl: string,
     backUrl: string
   ) {
@@ -49,6 +49,8 @@ export class VerificationService {
         { userId: userObjectId },
         { ...verificationData, status: 'PENDING' }
       );
+
+      await this.markOwnerPendingReview(userObjectId);
       
       return this.formatVerificationResponse(
         'Verification documents updated successfully',
@@ -61,6 +63,8 @@ export class VerificationService {
       userId: userObjectId,
       ...verificationData
     });
+
+    await this.markOwnerPendingReview(userObjectId);
 
     return this.formatVerificationResponse(
       'Verification documents submitted successfully',
@@ -83,6 +87,21 @@ export class VerificationService {
         status: verification.status
       }
     };
+  }
+
+  private async markOwnerPendingReview(userId: Types.ObjectId) {
+    await this.userRepository.findOneAndUpdate(
+      {
+        _id: userId,
+        ownerOnboardingStatus: {
+          $in: [
+            OWNER_ONBOARDING_STATUS.PENDING_VERIFICATION,
+            OWNER_ONBOARDING_STATUS.REJECTED,
+          ],
+        },
+      },
+      { ownerOnboardingStatus: OWNER_ONBOARDING_STATUS.PENDING_REVIEW },
+    );
   }
 
   async getVerificationByUserId(userId: string) {
@@ -149,7 +168,7 @@ export class VerificationService {
         {
           isOwner: true,
           walletId: wallet._id,
-          ownerOnboardingStatus: 'APPROVED',
+          ownerOnboardingStatus: OWNER_ONBOARDING_STATUS.APPROVED,
         }
       );
 
@@ -211,7 +230,7 @@ export class VerificationService {
     await Promise.all([
       this.userRepository.findOneAndUpdate(
         { _id: updatedVerification.userId },
-        { ownerOnboardingStatus: 'REJECTED' },
+        { ownerOnboardingStatus: OWNER_ONBOARDING_STATUS.REJECTED },
       ),
       this.locationRepository.findRaw().updateMany(
         {

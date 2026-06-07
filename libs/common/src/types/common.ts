@@ -30,6 +30,13 @@ export enum USER_ROLE {
   SUPER_ADMIN = 'super_admin',
 }
 
+export enum OWNER_ONBOARDING_STATUS {
+  PENDING_VERIFICATION = 'PENDING_VERIFICATION',
+  PENDING_REVIEW = 'PENDING_REVIEW',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED',
+}
+
 export enum PITCH_CONDITION {
   EXCELLENT = 'excellent',
   GOOD = 'good',
