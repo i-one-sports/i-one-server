@@ -1,21 +1,36 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { TournamentRepository } from './tournaments.repository';
 import { TeamRepository } from './teams.repository';
 import { UserRepository } from 'src/users/users.repository';
 import { CreateTournamentDto, CreateTeamAndRegisterDto, RecordMatchResultDto, ManualAdvanceDto, ScheduleMatchDto } from './dto/tournament.dto';
-import { CustomHttpException, Tournament, TournamentStatus } from '@app/common';
+import { CustomHttpException, Tournament, TournamentStatus, TournamentType, TournamentUpdateEvent } from '@app/common';
 import { LocationRepository } from 'src/locations/locations.repository';
 import { Types } from 'mongoose';
-import { BracketMatch, TeamSlot } from '@app/common/schemas/tournament.schema';
+import { BracketMatch, LeagueFixture, LeagueStanding, TeamSlot } from '@app/common/schemas/tournament.schema';
+import { TournamentEventService } from './tournament-event.service';
+
+const KNOCKOUT_SIZES = [8, 16, 32];
 
 @Injectable()
 export class TournamentsService {
+  private readonly logger = new Logger(TournamentsService.name);
+
   constructor(
     private readonly tournamentRepository: TournamentRepository,
     private readonly teamRepository: TeamRepository,
     private readonly locationRepository: LocationRepository,
     private readonly userRepository: UserRepository,
+    private readonly tournamentEventService: TournamentEventService,
   ) {}
+
+  // Fire-and-forget broadcast — same pipeline matches.service.ts uses for
+  // emitMatchScoreUpdate (Redis pub/sub → SSE), so viewers don't have to poll
+  // GET /tournaments/:id for bracket/fixture/standings changes.
+  private broadcast(event: TournamentUpdateEvent): void {
+    this.tournamentEventService
+      .emitTournamentUpdate(event)
+      .catch((err) => this.logger.error('Failed to emit tournament update event', err));
+  }
 
   // ─── Helpers ───────────────────────────────────────────────────────────────
 
@@ -99,11 +114,67 @@ export class TournamentsService {
     return bracket;
   }
 
+  // Single round-robin via the circle method: fix team[0], rotate the rest.
+  // n teams (n even after padding with a bye) → n-1 rounds of n/2 fixtures.
+  private buildFixtures(teams: TeamSlot[]): LeagueFixture[] {
+    const slots: (TeamSlot | null)[] = this.shuffle([...teams]);
+    if (slots.length % 2 !== 0) slots.push(null); // bye for odd team counts
+
+    const n = slots.length;
+    const half = n / 2;
+    let arr = [...slots];
+    const fixtures: LeagueFixture[] = [];
+    let matchIndex = 0;
+
+    for (let round = 0; round < n - 1; round++) {
+      for (let i = 0; i < half; i++) {
+        const home = arr[i];
+        const away = arr[n - 1 - i];
+        if (!home || !away) continue; // bye — no fixture this round
+
+        fixtures.push({
+          matchIndex: matchIndex++,
+          round: round + 1,
+          home,
+          away,
+          homeScore: null,
+          awayScore: null,
+          completed: false,
+          scheduledTime: null,
+        });
+      }
+      // Rotate all but the fixed first slot
+      arr = [arr[0], arr[n - 1], ...arr.slice(1, n - 1)];
+    }
+
+    return fixtures;
+  }
+
+  private initStandings(teams: TeamSlot[]): LeagueStanding[] {
+    return teams.map((t) => ({
+      teamId: t.teamId,
+      name: t.name,
+      logo: t.logo,
+      played: 0,
+      wins: 0,
+      draws: 0,
+      losses: 0,
+      goalsFor: 0,
+      goalsAgainst: 0,
+      goalDifference: 0,
+      points: 0,
+    }));
+  }
+
   // ─── Tournament CRUD ───────────────────────────────────────────────────────
 
   async create(dto: CreateTournamentDto, locationId: string, organizerId: string): Promise<Tournament> {
     const location = await this.locationRepository.findOne({ _id: locationId });
     if (!location) throw new CustomHttpException('Location not found', HttpStatus.NOT_FOUND);
+
+    if (dto.type === TournamentType.KNOCKOUT && !KNOCKOUT_SIZES.includes(dto.maxTeams)) {
+      throw new CustomHttpException('maxTeams must be 8, 16, or 32 for knockout tournaments', HttpStatus.BAD_REQUEST);
+    }
 
     let code = this.generateCode();
     // Ensure uniqueness
@@ -117,13 +188,24 @@ export class TournamentsService {
       description: dto.description ?? '',
       location: new Types.ObjectId(locationId),
       organizer: new Types.ObjectId(organizerId),
+      type: dto.type,
       prizeMoney: dto.prizeMoney,
       registrationFee: dto.registrationFee,
+      minutesPerMatch: dto.minutesPerMatch,
+      playersPerTeam: dto.playersPerTeam,
       maxTeams: dto.maxTeams,
+      pitches: dto.pitches ?? [],
+      teamPrizes: dto.teamPrizes ?? [],
+      playerPrizes: dto.playerPrizes ?? [],
+      rules: dto.rules ?? [],
       code,
       status: TournamentStatus.REGISTRATION,
       registeredTeams: [],
       bracket: [],
+      fixtures: [],
+      standings: [],
+      totalFixtures: 0,
+      completedFixtures: 0,
       winner: null,
       registrationDeadline: dto.registrationDeadline,
       startDate: dto.startDate,
@@ -136,7 +218,7 @@ export class TournamentsService {
     return this.tournamentRepository
       .findRaw()
       .find({ location: new Types.ObjectId(locationId) })
-      .select('name status maxTeams registeredTeams startDate endDate registrationDeadline prizeMoney registrationFee code winner')
+      .select('name status type maxTeams registeredTeams startDate endDate registrationDeadline prizeMoney registrationFee code winner')
       .lean();
   }
 
@@ -155,7 +237,10 @@ export class TournamentsService {
 
   // ─── Team Registration ─────────────────────────────────────────────────────
 
-  async createTeamAndRegister(tournamentId: string, dto: CreateTeamAndRegisterDto) {
+  async createTeamAndRegister(tournamentId: string, dto: CreateTeamAndRegisterDto, userId: string) {
+    if (dto.captainId !== userId)
+      throw new CustomHttpException('Only the captain can register their own team', HttpStatus.FORBIDDEN);
+
     // Single query to get tournament status + team count
     const tournament = await this.tournamentRepository
       .findRaw()
@@ -192,16 +277,24 @@ export class TournamentsService {
     return team;
   }
 
-  async unregisterTeam(tournamentId: string, teamId: string) {
+  async unregisterTeam(tournamentId: string, teamId: string, userId: string) {
     const tournament = await this.tournamentRepository
       .findRaw()
       .findById(tournamentId)
-      .select('status')
-      .lean();
+      .select('status organizer')
+      .lean() as any;
 
     if (!tournament) throw new CustomHttpException('Tournament not found', HttpStatus.NOT_FOUND);
     if (tournament.status !== TournamentStatus.REGISTRATION)
       throw new CustomHttpException('Cannot unregister after tournament has started', HttpStatus.BAD_REQUEST);
+
+    const team = await this.teamRepository.findOne({ _id: teamId });
+    if (!team) throw new CustomHttpException('Team not found', HttpStatus.NOT_FOUND);
+
+    const isCaptain = team.captain.toString() === userId;
+    const isOrganizer = tournament.organizer.toString() === userId;
+    if (!isCaptain && !isOrganizer)
+      throw new CustomHttpException('Only the team captain or the organizer can unregister this team', HttpStatus.FORBIDDEN);
 
     await this.tournamentRepository
       .findRaw()
@@ -210,14 +303,14 @@ export class TournamentsService {
     return { message: 'Team unregistered' };
   }
 
-  // ─── Bracket ───────────────────────────────────────────────────────────────
+  // ─── Bracket / Fixtures ────────────────────────────────────────────────────
 
   async startTournament(tournamentId: string, organizerId: string) {
     // Fetch only what we need
     const tournament = await this.tournamentRepository
       .findRaw()
       .findById(tournamentId)
-      .select('status organizer maxTeams registeredTeams')
+      .select('status organizer type maxTeams registeredTeams location')
       .lean();
 
     if (!tournament) throw new CustomHttpException('Tournament not found', HttpStatus.NOT_FOUND);
@@ -241,6 +334,35 @@ export class TournamentsService {
       logo: t.logo ?? '',
     }));
 
+    if (tournament.type === TournamentType.LEAGUE) {
+      const fixtures = this.buildFixtures(teamSlots);
+      const standings = this.initStandings(teamSlots);
+
+      await this.tournamentRepository
+        .findRaw()
+        .updateOne(
+          { _id: tournamentId },
+          {
+            $set: {
+              status: TournamentStatus.STARTED,
+              fixtures,
+              standings,
+              totalFixtures: fixtures.length,
+              completedFixtures: 0,
+            },
+          },
+        );
+
+      this.broadcast({
+        tournamentId,
+        locationId: tournament.location,
+        status: TournamentStatus.STARTED,
+        event: 'started',
+      });
+
+      return { message: 'Tournament started', fixtures, standings };
+    }
+
     const bracket = this.buildBracket(teamSlots, tournament.maxTeams);
 
     await this.tournamentRepository
@@ -250,17 +372,24 @@ export class TournamentsService {
         { $set: { status: TournamentStatus.STARTED, bracket } },
       );
 
+    this.broadcast({
+      tournamentId,
+      locationId: tournament.location,
+      status: TournamentStatus.STARTED,
+      event: 'started',
+    });
+
     return { message: 'Tournament started', bracket };
   }
 
   // ─── Match Result ──────────────────────────────────────────────────────────
 
   async recordResult(tournamentId: string, matchIndex: number, dto: RecordMatchResultDto, organizerId: string) {
-    // Load only the bracket to find match metadata — avoids loading teams/etc
+    // Load only what's needed to find match metadata — avoids loading teams/etc
     const tournament = await this.tournamentRepository
       .findRaw()
       .findById(tournamentId)
-      .select('organizer status bracket')
+      .select('organizer status type location bracket fixtures totalFixtures completedFixtures')
       .lean() as any;
 
     if (!tournament) throw new CustomHttpException('Tournament not found', HttpStatus.NOT_FOUND);
@@ -268,6 +397,10 @@ export class TournamentsService {
       throw new CustomHttpException('Only the organizer can record results', HttpStatus.FORBIDDEN);
     if (tournament.status !== TournamentStatus.STARTED)
       throw new CustomHttpException('Tournament is not in progress', HttpStatus.BAD_REQUEST);
+
+    if (tournament.type === TournamentType.LEAGUE) {
+      return this.recordLeagueResult(tournamentId, tournament, matchIndex, dto);
+    }
 
     const match: BracketMatch = tournament.bracket.find((m: BracketMatch) => m.matchIndex === matchIndex);
     if (!match) throw new CustomHttpException('Match not found', HttpStatus.NOT_FOUND);
@@ -300,14 +433,129 @@ export class TournamentsService {
       .findRaw()
       .updateOne({ _id: tournamentId }, { $set: setOp }, { arrayFilters });
 
+    this.broadcast({
+      tournamentId,
+      locationId: tournament.location,
+      status: isFinal ? TournamentStatus.COMPLETED : TournamentStatus.STARTED,
+      event: 'result',
+      matchIndex,
+      homeScore: dto.homeScore,
+      awayScore: dto.awayScore,
+      winner,
+      isFinal,
+    });
+
     return { message: 'Result recorded', winner, isFinal };
+  }
+
+  // League result: one atomic $set + $inc updates the fixture and both teams'
+  // standings rows in place — O(1) regardless of league size, no table recompute.
+  private async recordLeagueResult(tournamentId: string, tournament: any, matchIndex: number, dto: RecordMatchResultDto) {
+    const fixture: LeagueFixture = tournament.fixtures.find((f: LeagueFixture) => f.matchIndex === matchIndex);
+    if (!fixture) throw new CustomHttpException('Fixture not found', HttpStatus.NOT_FOUND);
+    if (fixture.completed) throw new CustomHttpException('Fixture already completed', HttpStatus.BAD_REQUEST);
+    if (!fixture.home || !fixture.away) throw new CustomHttpException('Fixture is not ready — waiting for both teams', HttpStatus.BAD_REQUEST);
+
+    const homeOutcome = dto.homeScore > dto.awayScore ? 'win' : dto.homeScore < dto.awayScore ? 'loss' : 'draw';
+    const awayOutcome = homeOutcome === 'win' ? 'loss' : homeOutcome === 'loss' ? 'win' : 'draw';
+    const pointsFor = (outcome: 'win' | 'draw' | 'loss') => (outcome === 'win' ? 3 : outcome === 'draw' ? 1 : 0);
+
+    const isFinal = tournament.completedFixtures + 1 === tournament.totalFixtures;
+
+    await this.tournamentRepository
+      .findRaw()
+      .updateOne(
+        { _id: tournamentId },
+        {
+          $set: {
+            'fixtures.$[fx].homeScore': dto.homeScore,
+            'fixtures.$[fx].awayScore': dto.awayScore,
+            'fixtures.$[fx].completed': true,
+          },
+          $inc: {
+            completedFixtures: 1,
+            'standings.$[home].played': 1,
+            'standings.$[home].wins': homeOutcome === 'win' ? 1 : 0,
+            'standings.$[home].draws': homeOutcome === 'draw' ? 1 : 0,
+            'standings.$[home].losses': homeOutcome === 'loss' ? 1 : 0,
+            'standings.$[home].goalsFor': dto.homeScore,
+            'standings.$[home].goalsAgainst': dto.awayScore,
+            'standings.$[home].goalDifference': dto.homeScore - dto.awayScore,
+            'standings.$[home].points': pointsFor(homeOutcome),
+            'standings.$[away].played': 1,
+            'standings.$[away].wins': awayOutcome === 'win' ? 1 : 0,
+            'standings.$[away].draws': awayOutcome === 'draw' ? 1 : 0,
+            'standings.$[away].losses': awayOutcome === 'loss' ? 1 : 0,
+            'standings.$[away].goalsFor': dto.awayScore,
+            'standings.$[away].goalsAgainst': dto.homeScore,
+            'standings.$[away].goalDifference': dto.awayScore - dto.homeScore,
+            'standings.$[away].points': pointsFor(awayOutcome),
+          },
+        },
+        {
+          arrayFilters: [
+            { 'fx.matchIndex': matchIndex },
+            { 'home.teamId': fixture.home.teamId },
+            { 'away.teamId': fixture.away.teamId },
+          ],
+        },
+      );
+
+    this.broadcast({
+      tournamentId,
+      locationId: tournament.location,
+      status: isFinal ? TournamentStatus.COMPLETED : TournamentStatus.STARTED,
+      event: 'result',
+      matchIndex,
+      homeScore: dto.homeScore,
+      awayScore: dto.awayScore,
+      isFinal,
+    });
+
+    if (isFinal) {
+      await this.completeLeague(tournamentId, tournament.location);
+    }
+
+    return { message: 'Result recorded', isFinal };
+  }
+
+  // Final matchday just completed — read the (now fully updated) table once,
+  // rank it, and persist the winner. One-time O(n log n) cost at completion.
+  private async completeLeague(tournamentId: string, locationId?: string | Types.ObjectId) {
+    const doc = await this.tournamentRepository
+      .findRaw()
+      .findById(tournamentId)
+      .select('standings')
+      .lean() as any;
+
+    const ranked = [...doc.standings].sort(
+      (a: LeagueStanding, b: LeagueStanding) =>
+        b.points - a.points || b.goalDifference - a.goalDifference || b.goalsFor - a.goalsFor,
+    );
+    const champion = ranked[0];
+    const winner: TeamSlot | null = champion
+      ? { teamId: champion.teamId, name: champion.name, logo: champion.logo }
+      : null;
+
+    await this.tournamentRepository
+      .findRaw()
+      .updateOne({ _id: tournamentId }, { $set: { status: TournamentStatus.COMPLETED, winner } });
+
+    this.broadcast({
+      tournamentId,
+      locationId,
+      status: TournamentStatus.COMPLETED,
+      event: 'completed',
+      winner,
+      isFinal: true,
+    });
   }
 
   async manualAdvance(tournamentId: string, matchIndex: number, dto: ManualAdvanceDto, organizerId: string) {
     const tournament = await this.tournamentRepository
       .findRaw()
       .findById(tournamentId)
-      .select('organizer status bracket')
+      .select('organizer status type location bracket')
       .lean() as any;
 
     if (!tournament) throw new CustomHttpException('Tournament not found', HttpStatus.NOT_FOUND);
@@ -315,6 +563,8 @@ export class TournamentsService {
       throw new CustomHttpException('Only the organizer can advance teams', HttpStatus.FORBIDDEN);
     if (tournament.status !== TournamentStatus.STARTED)
       throw new CustomHttpException('Tournament is not in progress', HttpStatus.BAD_REQUEST);
+    if (tournament.type !== TournamentType.KNOCKOUT)
+      throw new CustomHttpException('Manual advance only applies to knockout tournaments — leagues accept draws as valid results', HttpStatus.BAD_REQUEST);
 
     const match: BracketMatch = tournament.bracket.find((m: BracketMatch) => m.matchIndex === matchIndex);
     if (!match) throw new CustomHttpException('Match not found', HttpStatus.NOT_FOUND);
@@ -343,6 +593,16 @@ export class TournamentsService {
       .findRaw()
       .updateOne({ _id: tournamentId }, { $set: setOp }, { arrayFilters });
 
+    this.broadcast({
+      tournamentId,
+      locationId: tournament.location,
+      status: isFinal ? TournamentStatus.COMPLETED : TournamentStatus.STARTED,
+      event: 'advance',
+      matchIndex,
+      winner,
+      isFinal,
+    });
+
     return { message: 'Team advanced', winner, isFinal };
   }
 
@@ -350,7 +610,7 @@ export class TournamentsService {
     const tournament = await this.tournamentRepository
       .findRaw()
       .findById(tournamentId)
-      .select('organizer status')
+      .select('organizer status type location')
       .lean() as any;
 
     if (!tournament) throw new CustomHttpException('Tournament not found', HttpStatus.NOT_FOUND);
@@ -359,13 +619,24 @@ export class TournamentsService {
     if (tournament.status !== TournamentStatus.STARTED)
       throw new CustomHttpException('Tournament is not in progress', HttpStatus.BAD_REQUEST);
 
+    const field = tournament.type === TournamentType.LEAGUE ? 'fixtures' : 'bracket';
+
     await this.tournamentRepository
       .findRaw()
       .updateOne(
         { _id: tournamentId },
-        { $set: { 'bracket.$[match].scheduledTime': dto.scheduledTime } },
+        { $set: { [`${field}.$[match].scheduledTime`]: dto.scheduledTime } },
         { arrayFilters: [{ 'match.matchIndex': matchIndex }] },
       );
+
+    this.broadcast({
+      tournamentId,
+      locationId: tournament.location,
+      status: tournament.status,
+      event: 'scheduled',
+      matchIndex,
+      scheduledTime: dto.scheduledTime,
+    });
 
     return { message: 'Match scheduled' };
   }

@@ -62,6 +62,11 @@ export enum TournamentStatus {
   COMPLETED = 'completed',
 }
 
+export enum TournamentType {
+  KNOCKOUT = 'knockout',
+  LEAGUE = 'league',
+}
+
 export interface MatchScoreUpdateEvent {
   matchId: string | Types.ObjectId;
   sessionId?: string | Types.ObjectId;
@@ -80,4 +85,19 @@ export interface MatchScoreUpdateEvent {
     player: string | Types.ObjectId;
     team: 'teamOne' | 'teamTwo';
   };
+}
+
+// Broadcast over the same Redis pub/sub → SSE pipeline as MatchScoreUpdateEvent,
+// on its own channel — covers bracket (knockout) and fixture/standings (league) changes.
+export interface TournamentUpdateEvent {
+  tournamentId: string | Types.ObjectId;
+  locationId?: string | Types.ObjectId;
+  status: TournamentStatus;
+  event: 'started' | 'result' | 'advance' | 'scheduled' | 'completed';
+  matchIndex?: number;
+  homeScore?: number | null;
+  awayScore?: number | null;
+  winner?: { teamId: string | Types.ObjectId; name: string; logo: string } | null;
+  isFinal?: boolean;
+  scheduledTime?: Date | null;
 }

@@ -1141,11 +1141,15 @@ View all matchups for a session.
 ---
 
 ### POST /matches/start/:matchId
-Mark a match as started.
+Mark a match as started. Only the **owner of the location** hosting the match's session may call this.
 
-**Auth required**: Yes (JWT cookie)
+**Auth required**: Yes (JWT cookie, location owner only)
 
 **Success Response** `200 OK`: Updated match document.
+
+**Error Responses**:
+- `403` — caller is not the owner of the location hosting this match
+- `404` — match or session not found
 
 ---
 
@@ -1189,9 +1193,9 @@ Get full details of a match, including both teams with their players populated a
 ---
 
 ### POST /matches/goal-scorer/:matchId
-Record a goal scorer for a match. Can be called multiple times (one call per goal).
+Record a goal scorer for a match. Can be called multiple times (one call per goal). Only the **owner of the location** hosting the match's session may call this.
 
-**Auth required**: Yes (JWT cookie)
+**Auth required**: Yes (JWT cookie, location owner only)
 
 **Request Body**:
 ```json
@@ -1208,24 +1212,29 @@ Record a goal scorer for a match. Can be called multiple times (one call per goa
 **Success Response** `200 OK`: Updated match document with full population (same structure as `GET /matches/details/:matchId`).
 
 **Error Responses**:
+- `403` — caller is not the owner of the location hosting this match
 - `400` — match has not started yet
 - `404` — match not found
 
 ---
 
 ### POST /matches/end/:matchId
-Mark a match as ended.
+Mark a match as ended. Only the **owner of the location** hosting the match's session may call this.
 
-**Auth required**: Yes (JWT cookie)
+**Auth required**: Yes (JWT cookie, location owner only)
 
 **Success Response** `200 OK`: Finalized match document.
+
+**Error Responses**:
+- `403` — caller is not the owner of the location hosting this match
+- `404` — match or session not found
 
 ---
 
 ### PUT /matches/increment-score/:matchId
-Increment the score for a team.
+Increment the score for a team. Only the **owner of the location** hosting the match's session may call this.
 
-**Auth required**: Yes (JWT cookie)
+**Auth required**: Yes (JWT cookie, location owner only)
 
 **Query Parameters**:
 - `team`: `"teamOne"` | `"teamTwo"`
@@ -1234,17 +1243,25 @@ Increment the score for a team.
 
 **Success Response** `200 OK`: Updated match document with new scores.
 
+**Error Responses**:
+- `403` — caller is not the owner of the location hosting this match
+- `404` — match or session not found
+
 ---
 
 ### PUT /matches/decrement-score/:matchId
-Decrement the score for a team.
+Decrement the score for a team. Only the **owner of the location** hosting the match's session may call this.
 
-**Auth required**: Yes (JWT cookie)
+**Auth required**: Yes (JWT cookie, location owner only)
 
 **Query Parameters**:
 - `team`: `"teamOne"` | `"teamTwo"`
 
 **Success Response** `200 OK`: Updated match document.
+
+**Error Responses**:
+- `403` — caller is not the owner of the location hosting this match
+- `404` — match or session not found
 
 ---
 
@@ -1308,13 +1325,17 @@ Get current SSE connection statistics.
 
 ## Tournaments
 
-Tournaments are per-location, single-elimination (knockout) bracket competitions. Supported sizes: **8, 16, or 32 teams**. The organizer creates the tournament, teams register, then the organizer starts it — which generates the bracket via random draw. Winners advance automatically when scores are recorded; the organizer can also manually advance a team (for draws / overrides).
+Tournaments are per-location competitions that run as either a **knockout** (single-elimination bracket) or a **league** (round-robin with a standings table) — selected via `type` at creation time. The organizer creates the tournament, teams register, then the organizer starts it: this generates a knockout bracket (random draw) or a full round-robin fixture list + standings table, depending on `type`. Results are recorded match-by-match and the bracket/table updates atomically and incrementally — no full recompute on every result.
 
 ### Status flow
 `registration` → `started` → `completed`
 
-### Bracket structure
-Each match in the bracket has:
+### Tournament types
+- **`knockout`** — single elimination bracket. Supported sizes: **8, 16, or 32 teams**. Winners advance automatically when scores are recorded; the organizer can also manually advance a team (for draws / overrides — see `/advance`). Draws are rejected on `/result`.
+- **`league`** — single round-robin. Any `maxTeams >= 2`. Every team plays every other team once; results (including draws) feed directly into a live standings table (3 points for a win, 1 for a draw). The table-topper is set as `winner` once the final fixture is recorded. `/advance` does not apply to leagues.
+
+### Bracket structure (knockout)
+Each match in `bracket` has:
 - `matchIndex` — sequential 0-based ID used in all match endpoints
 - `round` / `roundName` — e.g. `1` / `"Quarter-final"`
 - `home` / `away` — `{ teamId, name, logo }` (null until bracket is filled)
@@ -1322,6 +1343,23 @@ Each match in the bracket has:
 - `winner` — populated after result is recorded
 - `scheduledTime` — set by organizer, null by default
 - `nextMatchIndex` / `nextMatchSlot` — where the winner goes next (null for the final)
+
+### Fixtures & standings structure (league)
+Each fixture in `fixtures` has:
+- `matchIndex` — sequential 0-based ID used in all match endpoints
+- `round` — 1-based matchday number
+- `home` / `away` — `{ teamId, name, logo }`
+- `homeScore` / `awayScore` — null until recorded
+- `completed` — boolean
+- `scheduledTime` — set by organizer, null by default
+
+Each row in `standings` (one per registered team, kept sorted client-side by `points` → `goalDifference` → `goalsFor`):
+- `teamId`, `name`, `logo`
+- `played`, `wins`, `draws`, `losses`
+- `goalsFor`, `goalsAgainst`, `goalDifference`
+- `points`
+
+`totalFixtures` / `completedFixtures` track overall progress (used internally to detect when the league is complete).
 
 ---
 
@@ -1333,22 +1371,48 @@ Create a tournament at a location. Only authenticated users can create.
 **Path Parameters**:
 - `locationId` — the location this tournament belongs to
 
-**Request Body**:
+**Request Body** (knockout example):
 ```json
 {
   "name": "Victoria Island Cup",
   "description": "Annual VI knockout tournament",
+  "type": "knockout",
   "prizeMoney": 500000,
   "registrationFee": 2000,
+  "minutesPerMatch": 10,
+  "playersPerTeam": 5,
   "maxTeams": 8,
+  "pitches": ["Royal Turf, Ikate", "Top Boys Turf, Igando"],
+  "teamPrizes": ["500,000", "Team Bus"],
+  "playerPrizes": ["Award", "100,000"],
+  "rules": ["3 Points For Wins, 1 Point For Draws"],
   "registrationDeadline": "2026-05-01T00:00:00.000Z",
   "startDate": "2026-05-10T09:00:00.000Z",
   "durationDays": 2
 }
 ```
 
+**Request Body** (league example — only `type` and `maxTeams` differ in meaning):
+```json
+{
+  "name": "Sangotedo League",
+  "type": "league",
+  "prizeMoney": 300000,
+  "registrationFee": 1000,
+  "minutesPerMatch": 30,
+  "playersPerTeam": 6,
+  "maxTeams": 6,
+  "registrationDeadline": "2026-05-01T00:00:00.000Z",
+  "startDate": "2026-05-10T09:00:00.000Z",
+  "durationDays": 14
+}
+```
+
 **Field Notes**:
-- `maxTeams`: **must be `8`, `16`, or `32`**
+- `type`: `"knockout"` | `"league"` — determines bracket-vs-table behavior on `/start`
+- `maxTeams`: **must be `8`, `16`, or `32`** for `knockout`; any value `>= 2` for `league`
+- `minutesPerMatch` / `playersPerTeam` — informational match-format settings shown in the tournament setup
+- `pitches`, `teamPrizes`, `playerPrizes`, `rules` — free-text arrays for venue names, prize line items, and tournament rules (all optional, default `[]`)
 - `endDate` is auto-computed (`startDate + durationDays`)
 - A unique 6-character `code` is auto-generated (uppercase alphanumeric)
 
@@ -1368,6 +1432,7 @@ Get all tournaments for a location. Lightweight — no team population.
     "_id": "507f...",
     "name": "Victoria Island Cup",
     "status": "registration",
+    "type": "knockout",
     "maxTeams": 8,
     "registeredTeams": ["507f...", "507f..."],
     "startDate": "2026-05-10T09:00:00.000Z",
@@ -1384,16 +1449,17 @@ Get all tournaments for a location. Lightweight — no team population.
 ---
 
 ### GET /tournaments/:id
-Get full tournament details — bracket (all rounds), registered teams (name + logo), and organizer info. Single query, no N+1.
+Get full tournament details — bracket or fixtures/standings (depending on `type`), registered teams (name + logo), and organizer info. Single query, no N+1.
 
 **Auth required**: Yes (JWT cookie)
 
-**Success Response** `200 OK`:
+**Success Response** `200 OK` (knockout):
 ```json
 {
   "_id": "507f...",
   "name": "Victoria Island Cup",
   "status": "started",
+  "type": "knockout",
   "maxTeams": 8,
   "bracket": [
     {
@@ -1419,12 +1485,55 @@ Get full tournament details — bracket (all rounds), registered teams (name + l
 }
 ```
 
+**Success Response** `200 OK` (league):
+```json
+{
+  "_id": "507f...",
+  "name": "Sangotedo League",
+  "status": "started",
+  "type": "league",
+  "maxTeams": 6,
+  "fixtures": [
+    {
+      "matchIndex": 0,
+      "round": 1,
+      "home": { "teamId": "507f...", "name": "Team Alpha", "logo": "" },
+      "away": { "teamId": "507f...", "name": "Team Beta", "logo": "" },
+      "homeScore": null,
+      "awayScore": null,
+      "completed": false,
+      "scheduledTime": null
+    }
+  ],
+  "standings": [
+    {
+      "teamId": "507f...",
+      "name": "Team Alpha",
+      "logo": "",
+      "played": 0,
+      "wins": 0,
+      "draws": 0,
+      "losses": 0,
+      "goalsFor": 0,
+      "goalsAgainst": 0,
+      "goalDifference": 0,
+      "points": 0
+    }
+  ],
+  "registeredTeams": [
+    { "_id": "507f...", "name": "Team Alpha", "logo": "", "captain": "507f..." }
+  ],
+  "organizer": { "_id": "507f...", "firstName": "Kiara", "lastName": "Schulist" },
+  "winner": null
+}
+```
+
 ---
 
 ### POST /tournaments/:id/team
-Create a team and register it to the tournament in one step. Only valid during `registration` status.
+Create a team and register it to the tournament in one step. Only valid during `registration` status. **Captains register their own team** — `captainId` must match the authenticated user.
 
-**Auth required**: Yes (JWT cookie)
+**Auth required**: Yes (JWT cookie, captain only — `captainId` must equal the calling user's ID)
 
 **Request Body**:
 ```json
@@ -1441,26 +1550,39 @@ Create a team and register it to the tournament in one step. Only valid during `
 - `logo` is optional
 
 **Error Responses**:
+- `403` — `captainId` does not match the authenticated user
 - `400` — tournament full or not in registration phase
 - `404` — tournament or captain not found
 
 ---
 
 ### DELETE /tournaments/:id/team/:teamId
-Remove a team from the tournament. Only valid during `registration` status.
+Remove a team from the tournament. Only valid during `registration` status. Callable by the **team's captain** or the **tournament organizer**.
 
-**Auth required**: Yes (JWT cookie)
+**Auth required**: Yes (JWT cookie, team captain or tournament organizer)
+
+**Error Responses**:
+- `403` — caller is neither the team's captain nor the tournament organizer
+- `400` — tournament has already started
+- `404` — tournament or team not found
 
 ---
 
 ### POST /tournaments/:id/start
-Generate the knockout bracket from registered teams (random draw). Only the organizer can call this. Requires at least 2 registered teams. Teams fewer than `maxTeams` receive byes (auto-advance in round 1).
+Generate the competition structure from registered teams (random draw). Only the organizer can call this. Requires at least 2 registered teams.
+- **knockout** — generates the bracket. Teams fewer than `maxTeams` receive byes (auto-advance in round 1).
+- **league** — generates a single round-robin fixture list (every team plays every other team once; an odd number of teams gets a bye each matchday) and a zero-initialized standings table.
 
 **Auth required**: Yes (JWT cookie)
 
-**Success Response** `200 OK`:
+**Success Response** `200 OK` (knockout):
 ```json
 { "message": "Tournament started", "bracket": [ ...all matches... ] }
+```
+
+**Success Response** `200 OK` (league):
+```json
+{ "message": "Tournament started", "fixtures": [ ...all matchdays... ], "standings": [ ...zeroed table... ] }
 ```
 
 **Error Responses**:
@@ -1470,7 +1592,9 @@ Generate the knockout bracket from registered teams (random draw). Only the orga
 ---
 
 ### PATCH /tournaments/:id/match/:matchIndex/result
-Record a match score. The winner is automatically determined and placed into the next match slot. If it's the final, the tournament is marked `completed` and the `winner` is set.
+Record a match score.
+- **knockout** — the winner is automatically determined and placed into the next match slot. If it's the final, the tournament is marked `completed` and `winner` is set. Draws are **rejected** — use `/advance` to manually pick the winner.
+- **league** — draws are **allowed**. The fixture and both teams' standings rows (`played`, `wins`/`draws`/`losses`, goals, `points`) update atomically in a single `$inc` — the table is never recomputed from scratch. Once the last fixture is recorded, the tournament is marked `completed` and `winner` is set to the table-topper (ranked by points → goal difference → goals scored).
 
 **Auth required**: Yes (JWT cookie, organizer only)
 
@@ -1480,22 +1604,26 @@ Record a match score. The winner is automatically determined and placed into the
 ```
 
 **Field Notes**:
-- Draws (`homeScore === awayScore`) are **rejected** — use `/advance` to manually pick the winner
-- Single atomic DB update — no extra queries
+- Single atomic DB update — no extra queries (league completion adds one follow-up read+write, only on the final fixture)
 
-**Success Response** `200 OK`:
+**Success Response** `200 OK` (knockout):
 ```json
 { "message": "Result recorded", "winner": { "teamId": "507f...", "name": "Team Alpha", "logo": "" }, "isFinal": false }
 ```
 
+**Success Response** `200 OK` (league):
+```json
+{ "message": "Result recorded", "isFinal": false }
+```
+
 **Error Responses**:
-- `400` — draw, match already completed, or match not ready (waiting for both teams to advance)
+- `400` — draw in a knockout match, match/fixture already completed, or not ready (waiting for both teams)
 - `403` — not the organizer
 
 ---
 
 ### PATCH /tournaments/:id/match/:matchIndex/advance
-Manually pick the winner of a match (for draws, penalties, or organizer override). Winner advances to the next round automatically.
+**Knockout only.** Manually pick the winner of a match (for draws, penalties, or organizer override). Winner advances to the next round automatically. Returns `400` if called on a league tournament — leagues accept draws as valid results and have no bracket progression.
 
 **Auth required**: Yes (JWT cookie, organizer only)
 
@@ -1514,7 +1642,7 @@ Manually pick the winner of a match (for draws, penalties, or organizer override
 ---
 
 ### PATCH /tournaments/:id/match/:matchIndex/schedule
-Set the scheduled time for a bracket match. Organizer only.
+Set the scheduled time for a bracket match (knockout) or fixture (league). Organizer only.
 
 **Auth required**: Yes (JWT cookie, organizer only)
 
@@ -1524,6 +1652,43 @@ Set the scheduled time for a bracket match. Organizer only.
 ```
 
 **Success Response** `200 OK`: `{ "message": "Match scheduled" }`
+
+---
+
+### GET /tournaments/stream/:id (SSE)
+Real-time tournament updates — bracket progress (knockout) or fixtures/standings progress (league) — pushed live as the organizer records results, advances teams, schedules matches, or the tournament starts/completes. Same Redis pub/sub → SSE pipeline as `/matches/stream/session/:sessionId`, on its own channel, so clients don't have to poll `GET /tournaments/:id`.
+
+**Auth required**: Yes (JWT cookie)
+
+**Headers**: `Accept: text/event-stream`, `Cache-Control: no-cache`
+
+**Connected handshake** (sent immediately on connect):
+```json
+{
+  "type": "connected",
+  "message": "Tournament stream connected",
+  "tournamentId": "<id>",
+  "userId": "<id>",
+  "timestamp": 1716470400000
+}
+```
+
+**Update event shape**:
+```json
+{
+  "tournamentId": "<id>",
+  "locationId": "<id>",
+  "status": "registration | started | completed",
+  "event": "started | result | advance | scheduled | completed",
+  "matchIndex": 3,
+  "homeScore": 2,
+  "awayScore": 1,
+  "winner": { "teamId": "<id>", "name": "Team A", "logo": "<url>" },
+  "isFinal": false,
+  "scheduledTime": "2026-05-10T14:00:00.000Z"
+}
+```
+Fields are populated according to the `event` type — e.g. `result` carries `matchIndex`/`homeScore`/`awayScore`/`isFinal` (plus `winner` for knockout), `scheduled` carries `matchIndex`/`scheduledTime`, `completed` carries the final `winner`. A heartbeat (`{ "type": "heartbeat", ... }`) is sent every 30 seconds to keep the connection alive.
 
 ---
 

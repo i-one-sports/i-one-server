@@ -1,7 +1,25 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpException,
+  HttpStatus,
+  Logger,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Post,
+  Res,
+  Sse,
+  UseGuards,
+} from '@nestjs/common';
+import { Response } from 'express';
 import { JwtAuthGuard } from 'src/auth/guards/jwt.guard';
 import { TournamentsService } from './tournaments.service';
+import { TournamentEventService } from './tournament-event.service';
 import { CurrentUser, User } from '@app/common';
+import { catchError, filter, finalize, map, merge, of, startWith } from 'rxjs';
 import {
   CreateTournamentDto,
   CreateTeamAndRegisterDto,
@@ -13,7 +31,12 @@ import {
 @Controller('tournaments')
 @UseGuards(JwtAuthGuard)
 export class TournamentsController {
-  constructor(private readonly tournamentsService: TournamentsService) {}
+  private readonly logger = new Logger(TournamentsController.name);
+
+  constructor(
+    private readonly tournamentsService: TournamentsService,
+    private readonly tournamentEventService: TournamentEventService,
+  ) {}
 
   // Create a tournament at a location
   @Post('create/:locationId')
@@ -37,22 +60,24 @@ export class TournamentsController {
     return this.tournamentsService.findOne(id);
   }
 
-  // Create a team and register it to the tournament in one step
+  // Create a team and register it to the tournament in one step (captain only — registers their own team)
   @Post(':id/team')
   createTeamAndRegister(
     @Param('id') id: string,
     @Body() dto: CreateTeamAndRegisterDto,
+    @CurrentUser() user: User,
   ) {
-    return this.tournamentsService.createTeamAndRegister(id, dto);
+    return this.tournamentsService.createTeamAndRegister(id, dto, user._id.toString());
   }
 
-  // Unregister a team (registration phase only)
+  // Unregister a team (registration phase only — team captain or tournament organizer)
   @Delete(':id/team/:teamId')
   unregisterTeam(
     @Param('id') id: string,
     @Param('teamId') teamId: string,
+    @CurrentUser() user: User,
   ) {
-    return this.tournamentsService.unregisterTeam(id, teamId);
+    return this.tournamentsService.unregisterTeam(id, teamId, user._id.toString());
   }
 
   // Start tournament — generates bracket (organizer only)
@@ -92,5 +117,77 @@ export class TournamentsController {
     @CurrentUser() user: User,
   ) {
     return this.tournamentsService.scheduleMatch(id, matchIndex, dto, user._id.toString());
+  }
+
+  // Live tournament updates — bracket/fixture/standings changes pushed over SSE
+  // (same Redis pub/sub → Subject → SSE pipeline as session match streams)
+  @Sse('stream/:id')
+  tournamentStream(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const userId = user?._id?.toString() || user?.id?.toString();
+
+    if (!userId) {
+      throw new HttpException('User authentication required', HttpStatus.UNAUTHORIZED);
+    }
+
+    const connectionCheck = this.tournamentEventService.canConnect(id);
+    if (!connectionCheck.allowed) {
+      throw new HttpException(connectionCheck.reason || 'Connection not allowed', HttpStatus.TOO_MANY_REQUESTS);
+    }
+
+    const connectionId = this.tournamentEventService.addConnection(id, userId);
+    this.logger.log(`Tournament SSE connection established: ${connectionId} (User: ${userId}, Tournament: ${id})`);
+
+    response.setHeader('Cache-Control', 'no-cache');
+    response.setHeader('Connection', 'keep-alive');
+    response.setHeader('X-Accel-Buffering', 'no');
+
+    let cleanupPerformed = false;
+    const performCleanup = () => {
+      if (!cleanupPerformed) {
+        cleanupPerformed = true;
+        this.tournamentEventService.removeConnection(id, connectionId);
+        this.logger.log(`Tournament SSE connection cleaned up: ${connectionId}`);
+      }
+    };
+
+    response.on('close', performCleanup);
+    response.on('error', (error) => {
+      this.logger.error(`Tournament SSE connection error for ${connectionId}:`, error.message);
+      performCleanup();
+    });
+
+    return merge(
+      this.tournamentEventService.getTournamentUpdates().pipe(
+        filter((update: any) => update.tournamentId && update.tournamentId.toString() === id),
+      ),
+      this.tournamentEventService.getHeartbeat(),
+    ).pipe(
+      startWith({
+        type: 'connected',
+        message: 'Tournament stream connected',
+        tournamentId: id,
+        userId,
+        timestamp: Date.now(),
+      }),
+      map((update) => ({ data: update })),
+      catchError((error) => {
+        this.logger.error(`Tournament SSE stream error for ${connectionId}:`, error.message);
+        return of({
+          data: {
+            type: 'error',
+            message: 'Tournament stream error occurred',
+            timestamp: Date.now(),
+            tournamentId: id,
+          },
+        });
+      }),
+      finalize(() => {
+        performCleanup();
+      }),
+    );
   }
 }

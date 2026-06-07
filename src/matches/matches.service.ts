@@ -4,6 +4,7 @@ import { SetRepository } from '../sets/sets.repository';
 import { CustomHttpException, MatchI } from '@app/common';
 import { Set } from '@app/common';
 import { SessionRepository } from 'src/sessions/sessions.repository';
+import { LocationRepository } from 'src/locations/locations.repository';
 import { Types } from 'mongoose';
 import { MatchEventService } from './match-event.service';
 import { SessionPaymentService } from 'src/billing/services/session-payment.service';
@@ -16,9 +17,25 @@ export class MatchesService {
     private readonly matchRepository: MatchRepository,
     private readonly setRepository: SetRepository,
     private readonly sessionRepository: SessionRepository,
+    private readonly locationRepository: LocationRepository,
     private readonly matchEventService: MatchEventService,
     private readonly sessionPaymentService: SessionPaymentService,
   ) {}
+
+  // Only the owner of the location hosting the match's session may manage its
+  // score/lifecycle — chain Match.session -> Session.location -> Location.owner,
+  // each an indexed _id lookup, so this stays O(1) regardless of data size.
+  private async assertLocationOwner(matchId: string, userId: string): Promise<void> {
+    const match = await this.matchRepository.findRaw().findById(matchId).select('session').lean();
+    if (!match) throw new CustomHttpException('Match not found', HttpStatus.NOT_FOUND);
+
+    const session = await this.sessionRepository.findRaw().findById(match.session).select('location').lean();
+    if (!session) throw new CustomHttpException('Session not found', HttpStatus.NOT_FOUND);
+
+    const location = await this.locationRepository.findRaw().findById(session.location).select('owner').lean();
+    if (!location?.owner || location.owner.toString() !== userId)
+      throw new CustomHttpException('Only the location owner can manage match scores', HttpStatus.FORBIDDEN);
+  }
 
   private async viewSetForSession(sessionId: string): Promise<Set[]> {
     return await this.setRepository.find({
@@ -115,7 +132,9 @@ export class MatchesService {
     return matches;
   }
 
-  async startMatch(matchId: string) {
+  async startMatch(matchId: string, userId: string) {
+    await this.assertLocationOwner(matchId, userId);
+
     const match: MatchI = await this.matchRepository.findOneAndPopulate(
       { _id: matchId },
       ['teamOne', 'teamTwo'],
@@ -136,7 +155,9 @@ export class MatchesService {
     };
   }
 
-  async endMatch(matchId: string) {
+  async endMatch(matchId: string, userId: string) {
+    await this.assertLocationOwner(matchId, userId);
+
     const match: MatchI = await this.matchRepository.findOneAndPopulate(
       { _id: matchId },
       ['teamOne', 'teamTwo'],
@@ -171,7 +192,10 @@ export class MatchesService {
     matchId: string,
     playerId: string,
     team: 'teamOne' | 'teamTwo',
+    userId: string,
   ) {
+    await this.assertLocationOwner(matchId, userId);
+
     const match = await this.matchRepository.findOne({ _id: matchId });
 
     if (!match) {
@@ -215,7 +239,9 @@ export class MatchesService {
     return updated;
   }
 
-  async incrementMatchScore(matchId: string, team: 'teamOne' | 'teamTwo') {
+  async incrementMatchScore(matchId: string, team: 'teamOne' | 'teamTwo', userId: string) {
+    await this.assertLocationOwner(matchId, userId);
+
     const updatedMatch = await this.matchRepository.IncrementMatchScore(
       matchId,
       team,
@@ -250,7 +276,9 @@ export class MatchesService {
     return updatedMatch;
   }
 
-  async decrementMatchScore(matchId: string, team: 'teamOne' | 'teamTwo') {
+  async decrementMatchScore(matchId: string, team: 'teamOne' | 'teamTwo', userId: string) {
+    await this.assertLocationOwner(matchId, userId);
+
     const updatedMatch = await this.matchRepository.RedecrementMatchScore(
       matchId,
       team,

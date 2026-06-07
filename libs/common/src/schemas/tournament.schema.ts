@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { TournamentStatus } from '../typings/global.interface';
+import { TournamentStatus, TournamentType } from '../typings/global.interface';
 import { Types } from 'mongoose';
 import { AbstractDocument } from './abstract.schema';
 
@@ -26,6 +26,34 @@ export interface BracketMatch {
   nextMatchSlot: 'home' | 'away' | null;
 }
 
+// One round-robin fixture in a league tournament.
+export interface LeagueFixture {
+  matchIndex: number;       // Sequential 0-based index, unique within tournament
+  round: number;            // 1-based matchday number
+  home: TeamSlot;
+  away: TeamSlot;
+  homeScore: number | null;
+  awayScore: number | null;
+  completed: boolean;
+  scheduledTime: Date | null;
+}
+
+// Denormalized league table row — updated in place ($inc) as results come in,
+// so the table never needs to be recomputed from match history.
+export interface LeagueStanding {
+  teamId: Types.ObjectId;
+  name: string;
+  logo: string;
+  played: number;
+  wins: number;
+  draws: number;
+  losses: number;
+  goalsFor: number;
+  goalsAgainst: number;
+  goalDifference: number;
+  points: number;
+}
+
 @Schema({ timestamps: true })
 export class Tournament extends AbstractDocument {
   @Prop({ required: true })
@@ -49,19 +77,62 @@ export class Tournament extends AbstractDocument {
   @Prop({ type: String, enum: Object.values(TournamentStatus), default: TournamentStatus.REGISTRATION })
   status: TournamentStatus;
 
-  // Must be 8, 16, or 32
+  // Determines whether the tournament runs as a knockout bracket or a
+  // round-robin league — drives which of bracket/{fixtures,standings} is used.
+  @Prop({ type: String, enum: Object.values(TournamentType), default: TournamentType.KNOCKOUT })
+  type: TournamentType;
+
+  @Prop({ default: 90 })
+  minutesPerMatch: number;
+
+  @Prop({ default: 5 })
+  playersPerTeam: number;
+
+  // Knockout: must be 8, 16, or 32. League: any number >= 2.
   @Prop({ default: 8 })
   maxTeams: number;
+
+  @Prop({ type: [String], default: [] })
+  pitches: string[];
+
+  @Prop({ type: [String], default: [] })
+  teamPrizes: string[];
+
+  @Prop({ type: [String], default: [] })
+  playerPrizes: string[];
+
+  @Prop({ type: [String], default: [] })
+  rules: string[];
 
   @Prop({ type: [{ type: Types.ObjectId, ref: 'Team' }], default: [] })
   registeredTeams: Types.ObjectId[];
 
+  // ─── Knockout-only ─────────────────────────────────────────────────────────
   // Full bracket — all rounds embedded. Team names/logos are denormalized
   // into each match slot so the bracket can be served without extra queries.
   @Prop({ type: [Object], default: [] })
   bracket: BracketMatch[];
 
-  // Set when the final is completed
+  // ─── League-only ───────────────────────────────────────────────────────────
+  // Round-robin fixture list, generated on start.
+  @Prop({ type: [Object], default: [] })
+  fixtures: LeagueFixture[];
+
+  // Denormalized league table — each row updated in place via $inc as
+  // results are recorded, so the table is always O(1) to update and read.
+  @Prop({ type: [Object], default: [] })
+  standings: LeagueStanding[];
+
+  // O(1) "is the league finished?" check — incremented alongside each
+  // result instead of scanning fixtures for completed === true.
+  @Prop({ default: 0 })
+  totalFixtures: number;
+
+  @Prop({ default: 0 })
+  completedFixtures: number;
+
+  // Set when the tournament is completed (final winner for knockout,
+  // table-topper for league)
   @Prop({ type: Object, default: null })
   winner: TeamSlot | null;
 

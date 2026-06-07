@@ -11,6 +11,7 @@ describe('MatchesService', () => {
     findOneAndPopulate: jest.Mock;
     findOneAndUpdate: jest.Mock;
     findAndPopulate: jest.Mock;
+    findRaw: jest.Mock;
     insertMany: jest.Mock;
     IncrementMatchScore: jest.Mock;
     RedecrementMatchScore: jest.Mock;
@@ -18,7 +19,8 @@ describe('MatchesService', () => {
     viewMatchDetailsDeep: jest.Mock;
   };
   let setRepository: { find: jest.Mock };
-  let sessionRepository: { findOne: jest.Mock };
+  let sessionRepository: { findOne: jest.Mock; findRaw: jest.Mock };
+  let locationRepository: { findRaw: jest.Mock };
   let matchEventService: { emitMatchScoreUpdate: jest.Mock };
   let sessionPaymentService: { areAllPaymentsCompleted: jest.Mock };
 
@@ -26,6 +28,18 @@ describe('MatchesService', () => {
   const matchId = new Types.ObjectId();
   const teamOneId = new Types.ObjectId();
   const teamTwoId = new Types.ObjectId();
+  const locationId = new Types.ObjectId();
+  const ownerId = new Types.ObjectId();
+
+  // Mocks the `findRaw().findById().select().lean()` chain used by
+  // assertLocationOwner — resolves to `result` regardless of the filter passed in.
+  const leanChain = (result: any) => ({
+    findById: jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue(result),
+      }),
+    }),
+  });
 
   beforeEach(() => {
     matchRepository = {
@@ -34,6 +48,7 @@ describe('MatchesService', () => {
       findOneAndPopulate: jest.fn(),
       findOneAndUpdate: jest.fn(),
       findAndPopulate: jest.fn(),
+      findRaw: jest.fn(),
       insertMany: jest.fn(),
       IncrementMatchScore: jest.fn(),
       RedecrementMatchScore: jest.fn(),
@@ -41,16 +56,23 @@ describe('MatchesService', () => {
       viewMatchDetailsDeep: jest.fn(),
     };
     setRepository = { find: jest.fn() };
-    sessionRepository = { findOne: jest.fn() };
+    sessionRepository = { findOne: jest.fn(), findRaw: jest.fn() };
+    locationRepository = { findRaw: jest.fn() };
     matchEventService = {
       emitMatchScoreUpdate: jest.fn().mockResolvedValue(undefined),
     };
     sessionPaymentService = { areAllPaymentsCompleted: jest.fn() };
 
+    // Happy-path ownership chain: match -> session -> location owned by `ownerId`
+    matchRepository.findRaw.mockReturnValue(leanChain({ session: sessionId }));
+    sessionRepository.findRaw.mockReturnValue(leanChain({ location: locationId }));
+    locationRepository.findRaw.mockReturnValue(leanChain({ owner: ownerId }));
+
     service = new MatchesService(
       matchRepository as any,
       setRepository as any,
       sessionRepository as any,
+      locationRepository as any,
       matchEventService as any,
       sessionPaymentService as any,
     );
@@ -166,7 +188,7 @@ describe('MatchesService', () => {
         isStarted: true,
       });
 
-      await expect(service.startMatch(matchId.toString())).resolves.toEqual({
+      await expect(service.startMatch(matchId.toString(), ownerId.toString())).resolves.toEqual({
         message: 'Alpha vs Beta is underway',
         match: { _id: matchId, isStarted: true },
       });
@@ -202,7 +224,7 @@ describe('MatchesService', () => {
       matchRepository.IncrementMatchScore.mockResolvedValue(updatedMatch);
 
       await expect(
-        service.incrementMatchScore(matchId.toString(), 'teamOne'),
+        service.incrementMatchScore(matchId.toString(), 'teamOne', ownerId.toString()),
       ).resolves.toBe(updatedMatch);
 
       expect(matchEventService.emitMatchScoreUpdate).toHaveBeenCalledWith(
@@ -226,6 +248,7 @@ describe('MatchesService', () => {
           matchId.toString(),
           new Types.ObjectId().toString(),
           'teamOne',
+          ownerId.toString(),
         ),
       ).rejects.toMatchObject({ status: HttpStatus.BAD_REQUEST });
 
@@ -242,7 +265,7 @@ describe('MatchesService', () => {
       matchRepository.addGoalScorer.mockResolvedValue(updatedMatch);
 
       await expect(
-        service.recordGoalScorer(matchId.toString(), playerId, 'teamTwo'),
+        service.recordGoalScorer(matchId.toString(), playerId, 'teamTwo', ownerId.toString()),
       ).resolves.toBe(updatedMatch);
 
       expect(matchEventService.emitMatchScoreUpdate).toHaveBeenCalledWith(

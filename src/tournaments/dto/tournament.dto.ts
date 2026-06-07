@@ -1,5 +1,6 @@
-import { IsNotEmpty, IsString, IsNumber, IsOptional, IsDate, IsMongoId, IsIn, Min } from 'class-validator';
+import { IsNotEmpty, IsString, IsNumber, IsInt, IsOptional, IsDate, IsMongoId, IsIn, IsEnum, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
+import { TournamentType } from '@app/common';
 
 export class CreateTournamentDto {
   @IsNotEmpty()
@@ -9,6 +10,12 @@ export class CreateTournamentDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  // Determines whether /:id/start generates a knockout bracket or a
+  // round-robin league (fixtures + standings table)
+  @IsNotEmpty()
+  @IsEnum(TournamentType, { message: 'type must be "knockout" or "league"' })
+  type: TournamentType;
 
   @IsNotEmpty()
   @IsNumber()
@@ -20,10 +27,39 @@ export class CreateTournamentDto {
   @Min(0)
   registrationFee: number;
 
-  // Must be 8, 16, or 32
   @IsNotEmpty()
-  @IsIn([8, 16, 32], { message: 'maxTeams must be 8, 16, or 32' })
+  @IsNumber()
+  @Min(1)
+  minutesPerMatch: number;
+
+  @IsNotEmpty()
+  @IsNumber()
+  @Min(1)
+  playersPerTeam: number;
+
+  // Knockout requires 8/16/32 (validated in the service); league accepts any
+  // value >= 2. Bounded here at the DTO level just to reject nonsense input.
+  @IsNotEmpty()
+  @IsInt()
+  @Min(2)
+  @Max(32)
   maxTeams: number;
+
+  @IsOptional()
+  @IsString({ each: true })
+  pitches?: string[];
+
+  @IsOptional()
+  @IsString({ each: true })
+  teamPrizes?: string[];
+
+  @IsOptional()
+  @IsString({ each: true })
+  playerPrizes?: string[];
+
+  @IsOptional()
+  @IsString({ each: true })
+  rules?: string[];
 
   @IsNotEmpty()
   @IsDate()

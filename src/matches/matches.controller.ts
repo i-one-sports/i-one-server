@@ -57,8 +57,9 @@ export class MatchesController {
   }
 
   @Post('start/:matchId')
-  async startMatchInSession(@Param('matchId') matchId: string) {
-    return this.matchesService.startMatch(matchId);
+  async startMatchInSession(@Param('matchId') matchId: string, @CurrentUser() user: any) {
+    const userId = user?._id?.toString() || user?.id?.toString();
+    return this.matchesService.startMatch(matchId, userId);
   }
 
   @Get('details/:matchId')
@@ -72,29 +73,36 @@ export class MatchesController {
   async recordGoalScorer(
     @Param('matchId') matchId: string,
     @Body() data: RecordGoalScorerDto,
+    @CurrentUser() user: any,
   ) {
-    return this.matchesService.recordGoalScorer(matchId, data.playerId, data.team);
+    const userId = user?._id?.toString() || user?.id?.toString();
+    return this.matchesService.recordGoalScorer(matchId, data.playerId, data.team, userId);
   }
 
   @Post('end/:matchId')
-  async endMatchInSession(@Param('matchId') matchId: string) {
-    return this.matchesService.endMatch(matchId);
+  async endMatchInSession(@Param('matchId') matchId: string, @CurrentUser() user: any) {
+    const userId = user?._id?.toString() || user?.id?.toString();
+    return this.matchesService.endMatch(matchId, userId);
   }
 
   @Put('increment-score/:matchId')
   async incrementMatchScore(
     @Param('matchId') matchId: string,
     @Query('team') team: 'teamOne' | 'teamTwo',
+    @CurrentUser() user: any,
   ) {
-    return this.matchesService.incrementMatchScore(matchId, team);
+    const userId = user?._id?.toString() || user?.id?.toString();
+    return this.matchesService.incrementMatchScore(matchId, team, userId);
   }
 
   @Put('decrement-score/:matchId')
   async decrementMatchScore(
     @Param('matchId') matchId: string,
     @Query('team') team: 'teamOne' | 'teamTwo',
+    @CurrentUser() user: any,
   ) {
-    return this.matchesService.decrementMatchScore(matchId, team);
+    const userId = user?._id?.toString() || user?.id?.toString();
+    return this.matchesService.decrementMatchScore(matchId, team, userId);
   }
 
   @Sse('stream/:matchId')

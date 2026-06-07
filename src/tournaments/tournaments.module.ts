@@ -8,6 +8,7 @@ import { TournamentsService } from './tournaments.service';
 import { TournamentRepository } from './tournaments.repository';
 import { TournamentsController } from './tournaments.controller';
 import { LocationRepository } from 'src/locations/locations.repository';
+import { TournamentEventService } from './tournament-event.service';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { LocationRepository } from 'src/locations/locations.repository';
     TournamentRepository,
     TeamsService,
     TournamentsService,
+    TournamentEventService,
   ],
   exports: [TeamsService, TournamentsService],
 })
