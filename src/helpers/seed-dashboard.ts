@@ -7,6 +7,7 @@
  * It will print the locationId and ownerId to use in your API requests.
  */
 
+import 'dotenv/config';
 import mongoose, { model, Types } from 'mongoose';
 import { faker } from '@faker-js/faker';
 import * as bcrypt from 'bcrypt';
@@ -123,9 +124,11 @@ function daysFromNow(n: number): Date {
 // ─── Seed ─────────────────────────────────────────────────────────────────────
 
 async function seed() {
-  await mongoose.connect(
-    'mongodb+srv://afkione:GXYZB1sXiyNLfjoF@i-one.bbgiqi0.mongodb.net/i-one?retryWrites=true&w=majority&appName=i-One',
-  );
+  const mongoUri = process.env.MONGODB_URI;
+  if (!mongoUri) {
+    throw new Error('MONGODB_URI is not set in the environment');
+  }
+  await mongoose.connect(mongoUri);
 
   hashedPassword = await bcrypt.hash(PLAIN_PASSWORD, 10);
 

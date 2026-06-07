@@ -1,10 +1,14 @@
+import 'dotenv/config';
 import mongoose, { model, Types } from 'mongoose';
 import { SessionSchema, Session } from '@app/common/schemas/session.schema';
 import { SetSchema, Set } from '@app/common/schemas/sets.schema';
 import { MatchSchema, Match } from '@app/common/schemas/match.schema';
 import { SessionPaymentSchema, SessionPayment, PaymentStatus } from '@app/common/schemas/session-payment.schema';
 
-const MONGO_URI = 'mongodb+srv://afkione:GXYZB1sXiyNLfjoF@i-one.bbgiqi0.mongodb.net/i-one?retryWrites=true&w=majority&appName=i-One';
+const MONGO_URI = process.env.MONGODB_URI;
+if (!MONGO_URI) {
+  throw new Error('MONGODB_URI is not set in the environment');
+}
 
 const SessionModel = model<Session>('Session', SessionSchema);
 const SetModel = model<Set>('Set', SetSchema);

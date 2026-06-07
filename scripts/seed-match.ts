@@ -3,11 +3,14 @@
  * Run: npx ts-node -r tsconfig-paths/register scripts/seed-match.ts
  */
 
+import 'dotenv/config';
 import mongoose, { Types } from 'mongoose';
 import * as bcrypt from 'bcrypt';
 
-const MONGO_URI =
-  'mongodb+srv://afkione:GXYZB1sXiyNLfjoF@i-one.bbgiqi0.mongodb.net/i-one?retryWrites=true&w=majority&appName=i-One';
+const MONGO_URI = process.env.MONGODB_URI;
+if (!MONGO_URI) {
+  throw new Error('MONGODB_URI is not set in the environment');
+}
 
 const LOCATION_ID = new Types.ObjectId('69a85fb8c23b3d324b49a6e3');
 

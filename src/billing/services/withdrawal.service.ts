@@ -217,7 +217,7 @@ export class WithdrawalService {
         },
         transferData,
       };
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(`Withdrawal failed: ${error.message}`);
       throw new BadRequestException('Withdrawal request failed. Please try again later.');
     }

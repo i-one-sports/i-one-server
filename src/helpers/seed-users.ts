@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { UserSchema, User, PLAYER_POSITION } from '@app/common';
 import { faker } from '@faker-js/faker'
 import mongoose, { model, Model, Mongoose } from 'mongoose';
@@ -23,7 +24,11 @@ export const userSeeder = (): Partial<User> => {
 
 export const populateDb = async (): Promise<any> => {
 try{
-  await mongoose.connect('mongodb+srv://afkione:GXYZB1sXiyNLfjoF@i-one.bbgiqi0.mongodb.net/i-one?retryWrites=true&w=majority&appName=i-One');
+  const mongoUri = process.env.MONGODB_URI;
+  if (!mongoUri) {
+    throw new Error('MONGODB_URI is not set in the environment');
+  }
+  await mongoose.connect(mongoUri);
     const users = Array.from({ length: 15 }, userSeeder);
     await userModel.insertMany(users);
 }catch(error: any){
