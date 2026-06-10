@@ -16,12 +16,13 @@
 13. [Stats](#stats)
 14. [Captains](#captains)
 15. [Wallet & Payments](#wallet--payments)
-16. [Location Billing](#location-billing) — owner transaction history & team payment validator
-17. [Notifications](#notifications)
-18. [Admin](#admin)
-19. [Webhooks](#webhooks)
-20. [Error Handling](#error-handling)
-21. [Types & Interfaces](#types--interfaces)
+16. [Banks](#banks)
+17. [Location Billing](#location-billing) — owner transaction history & team payment validator
+18. [Notifications](#notifications)
+19. [Admin](#admin)
+20. [Webhooks](#webhooks)
+21. [Error Handling](#error-handling)
+22. [Types & Interfaces](#types--interfaces)
 
 ---
 
@@ -1962,6 +1963,42 @@ Withdraw funds to a bank account.
 **Error Responses**:
 - `400` — insufficient balance
 - `404` — no default bank account found
+
+---
+
+## Banks
+
+Reference list of supported banks, synced from Paystack via `npx ts-node -r tsconfig-paths/register scripts/seed-banks.ts`. Used to populate bank-selection dropdowns when adding a `POST /wallet/bank-accounts` entry.
+
+### GET /banks
+List all active banks (Nigeria, NGN by default).
+
+**Auth required**: Yes (JWT cookie)
+
+**Caching**: The result is cached **in-memory for 24 hours** per server instance — the first request after startup (or cache expiry) reads from MongoDB, every subsequent request across all users is served from memory with no DB hit.
+
+**Success Response** `200 OK`:
+```json
+[
+  {
+    "_id": "...",
+    "paystackId": 1,
+    "name": "Access Bank",
+    "slug": "access-bank",
+    "code": "044",
+    "longcode": "044150149",
+    "gateway": "emandate",
+    "payWithBank": false,
+    "supportsTransfer": true,
+    "availableForDirectDebit": true,
+    "active": true,
+    "country": "Nigeria",
+    "currency": "NGN",
+    "type": "nuban",
+    "isDeleted": false
+  }
+]
+```
 
 ---
 

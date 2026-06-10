@@ -22,6 +22,7 @@ import { VerificationModule } from './verification/verification.module';
 import { CacheModule } from './cache/cache.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { RedisModule } from './redis/redis.module';
+import { BanksModule } from './banks/banks.module';
 
 
 @Injectable()
@@ -64,7 +65,8 @@ class RootCronService {
     VerificationModule,
     CacheModule,
     RedisModule,
-    NotificationsModule
+    NotificationsModule,
+    BanksModule,
   ],
   controllers: [AppController],
   providers: [
