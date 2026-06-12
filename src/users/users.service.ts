@@ -69,17 +69,13 @@ export class UsersService {
       userDto.nickname || this.buildOwnerNickname(formattedEmail);
 
     let bankAccount = null;
+    let accountName = null;
 
     this.logger.log(`Registering owner: ${formattedEmail}`);
 
     await this.checkExistingOwnerUser(formattedPhone, formattedEmail, nickname);
     await this.ensureLocationIsAvailable(locationDto.location.coordinates);
     this.validateOwnerLocationPricing(locationDto);
-
-    const accountName = await this.resolvePayoutAccount(
-      payout.accountNumber,
-      payout.bankCode,
-    );
 
     const hashedPassword = await bcrypt.hash(userDto.password, 10);
 
@@ -158,6 +154,11 @@ export class UsersService {
         //
 
         if (locationDto.tier === LOCATION_TIER.PAID) {
+          accountName = await this.resolvePayoutAccount(
+            payout.accountNumber,
+            payout.bankCode,
+          );
+
           bankAccount = await this.bankAccountRepository.create(
             {
               userId: user._id,
@@ -188,7 +189,7 @@ export class UsersService {
       message: 'Owner registration submitted successfully',
       user: this.toSafeUser(createdUser),
       location: createdLocation,
-      payout: createdBankAccount,
+      payout: createdBankAccount ?? {},
     };
   }
 
