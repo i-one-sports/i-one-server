@@ -53,7 +53,8 @@ export class UsersService {
     private readonly statsService: StatsService,
     private readonly cacheService: CacheService,
     @InjectModel(Team.name) private readonly teamModel: Model<Team>,
-    @InjectModel(Tournament.name) private readonly tournamentModel: Model<Tournament>,
+    @InjectModel(Tournament.name)
+    private readonly tournamentModel: Model<Tournament>,
     private readonly locationRepository: LocationRepository,
     private readonly bankAccountRepository: BankAccountRepository,
     private readonly paystackService: PaystackService,
@@ -64,18 +65,17 @@ export class UsersService {
     const { user: userDto, location: locationDto, payout } = request;
     const formattedEmail = userDto.email.toLowerCase();
     const formattedPhone = internationalisePhoneNumber(userDto.phoneNumber);
-    const nickname = userDto.nickname || this.buildOwnerNickname(formattedEmail);
+    const nickname =
+      userDto.nickname || this.buildOwnerNickname(formattedEmail);
+
+    let bankAccount = null;
+    let accountName = null;
 
     this.logger.log(`Registering owner: ${formattedEmail}`);
 
     await this.checkExistingOwnerUser(formattedPhone, formattedEmail, nickname);
     await this.ensureLocationIsAvailable(locationDto.location.coordinates);
     this.validateOwnerLocationPricing(locationDto);
-
-    const accountName = await this.resolvePayoutAccount(
-      payout.accountNumber,
-      payout.bankCode,
-    );
 
     const hashedPassword = await bcrypt.hash(userDto.password, 10);
 
@@ -125,30 +125,53 @@ export class UsersService {
           locationPayload.pricingOption = locationDto.pricingOption;
 
           if (locationDto.pricingOption === LOCATION_PRICING_OPTION.HOURLY) {
-            locationPayload.paymentPerPersonHourly = locationDto.paymentPerPersonHourly;
+            locationPayload.paymentPerPersonHourly =
+              locationDto.paymentPerPersonHourly;
           }
 
           if (locationDto.pricingOption === LOCATION_PRICING_OPTION.MONTHLY) {
-            locationPayload.paymentPerPersonMonthly = locationDto.paymentPerPersonMonthly;
+            locationPayload.paymentPerPersonMonthly =
+              locationDto.paymentPerPersonMonthly;
           }
         }
 
         const location = await this.locationRepository.create(locationPayload, {
           session,
         });
+        //
+        // const bankAccount = await this.bankAccountRepository.create(
+        //   {
+        //     userId: user._id,
+        //     accountNumber: payout.accountNumber,
+        //     bankCode: payout.bankCode,
+        //     bankName: payout.bankName,
+        //     accountName,
+        //     isDefault: true,
+        //     status: 'PENDING',
+        //   },
+        //   { session },
+        // );
+        //
 
-        const bankAccount = await this.bankAccountRepository.create(
-          {
-            userId: user._id,
-            accountNumber: payout.accountNumber,
-            bankCode: payout.bankCode,
-            bankName: payout.bankName,
-            accountName,
-            isDefault: true,
-            status: 'PENDING',
-          },
-          { session },
-        );
+        if (locationDto.tier === LOCATION_TIER.PAID) {
+          accountName = await this.resolvePayoutAccount(
+            payout.accountNumber,
+            payout.bankCode,
+          );
+
+          bankAccount = await this.bankAccountRepository.create(
+            {
+              userId: user._id,
+              accountNumber: payout.accountNumber,
+              bankCode: payout.bankCode,
+              bankName: payout.bankName,
+              accountName,
+              isDefault: true,
+              status: 'PENDING',
+            },
+            { session },
+          );
+        }
 
         return {
           createdUser: user,
@@ -166,7 +189,7 @@ export class UsersService {
       message: 'Owner registration submitted successfully',
       user: this.toSafeUser(createdUser),
       location: createdLocation,
-      payout: createdBankAccount,
+      payout: createdBankAccount ?? {},
     };
   }
 
@@ -187,7 +210,7 @@ export class UsersService {
   }: registerUserRequest) {
     this.logger.log(`Registering user: ${email} (${nickname})`);
     const formattedPhone = internationalisePhoneNumber(phoneNumber);
-    const formattedEmail = email.toLowerCase()
+    const formattedEmail = email.toLowerCase();
     await this.checkExistingUser(phoneNumber, email, nickname);
 
     const payload: Partial<User> = {
@@ -209,11 +232,15 @@ export class UsersService {
     try {
       const user = await this.usersRepository.create(payload);
       await this.statsService.initializeStat(user._id.toString());
-      this.sendWelcomeEmail(user).catch(err => console.error('Welcome email failed:', err));
+      this.sendWelcomeEmail(user).catch((err) =>
+        console.error('Welcome email failed:', err),
+      );
       this.logger.log(`User registered successfully: ${user._id} (${email})`);
       return user;
     } catch (error: any) {
-      this.logger.error(`User registration failed for ${email}: ${error.message}`);
+      this.logger.error(
+        `User registration failed for ${email}: ${error.message}`,
+      );
       throw new CustomHttpException(
         `can not process request. Try again later ${JSON.stringify(error)}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -234,9 +261,10 @@ export class UsersService {
 
   private toSafeUser(user: User): Omit<User, 'password'> {
     const maybeDocument = user as User & { toObject?: () => User };
-    const rawUser = typeof maybeDocument.toObject === 'function'
-      ? maybeDocument.toObject()
-      : user;
+    const rawUser =
+      typeof maybeDocument.toObject === 'function'
+        ? maybeDocument.toObject()
+        : user;
     const { password, ...safeUser } = rawUser;
     return safeUser;
   }
@@ -292,11 +320,15 @@ export class UsersService {
     }
   }
 
-  private validateOwnerLocationPricing(location: RegisterOwnerRequest['location']) {
+  private validateOwnerLocationPricing(
+    location: RegisterOwnerRequest['location'],
+  ) {
     if (location.tier !== LOCATION_TIER.PAID) return;
 
     if (!location.pricingOption) {
-      throw new BadRequestException('pricingOption is required for paid locations');
+      throw new BadRequestException(
+        'pricingOption is required for paid locations',
+      );
     }
 
     if (
@@ -310,7 +342,8 @@ export class UsersService {
 
     if (
       location.pricingOption === LOCATION_PRICING_OPTION.MONTHLY &&
-      (!location.paymentPerPersonMonthly || location.paymentPerPersonMonthly <= 0)
+      (!location.paymentPerPersonMonthly ||
+        location.paymentPerPersonMonthly <= 0)
     ) {
       throw new BadRequestException(
         'paymentPerPersonMonthly must be greater than 0 for monthly pricing',
@@ -332,7 +365,9 @@ export class UsersService {
 
       return accountName;
     } catch (error) {
-      this.logger.error(`Failed to resolve owner payout account: ${error.message}`);
+      this.logger.error(
+        `Failed to resolve owner payout account: ${error.message}`,
+      );
       throw new BadRequestException('Unable to verify bank account');
     }
   }
@@ -438,14 +473,22 @@ export class UsersService {
   }
 
   async sendEmailVerification({ email }: SendEmailVerifyDto) {
-    const user = await this.usersRepository.findOne({ email: email.toLowerCase() });
+    const user = await this.usersRepository.findOne({
+      email: email.toLowerCase(),
+    });
 
     if (!user) {
-      throw new CustomHttpException('User with email does not exist', HttpStatus.NOT_FOUND);
+      throw new CustomHttpException(
+        'User with email does not exist',
+        HttpStatus.NOT_FOUND,
+      );
     }
 
     if (user.emailVerified) {
-      throw new CustomHttpException('Email is already verified', HttpStatus.CONFLICT);
+      throw new CustomHttpException(
+        'Email is already verified',
+        HttpStatus.CONFLICT,
+      );
     }
 
     const otp = crypto.randomInt(100000, 999999);
@@ -459,7 +502,9 @@ export class UsersService {
         'Verify your email',
         `Your email verification OTP is ${otp}. It is valid for 10 minutes.`,
       )
-      .catch((err) => this.logger.error(`Email verification mail failed: ${err.message}`));
+      .catch((err) =>
+        this.logger.error(`Email verification mail failed: ${err.message}`),
+      );
 
     return { message: 'Verification OTP sent to your email' };
   }
@@ -469,7 +514,10 @@ export class UsersService {
     const stored = await this.cacheService.get(key);
 
     if (!stored || parseInt(stored, 10) !== otp) {
-      throw new CustomHttpException('Invalid or expired OTP', HttpStatus.UNAUTHORIZED);
+      throw new CustomHttpException(
+        'Invalid or expired OTP',
+        HttpStatus.UNAUTHORIZED,
+      );
     }
 
     await this.usersRepository.findOneAndUpdate(
@@ -580,7 +628,10 @@ export class UsersService {
     return updatedUser;
   }
 
-  async promoteUser(userId: string, role: USER_ROLE.ADMIN | USER_ROLE.SUPER_ADMIN) {
+  async promoteUser(
+    userId: string,
+    role: USER_ROLE.ADMIN | USER_ROLE.SUPER_ADMIN,
+  ) {
     const user = await this.usersRepository.findOne({ _id: userId });
     if (!user) {
       throw new CustomHttpException('User not found', HttpStatus.NOT_FOUND);
@@ -594,20 +645,32 @@ export class UsersService {
     return { message: `User role set to ${role}`, user: updated };
   }
 
-  public async changePassword(userId: string, dto: ChangePasswordDto): Promise<{ message: string }> {
+  public async changePassword(
+    userId: string,
+    dto: ChangePasswordDto,
+  ): Promise<{ message: string }> {
     const user = await this.usersRepository.findOne({ _id: userId });
 
     if (!user) {
       throw new CustomHttpException('User not found', HttpStatus.NOT_FOUND);
     }
 
-    const isCorrectPassword = await bcrypt.compare(dto.oldPassword, user.password);
+    const isCorrectPassword = await bcrypt.compare(
+      dto.oldPassword,
+      user.password,
+    );
     if (!isCorrectPassword) {
-      throw new CustomHttpException('Old password is incorrect', HttpStatus.UNAUTHORIZED);
+      throw new CustomHttpException(
+        'Old password is incorrect',
+        HttpStatus.UNAUTHORIZED,
+      );
     }
 
     if (dto.newPassword !== dto.confirmNewPassword) {
-      throw new CustomHttpException('Passwords do not match', HttpStatus.CONFLICT);
+      throw new CustomHttpException(
+        'Passwords do not match',
+        HttpStatus.CONFLICT,
+      );
     }
 
     await this.usersRepository.findOneAndUpdate(
@@ -620,7 +683,8 @@ export class UsersService {
 
   public async deleteAccount(userId: string): Promise<{ message: string }> {
     const user = await this.usersRepository.findOne({ _id: userId });
-    if (!user) throw new CustomHttpException('User not found', HttpStatus.NOT_FOUND);
+    if (!user)
+      throw new CustomHttpException('User not found', HttpStatus.NOT_FOUND);
 
     // Blocker 1: active session
     if (user.currentSession) {
@@ -639,7 +703,10 @@ export class UsersService {
       const teamIds = teams.map((t) => t._id);
       const activeTournament = await this.tournamentModel
         .findOne(
-          { registeredTeams: { $in: teamIds }, status: { $in: ['registration', 'started'] } },
+          {
+            registeredTeams: { $in: teamIds },
+            status: { $in: ['registration', 'started'] },
+          },
           { name: 1 },
         )
         .lean();

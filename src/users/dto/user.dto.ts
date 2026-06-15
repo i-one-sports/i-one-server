@@ -87,7 +87,7 @@ export class registerUserRequest {
 
   @IsString()
   @IsOptional()
-  avatar?: string
+  avatar?: string;
 
   @IsString()
   @IsNotEmpty()
@@ -111,7 +111,7 @@ export class registerUserRequest {
 
   @IsBoolean()
   @IsOptional()
-  isOwner?: boolean
+  isOwner?: boolean;
 
   @IsNumber()
   @IsNotEmpty()
@@ -197,7 +197,9 @@ export class RegisterOwnerLocationDto {
   @IsNotEmpty()
   tier: LOCATION_TIER;
 
-  @ValidateIf((dto: RegisterOwnerLocationDto) => dto.tier === LOCATION_TIER.PAID)
+  @ValidateIf(
+    (dto: RegisterOwnerLocationDto) => dto.tier === LOCATION_TIER.PAID,
+  )
   @IsEnum(LOCATION_PRICING_OPTION)
   @IsNotEmpty()
   pricingOption?: LOCATION_PRICING_OPTION;
@@ -232,16 +234,16 @@ export class RegisterOwnerLocationDto {
 
 export class RegisterOwnerPayoutDto {
   @IsString()
-  @IsNotEmpty()
-  bankCode: string;
+  @IsOptional()
+  bankCode?: string;
 
   @IsString()
-  @IsNotEmpty()
-  bankName: string;
+  @IsOptional()
+  bankName?: string;
 
   @IsString()
-  @IsNotEmpty()
-  accountNumber: string;
+  @IsOptional()
+  accountNumber?: string;
 }
 
 export class RegisterOwnerRequest {
