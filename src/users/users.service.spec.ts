@@ -31,7 +31,10 @@ describe('UsersService', () => {
     create: jest.Mock;
     findRaw: jest.Mock;
   };
-  let mailService: { sendMail: jest.Mock };
+  let mailService: {
+    sendMail: jest.Mock;
+    sendEmailVerificationOtp: jest.Mock;
+  };
   let statsService: { initializeStat: jest.Mock };
   let cacheService: { set: jest.Mock; get: jest.Mock; delete: jest.Mock };
   let teamModel: { find: jest.Mock };
@@ -54,7 +57,10 @@ describe('UsersService', () => {
       create: jest.fn(),
       findRaw: jest.fn(),
     };
-    mailService = { sendMail: jest.fn().mockResolvedValue(undefined) };
+    mailService = {
+      sendMail: jest.fn().mockResolvedValue(undefined),
+      sendEmailVerificationOtp: jest.fn().mockResolvedValue(undefined),
+    };
     statsService = { initializeStat: jest.fn().mockResolvedValue(undefined) };
     cacheService = {
       set: jest.fn().mockResolvedValue(undefined),
@@ -402,10 +408,9 @@ describe('UsersService', () => {
         '654321',
         600,
       );
-      expect(mailService.sendMail).toHaveBeenCalledWith(
+      expect(mailService.sendEmailVerificationOtp).toHaveBeenCalledWith(
         'jane@example.com',
-        'Verify your email',
-        expect.stringContaining('654321'),
+        654321,
       );
     });
 

@@ -497,11 +497,7 @@ export class UsersService {
     await this.cacheService.set(key, otp.toString(), this.EMAIL_VERIFY_TTL);
 
     this.mailService
-      .sendMail(
-        user.email,
-        'Verify your email',
-        `Your email verification OTP is ${otp}. It is valid for 10 minutes.`,
-      )
+      .sendEmailVerificationOtp(user.email, otp)
       .catch((err) =>
         this.logger.error(`Email verification mail failed: ${err.message}`),
       );
