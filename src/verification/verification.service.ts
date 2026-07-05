@@ -8,6 +8,8 @@ import { UserRepository } from '../users/users.repository';
 import { WithdrawalService } from '../billing/services/withdrawal.service';
 import { LocationRepository } from '../locations/locations.repository';
 import { LOCATION_STATUS, OWNER_ONBOARDING_STATUS } from '@app/common';
+import { Wallet } from '@app/common/schemas/wallet.schema';
+import { DedicatedVirtualAccount } from '@app/common/schemas/dva.schema';
 
 @Injectable()
 export class VerificationService {
@@ -129,6 +131,42 @@ export class VerificationService {
   async approveVerification(verificationId: string) {
     this.logger.log(`Approving verification: ${verificationId}`);
 
+    const verification = await this.verificationRepository.findOne({
+      _id: new Types.ObjectId(verificationId),
+    });
+
+    if (!verification) {
+      throw new NotFoundException('Verification not found');
+    }
+
+    if (verification.status === 'APPROVED') {
+      throw new BadRequestException('Verification is already approved');
+    }
+
+    const user = await this.userRepository.findOne({ _id: verification.userId });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Create (or, on retry, reuse) the wallet and DVA *before* touching the
+    // verification/user status. If this fails, nothing below runs, so the
+    // verification stays exactly as it was and the admin can safely retry
+    // instead of getting stuck on "already approved" with no wallet.
+    let wallet: Wallet;
+    let dva: DedicatedVirtualAccount;
+    try {
+      ({ wallet, dva } = await this.walletService.createWalletWithDVA(
+        verification.userId,
+        user.email,
+        user.firstName,
+        user.lastName,
+        user.phoneNumber,
+      ));
+    } catch (error: any ) {
+      this.logger.error(`Failed to create wallet and DVA: ${error.message}`);
+      throw new InternalServerErrorException('Failed to create wallet, verification was not approved. Please retry.');
+    }
+
     const updatedVerification = await this.verificationRepository.findOneAndUpdate(
       {
         _id: new Types.ObjectId(verificationId),
@@ -138,69 +176,54 @@ export class VerificationService {
     );
 
     if (!updatedVerification) {
-      const verification = await this.verificationRepository.findOne({
-        _id: new Types.ObjectId(verificationId)
-      });
-
-      if (!verification) {
-        throw new NotFoundException('Verification not found');
-      }
-
+      // Lost a race with a concurrent approval; the wallet/DVA created above
+      // is still valid and idempotent, so this isn't wasted work.
       throw new BadRequestException('Verification is already approved');
     }
 
-    try {
-      const user = await this.userRepository.findOne({ _id: updatedVerification.userId });
-      if (!user) {
-        throw new NotFoundException('User not found');
+    await this.userRepository.findOneAndUpdate(
+      { _id: verification.userId },
+      {
+        isOwner: true,
+        walletId: wallet._id,
+        ownerOnboardingStatus: OWNER_ONBOARDING_STATUS.APPROVED,
       }
+    );
 
-      const { wallet, dva } = await this.walletService.createWalletWithDVA(
-        updatedVerification.userId,
-        user.email,
-        user.firstName,
-        user.lastName,
-        user.phoneNumber,
-      );
-
-      await this.userRepository.findOneAndUpdate(
-        { _id: updatedVerification.userId },
-        {
-          isOwner: true,
-          walletId: wallet._id,
-          ownerOnboardingStatus: OWNER_ONBOARDING_STATUS.APPROVED,
-        }
-      );
-
+    // Best-effort side effects: the verification/user/wallet state above is
+    // already correctly committed, so a failure here shouldn't surface as an
+    // approval failure. Log it for follow-up instead.
+    try {
       await Promise.all([
         this.locationRepository.findRaw().updateMany(
           {
-            owner: updatedVerification.userId,
+            owner: verification.userId,
             status: LOCATION_STATUS.PENDING_VERIFICATION,
           },
           { $set: { status: LOCATION_STATUS.ACTIVE } },
         ),
         this.withdrawalService.activatePendingBankAccounts(
-          updatedVerification.userId.toString(),
+          verification.userId.toString(),
         ),
       ]);
-
-      this.logger.log(`Wallet and DVA created for user: ${updatedVerification.userId}`);
-
-      return {
-        message: 'Verification approved and wallet created successfully',
-        verification: updatedVerification,
-        wallet,
-        dva: {
-          accountNumber: dva.accountNumber,
-          bankName: dva.bankName,
-          accountName: dva.accountName,
-        },
-      };
-    } catch (error) {
-      this.logger.error(`Failed to create wallet and DVA: ${error.message}`);
-      throw new InternalServerErrorException('Verification approved but wallet creation failed');
+    } catch (error: any) {
+      this.logger.error(
+        `Verification approved but location/bank-account activation failed for user ${verification.userId}: ${error.message}`,
+      );
     }
+
+    this.logger.log(`Wallet and DVA created for user: ${verification.userId}`);
+
+    return {
+      message: 'Verification approved and wallet created successfully',
+      verification: updatedVerification,
+      wallet,
+      dva: {
+        accountNumber: dva.accountNumber,
+        bankName: dva.bankName,
+        accountName: dva.accountName,
+      },
+    };
   }
 
   async rejectVerification(verificationId: string, rejectionReason: string) {

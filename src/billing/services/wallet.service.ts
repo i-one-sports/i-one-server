@@ -5,6 +5,8 @@ import { DvaRepository } from '../repositories/dva.repository';
 import { PaystackService } from '@app/common/providers/paystack.service';
 import { Types } from 'mongoose';
 import { TransactionType, TransactionStatus, TransactionSource } from '@app/common/schemas/transaction.schema';
+import { Wallet } from '@app/common/schemas/wallet.schema';
+import { DedicatedVirtualAccount } from '@app/common/schemas/dva.schema';
 
 @Injectable()
 export class WalletService {
@@ -23,51 +25,63 @@ export class WalletService {
     firstName: string,
     lastName: string,
     phone?: string,
-  ) {
+  ): Promise<{ wallet: Wallet; dva: DedicatedVirtualAccount }> {
     this.logger.log(`Creating wallet and DVA for user: ${userId}`);
 
-    const existingWallet = await this.walletRepository.findOne({ userId });
-    if (existingWallet) {
-      throw new BadRequestException('Wallet already exists for this user');
+    // Idempotent: a prior call may have already created the wallet and/or DVA
+    // (e.g. a previous approval attempt that failed after this step). Reuse
+    // whatever already exists instead of throwing, so retries can succeed.
+    let wallet: Wallet | null = await this.walletRepository.findOne({ userId });
+    let dva: DedicatedVirtualAccount | null = wallet
+      ? await this.dvaRepository.findOne({ userId })
+      : null;
+
+    if (wallet && dva) {
+      this.logger.warn(`Wallet and DVA already exist for user: ${userId}, reusing existing records`);
+      return { wallet, dva };
     }
 
     try {
-      const wallet = await this.walletRepository.create({
-        userId,
-        balance: 0,
-        ledgerBalance: 0,
-        status: 'ACTIVE',
-        currency: 'NGN',
-      });
+      if (!wallet) {
+        wallet = await this.walletRepository.create({
+          userId,
+          balance: 0,
+          ledgerBalance: 0,
+          status: 'ACTIVE',
+          currency: 'NGN',
+        });
 
-      this.logger.log(`Created wallet: ${wallet._id} for user: ${userId}`);
+        this.logger.log(`Created wallet: ${wallet._id} for user: ${userId}`);
+      }
 
-      const customer = await this.paystackService.createCustomer(
-        email,
-        firstName,
-        lastName,
-        phone,
-      );
+      if (!dva) {
+        const customer = await this.paystackService.createCustomer(
+          email,
+          firstName,
+          lastName,
+          phone,
+        );
 
-      const dvaDetails = await this.paystackService.createDedicatedVirtualAccount(
-        customer.customer_code,
-        'titan-paystack',
-      );
+        const dvaDetails = await this.paystackService.createDedicatedVirtualAccount(
+          customer.customer_code,
+          'titan-paystack',
+        );
 
-      const dva = await this.dvaRepository.create({
-        userId,
-        walletId: wallet._id,
-        accountNumber: dvaDetails.account_number,
-        bankName: dvaDetails.bank.name,
-        bankCode: dvaDetails.bank.code,
-        accountName: dvaDetails.account_name,
-        paystackCustomerCode: customer.customer_code,
-        paystackAccountReference: dvaDetails.id,
-        status: 'ACTIVE',
-        currency: 'NGN',
-      });
+        dva = await this.dvaRepository.create({
+          userId,
+          walletId: wallet._id,
+          accountNumber: dvaDetails.account_number,
+          bankName: dvaDetails.bank.name,
+          bankCode: dvaDetails.bank.code,
+          accountName: dvaDetails.account_name,
+          paystackCustomerCode: customer.customer_code,
+          paystackAccountReference: dvaDetails.id,
+          status: 'ACTIVE',
+          currency: 'NGN',
+        });
 
-      this.logger.log(`Created DVA: ${dva.accountNumber} for user: ${userId}`);
+        this.logger.log(`Created DVA: ${dva.accountNumber} for user: ${userId}`);
+      }
 
       return { wallet, dva };
     } catch (error) {

@@ -24,6 +24,7 @@ describe('WalletService', () => {
   };
   let dvaRepository: {
     create: jest.Mock;
+    findOne: jest.Mock;
   };
   let paystackService: {
     createCustomer: jest.Mock;
@@ -45,6 +46,7 @@ describe('WalletService', () => {
     };
     dvaRepository = {
       create: jest.fn(),
+      findOne: jest.fn(),
     };
     paystackService = {
       createCustomer: jest.fn(),
@@ -124,15 +126,53 @@ describe('WalletService', () => {
       );
     });
 
-    it('rejects duplicate wallets before calling Paystack', async () => {
-      walletRepository.findOne.mockResolvedValue({ _id: walletId });
+    it('reuses an existing wallet and DVA without calling Paystack (retry-safe)', async () => {
+      const wallet = { _id: walletId, userId };
+      const dva = { _id: new Types.ObjectId(), userId, walletId };
+
+      walletRepository.findOne.mockResolvedValue(wallet);
+      dvaRepository.findOne.mockResolvedValue(dva);
 
       await expect(
         service.createWalletWithDVA(userId, 'jane@example.com', 'Jane', 'Doe'),
-      ).rejects.toThrow(BadRequestException);
+      ).resolves.toEqual({ wallet, dva });
 
       expect(paystackService.createCustomer).not.toHaveBeenCalled();
       expect(walletRepository.create).not.toHaveBeenCalled();
+      expect(dvaRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('creates only the missing DVA when a wallet already exists (partial-failure retry)', async () => {
+      const wallet = { _id: walletId, userId };
+      const dva = {
+        _id: new Types.ObjectId(),
+        userId,
+        walletId,
+        accountNumber: '1234567890',
+      };
+
+      walletRepository.findOne.mockResolvedValue(wallet);
+      dvaRepository.findOne.mockResolvedValue(null);
+      paystackService.createCustomer.mockResolvedValue({
+        customer_code: 'CUS_123',
+      });
+      paystackService.createDedicatedVirtualAccount.mockResolvedValue({
+        id: 99,
+        account_number: '1234567890',
+        account_name: 'Jane Doe',
+        bank: { name: 'Titan', code: '999' },
+      });
+      dvaRepository.create.mockResolvedValue(dva);
+
+      await expect(
+        service.createWalletWithDVA(userId, 'jane@example.com', 'Jane', 'Doe'),
+      ).resolves.toEqual({ wallet, dva });
+
+      expect(walletRepository.create).not.toHaveBeenCalled();
+      expect(paystackService.createCustomer).toHaveBeenCalled();
+      expect(dvaRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ userId, walletId: wallet._id }),
+      );
     });
   });
 
