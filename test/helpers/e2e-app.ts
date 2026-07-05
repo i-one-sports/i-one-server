@@ -24,6 +24,8 @@ export interface E2eTestApp {
 
 export const mockMailerService = {
   sendMail: jest.fn().mockResolvedValue(undefined),
+  sendEmailVerificationOtp: jest.fn().mockResolvedValue(undefined),
+  sendTemplateMail: jest.fn().mockResolvedValue(undefined),
 };
 
 export const mockAwsService = {
