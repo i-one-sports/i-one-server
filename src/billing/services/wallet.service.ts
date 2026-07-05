@@ -3,6 +3,7 @@ import { WalletRepository } from '../repositories/wallet.repository';
 import { TransactionRepository } from '../repositories/transaction.repository';
 import { DvaRepository } from '../repositories/dva.repository';
 import { PaystackService } from '@app/common/providers/paystack.service';
+import { ConfigService } from '@nestjs/config';
 import { Types } from 'mongoose';
 import { TransactionType, TransactionStatus, TransactionSource } from '@app/common/schemas/transaction.schema';
 import { Wallet } from '@app/common/schemas/wallet.schema';
@@ -17,6 +18,7 @@ export class WalletService {
     private readonly transactionRepository: TransactionRepository,
     private readonly dvaRepository: DvaRepository,
     private readonly paystackService: PaystackService,
+    private readonly configService: ConfigService,
   ) {}
 
   async createWalletWithDVA(
@@ -62,9 +64,10 @@ export class WalletService {
           phone,
         );
 
+        const preferredBank = this.configService.get<string>('PAYSTACK_PREFERRED_BANK', 'wema-bank');
         const dvaDetails = await this.paystackService.createDedicatedVirtualAccount(
           customer.customer_code,
-          'titan-paystack',
+          preferredBank,
         );
 
         dva = await this.dvaRepository.create({
