@@ -64,6 +64,9 @@ export class WalletService {
           phone,
         );
 
+        const bvn = this.configService.get<string>('PAYSTACK_TEST_BVN', '22123456789');
+        await this.paystackService.validateCustomer(customer.customer_code, bvn, firstName, lastName);
+
         const preferredBank = this.configService.get<string>('PAYSTACK_PREFERRED_BANK', 'wema-bank');
         const dvaDetails = await this.paystackService.createDedicatedVirtualAccount(
           customer.customer_code,

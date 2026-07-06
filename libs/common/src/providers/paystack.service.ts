@@ -111,6 +111,32 @@ export class PaystackService {
     }
   }
 
+  async validateCustomer(
+    customerCode: string,
+    bvn: string,
+    firstName: string,
+    lastName: string,
+  ) {
+    try {
+      const { data } = await this.axios.post(`/customer/${customerCode}/identification`, {
+        country: 'NG',
+        type: 'bvn',
+        value: bvn,
+        first_name: firstName,
+        last_name: lastName,
+      });
+
+      this.logger.log(`Customer validated: ${customerCode}`);
+      return data;
+    } catch (error: any) {
+      this.logger.error(
+        'Failed to validate customer',
+        error?.response?.data || error?.message,
+      );
+      throw error;
+    }
+  }
+
   async createDedicatedVirtualAccount(
     customerCode: string,
     preferredBank: string = 'wema-bank',

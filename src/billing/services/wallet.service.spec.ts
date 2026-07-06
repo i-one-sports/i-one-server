@@ -53,11 +53,14 @@ describe('WalletService', () => {
       createDedicatedVirtualAccount: jest.fn(),
     };
 
+    const configService = { get: jest.fn((key: string, fallback?: any) => fallback) };
+
     service = new WalletService(
       walletRepository as any,
       transactionRepository as any,
       dvaRepository as any,
       paystackService as any,
+      configService as any,
     );
   });
 
