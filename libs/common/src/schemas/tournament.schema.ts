@@ -154,5 +154,4 @@ export class Tournament extends AbstractDocument {
 
 export const TournamentSchema = SchemaFactory.createForClass(Tournament);
 TournamentSchema.index({ location: 1, status: 1 });
-TournamentSchema.index({ code: 1 });
 TournamentSchema.index({ organizer: 1 });

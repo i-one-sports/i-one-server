@@ -53,6 +53,4 @@ export class Bank extends AbstractDocument {
 
 export const BankSchema = SchemaFactory.createForClass(Bank);
 
-BankSchema.index({ code: 1 }, { unique: true });
 BankSchema.index({ name: 1 });
-BankSchema.index({ paystackId: 1 }, { unique: true });

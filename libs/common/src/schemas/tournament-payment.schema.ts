@@ -44,4 +44,3 @@ export const TournamentPaymentSchema = SchemaFactory.createForClass(TournamentPa
 TournamentPaymentSchema.index({ tournamentId: 1, teamId: 1 }, { unique: true });
 TournamentPaymentSchema.index({ tournamentId: 1, status: 1 });
 TournamentPaymentSchema.index({ ownerId: 1, status: 1, createdAt: -1 });
-TournamentPaymentSchema.index({ reference: 1 }, { unique: true });

@@ -30,6 +30,5 @@ export class WebhookEvent extends AbstractDocument {
 
 export const WebhookEventSchema = SchemaFactory.createForClass(WebhookEvent);
 
-WebhookEventSchema.index({ eventId: 1 }, { unique: true });
 WebhookEventSchema.index({ processed: 1, createdAt: -1 });
 WebhookEventSchema.index({ provider: 1, event: 1 });
