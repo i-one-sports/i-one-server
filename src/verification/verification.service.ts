@@ -9,7 +9,6 @@ import { WithdrawalService } from '../billing/services/withdrawal.service';
 import { LocationRepository } from '../locations/locations.repository';
 import { LOCATION_STATUS, OWNER_ONBOARDING_STATUS } from '@app/common';
 import { Wallet } from '@app/common/schemas/wallet.schema';
-import { DedicatedVirtualAccount } from '@app/common/schemas/dva.schema';
 
 @Injectable()
 export class VerificationService {
@@ -153,17 +152,10 @@ export class VerificationService {
     // verification stays exactly as it was and the admin can safely retry
     // instead of getting stuck on "already approved" with no wallet.
     let wallet: Wallet;
-    let dva: DedicatedVirtualAccount;
     try {
-      ({ wallet, dva } = await this.walletService.createWalletWithDVA(
-        verification.userId,
-        user.email,
-        user.firstName,
-        user.lastName,
-        user.phoneNumber,
-      ));
-    } catch (error: any ) {
-      this.logger.error(`Failed to create wallet and DVA: ${error.message}`);
+      wallet = await this.walletService.createWallet(verification.userId);
+    } catch (error: any) {
+      this.logger.error(`Failed to create wallet: ${error.message}`);
       throw new InternalServerErrorException('Failed to create wallet, verification was not approved. Please retry.');
     }
 
@@ -212,17 +204,12 @@ export class VerificationService {
       );
     }
 
-    this.logger.log(`Wallet and DVA created for user: ${verification.userId}`);
+    this.logger.log(`Wallet created for user: ${verification.userId}`);
 
     return {
       message: 'Verification approved and wallet created successfully',
       verification: updatedVerification,
       wallet,
-      dva: {
-        accountNumber: dva.accountNumber,
-        bankName: dva.bankName,
-        accountName: dva.accountName,
-      },
     };
   }
 

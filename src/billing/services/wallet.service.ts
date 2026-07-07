@@ -1,13 +1,23 @@
-import { Injectable, Logger, NotFoundException, BadRequestException, InternalServerErrorException } from '@nestjs/common';
-import { WalletRepository } from '../repositories/wallet.repository';
-import { TransactionRepository } from '../repositories/transaction.repository';
-import { DvaRepository } from '../repositories/dva.repository';
-import { PaystackService } from '@app/common/providers/paystack.service';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Types } from 'mongoose';
-import { TransactionType, TransactionStatus, TransactionSource } from '@app/common/schemas/transaction.schema';
+import { WalletRepository } from '../repositories/wallet.repository';
+import { TransactionRepository } from '../repositories/transaction.repository';
+import { LedgerRepository } from '../repositories/ledger.repository';
+import { PaystackService } from '@app/common/providers/paystack.service';
+import {
+  TransactionType,
+  TransactionStatus,
+  TransactionSource,
+} from '@app/common/schemas/transaction.schema';
 import { Wallet } from '@app/common/schemas/wallet.schema';
-import { DedicatedVirtualAccount } from '@app/common/schemas/dva.schema';
+import { randomUUID } from 'crypto';
 
 @Injectable()
 export class WalletService {
@@ -16,110 +26,89 @@ export class WalletService {
   constructor(
     private readonly walletRepository: WalletRepository,
     private readonly transactionRepository: TransactionRepository,
-    private readonly dvaRepository: DvaRepository,
+    private readonly ledgerRepository: LedgerRepository,
     private readonly paystackService: PaystackService,
     private readonly configService: ConfigService,
   ) {}
 
-  async createWalletWithDVA(
-    userId: Types.ObjectId,
-    email: string,
-    firstName: string,
-    lastName: string,
-    phone?: string,
-  ): Promise<{ wallet: Wallet; dva: DedicatedVirtualAccount }> {
-    this.logger.log(`Creating wallet and DVA for user: ${userId}`);
-
-    // Idempotent: a prior call may have already created the wallet and/or DVA
-    // (e.g. a previous approval attempt that failed after this step). Reuse
-    // whatever already exists instead of throwing, so retries can succeed.
-    let wallet: Wallet | null = await this.walletRepository.findOne({ userId });
-    let dva: DedicatedVirtualAccount | null = wallet
-      ? await this.dvaRepository.findOne({ userId })
-      : null;
-
-    if (wallet && dva) {
-      this.logger.warn(`Wallet and DVA already exist for user: ${userId}, reusing existing records`);
-      return { wallet, dva };
+  // Called when a location owner's verification is approved.
+  // Creates a wallet with zero balance — no Paystack calls needed.
+  async createWallet(userId: Types.ObjectId): Promise<Wallet> {
+    const existing = await this.walletRepository.findOne({ userId });
+    if (existing) {
+      this.logger.warn(`Wallet already exists for user: ${userId}`);
+      return existing;
     }
 
-    try {
-      if (!wallet) {
-        wallet = await this.walletRepository.create({
-          userId,
-          balance: 0,
-          ledgerBalance: 0,
-          status: 'ACTIVE',
-          currency: 'NGN',
-        });
+    const wallet = await this.walletRepository.create({
+      userId,
+      balance: 0,
+      ledgerBalance: 0,
+      status: 'ACTIVE',
+      currency: 'NGN',
+    });
 
-        this.logger.log(`Created wallet: ${wallet._id} for user: ${userId}`);
-      }
-
-      if (!dva) {
-        const customer = await this.paystackService.createCustomer(
-          email,
-          firstName,
-          lastName,
-          phone,
-        );
-
-        const bvn = this.configService.get<string>('PAYSTACK_TEST_BVN', '22123456789');
-        await this.paystackService.validateCustomer(customer.customer_code, bvn, firstName, lastName);
-
-        const preferredBank = this.configService.get<string>('PAYSTACK_PREFERRED_BANK', 'wema-bank');
-        const dvaDetails = await this.paystackService.createDedicatedVirtualAccount(
-          customer.customer_code,
-          preferredBank,
-        );
-
-        dva = await this.dvaRepository.create({
-          userId,
-          walletId: wallet._id,
-          accountNumber: dvaDetails.account_number,
-          bankName: dvaDetails.bank.name,
-          bankCode: dvaDetails.bank.code,
-          accountName: dvaDetails.account_name,
-          paystackCustomerCode: customer.customer_code,
-          paystackAccountReference: dvaDetails.id,
-          status: 'ACTIVE',
-          currency: 'NGN',
-        });
-
-        this.logger.log(`Created DVA: ${dva.accountNumber} for user: ${userId}`);
-      }
-
-      return { wallet, dva };
-    } catch (error) {
-      this.logger.error(`Failed to create wallet and DVA for user: ${userId}`, error);
-      throw new InternalServerErrorException('Failed to create wallet and DVA');
-    }
+    this.logger.log(`Created wallet: ${wallet._id} for user: ${userId}`);
+    return wallet;
   }
 
-  async getWalletByUserId(userId: string) {
+  async getWalletByUserId(userId: string): Promise<Wallet> {
     const wallet = await this.walletRepository.findOne({
       userId: new Types.ObjectId(userId),
     });
 
-    if (!wallet) {
-      throw new NotFoundException('Wallet not found');
-    }
-
+    if (!wallet) throw new NotFoundException('Wallet not found');
     return wallet;
   }
 
-  async getDVAByUserId(userId: string) {
-    const dva = await this.dvaRepository.findOne({
-      userId: new Types.ObjectId(userId),
+  // Initializes a Paystack payment so an owner can fund their own wallet.
+  // Returns a Paystack checkout URL. When the user pays, the charge.success
+  // webhook fires and creditWallet is called to complete the funding.
+  async initializeWalletFunding(userId: string, amount: number) {
+    const wallet = await this.getWalletByUserId(userId);
+    const user = await this.walletRepository
+      .findRaw()
+      .db.collection('users')
+      .findOne({ _id: wallet.userId });
+
+    if (!user) throw new NotFoundException('User not found');
+
+    const reference = `FUND_${randomUUID()}`;
+
+    // Create a PENDING transaction so we can track this funding attempt
+    await this.transactionRepository.create({
+      walletId: wallet._id,
+      userId: wallet.userId,
+      type: TransactionType.CREDIT,
+      amount,
+      balanceBefore: wallet.balance,
+      balanceAfter: wallet.balance, // updated to actual value on completion
+      status: TransactionStatus.PENDING,
+      source: TransactionSource.WALLET_FUNDING,
+      reference,
+      description: 'Wallet funding via Paystack',
     });
 
-    if (!dva) {
-      throw new NotFoundException('DVA not found');
-    }
+    const paymentData = await this.paystackService.initializeTransaction(
+      user.email,
+      amount,
+      reference,
+      { walletId: wallet._id.toString(), type: 'WALLET_FUNDING' },
+    );
 
-    return dva;
+    return {
+      authorizationUrl: paymentData.authorization_url,
+      reference,
+      amount,
+    };
   }
 
+  // Credits a wallet atomically: balance update + transaction record + ledger entry
+  // all happen in one MongoDB transaction — if any step fails, nothing commits.
+  //
+  // The idempotency guard (reference uniqueness) prevents double-credits from
+  // duplicate webhook deliveries. If the same reference arrives twice, the
+  // WebhookEventRepository's unique index blocks it before we ever get here.
   async creditWallet(
     walletId: Types.ObjectId,
     amount: number,
@@ -129,53 +118,77 @@ export class WalletService {
     sessionId?: Types.ObjectId,
     initiatedBy?: Types.ObjectId,
   ) {
-    this.logger.log(`Crediting wallet: ${walletId}, amount: ${amount}, reference: ${reference}`);
+    this.logger.log(`Crediting wallet: ${walletId}, amount: ${amount}, ref: ${reference}`);
 
     const existingTx = await this.transactionRepository.findOne({ reference });
     if (existingTx) {
-      this.logger.warn(`Duplicate transaction detected: ${reference}`);
+      this.logger.warn(`Duplicate credit detected for reference: ${reference}`);
       return existingTx;
     }
 
     const wallet = await this.walletRepository.findOne({ _id: walletId });
-    if (!wallet) {
-      throw new NotFoundException('Wallet not found');
+    if (!wallet) throw new NotFoundException('Wallet not found');
+
+    const session = await this.walletRepository.startTransaction();
+    try {
+      const balanceBefore = wallet.balance;
+      const balanceAfter = balanceBefore + amount;
+
+      const updatedWallet = await this.walletRepository.updateBalance(
+        walletId.toString(),
+        amount,
+        balanceBefore,
+      );
+
+      if (!updatedWallet) {
+        throw new InternalServerErrorException(
+          'Balance update failed — concurrent modification detected',
+        );
+      }
+
+      const transaction = await this.transactionRepository.create(
+        {
+          walletId,
+          userId: wallet.userId,
+          type: TransactionType.CREDIT,
+          amount,
+          balanceBefore,
+          balanceAfter,
+          status: TransactionStatus.SUCCESS,
+          source,
+          reference,
+          description: `Credit: ${source}`,
+          sessionId,
+          initiatedBy,
+          metadata,
+        },
+        { session },
+      );
+
+      await this.ledgerRepository.create(
+        {
+          walletId,
+          transactionId: transaction._id,
+          type: 'CREDIT',
+          amount,
+          balanceAfter,
+          reason: `${source}${sessionId ? ` — session ${sessionId}` : ''}`,
+        },
+        { session },
+      );
+
+      await session?.commitTransaction();
+      this.logger.log(`Wallet credited: ${walletId}, new balance: ${balanceAfter}`);
+      return transaction;
+    } catch (error) {
+      await session?.abortTransaction();
+      throw error;
+    } finally {
+      await session?.endSession();
     }
-
-    const balanceBefore = wallet.balance;
-    const balanceAfter = balanceBefore + amount;
-
-    const updatedWallet = await this.walletRepository.updateBalance(
-      walletId.toString(),
-      amount,
-      balanceBefore,
-    );
-
-    if (!updatedWallet) {
-      throw new InternalServerErrorException('Failed to update wallet balance (concurrent modification)');
-    }
-
-    const transaction = await this.transactionRepository.create({
-      walletId,
-      userId: wallet.userId,
-      type: TransactionType.CREDIT,
-      amount,
-      balanceBefore,
-      balanceAfter,
-      status: TransactionStatus.SUCCESS,
-      source,
-      reference,
-      description: `Credit from ${source}`,
-      sessionId,
-      initiatedBy,
-      metadata,
-    });
-
-    this.logger.log(`Wallet credited successfully: ${walletId}, new balance: ${balanceAfter}`);
-
-    return transaction;
   }
 
+  // Debits a wallet atomically — same three-write transaction as credit.
   async debitWallet(
     walletId: Types.ObjectId,
     amount: number,
@@ -184,91 +197,121 @@ export class WalletService {
     metadata?: Record<string, any>,
     initiatedBy?: Types.ObjectId,
   ) {
-    this.logger.log(`Debiting wallet: ${walletId}, amount: ${amount}, reference: ${reference}`);
+    this.logger.log(`Debiting wallet: ${walletId}, amount: ${amount}, ref: ${reference}`);
 
     const existingTx = await this.transactionRepository.findOne({ reference });
     if (existingTx) {
-      this.logger.warn(`Duplicate transaction detected: ${reference}`);
+      this.logger.warn(`Duplicate debit detected for reference: ${reference}`);
       return existingTx;
     }
 
     const wallet = await this.walletRepository.findOne({ _id: walletId });
-    if (!wallet) {
-      throw new NotFoundException('Wallet not found');
-    }
+    if (!wallet) throw new NotFoundException('Wallet not found');
 
     if (wallet.balance < amount) {
-      throw new BadRequestException('Insufficient balance');
+      throw new BadRequestException('Insufficient wallet balance');
     }
 
-    const balanceBefore = wallet.balance;
-    const balanceAfter = balanceBefore - amount;
+    const session = await this.walletRepository.startTransaction();
+    try {
+      const balanceBefore = wallet.balance;
+      const balanceAfter = balanceBefore - amount;
 
-    const updatedWallet = await this.walletRepository.updateBalance(
-      walletId.toString(),
-      -amount,
-      balanceBefore,
-    );
+      const updatedWallet = await this.walletRepository.updateBalance(
+        walletId.toString(),
+        -amount,
+        balanceBefore,
+      );
 
-    if (!updatedWallet) {
-      throw new InternalServerErrorException('Failed to update wallet balance (concurrent modification)');
+      if (!updatedWallet) {
+        throw new InternalServerErrorException(
+          'Balance update failed — concurrent modification detected',
+        );
+      }
+
+      const transaction = await this.transactionRepository.create(
+        {
+          walletId,
+          userId: wallet.userId,
+          type: TransactionType.DEBIT,
+          amount,
+          balanceBefore,
+          balanceAfter,
+          status: TransactionStatus.SUCCESS,
+          source,
+          reference,
+          description: `Debit: ${source}`,
+          initiatedBy,
+          metadata,
+        },
+        { session },
+      );
+
+      await this.ledgerRepository.create(
+        {
+          walletId,
+          transactionId: transaction._id,
+          type: 'DEBIT',
+          amount,
+          balanceAfter,
+          reason: source,
+        },
+        { session },
+      );
+
+      await session?.commitTransaction();
+      this.logger.log(`Wallet debited: ${walletId}, new balance: ${balanceAfter}`);
+      return transaction;
+    } catch (error) {
+      await session?.abortTransaction();
+      throw error;
+    } finally {
+      await session?.endSession();
     }
-
-    const transaction = await this.transactionRepository.create({
-      walletId,
-      userId: wallet.userId,
-      type: TransactionType.DEBIT,
-      amount,
-      balanceBefore,
-      balanceAfter,
-      status: TransactionStatus.SUCCESS,
-      source,
-      reference,
-      description: `Debit for ${source}`,
-      initiatedBy,
-      metadata,
-    });
-
-    this.logger.log(`Wallet debited successfully: ${walletId}, new balance: ${balanceAfter}`);
-
-    return transaction;
   }
 
-  async getTransactionHistory(
-    walletId: string,
-    page: number = 1,
-    limit: number = 50,
-  ) {
+  async getTransactionHistory(walletId: string, page = 1, limit = 50) {
     const skip = (page - 1) * limit;
 
-    const transactions = await this.transactionRepository.findRaw()
-      .find({ walletId: new Types.ObjectId(walletId) })
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean()
-      .exec();
+    const [transactions, total] = await Promise.all([
+      this.transactionRepository
+        .findRaw()
+        .find({ walletId: new Types.ObjectId(walletId) })
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean()
+        .exec(),
+      this.transactionRepository
+        .findRaw()
+        .countDocuments({ walletId: new Types.ObjectId(walletId) }),
+    ]);
 
-    const total = await this.transactionRepository.findRaw()
-      .countDocuments({ walletId: new Types.ObjectId(walletId) });
+    return { transactions, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
+  }
 
-    return {
-      transactions,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
-    };
+  async getLedger(walletId: string, page = 1, limit = 50) {
+    const skip = (page - 1) * limit;
+
+    const [entries, total] = await Promise.all([
+      this.ledgerRepository
+        .findRaw()
+        .find({ walletId: new Types.ObjectId(walletId) })
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean()
+        .exec(),
+      this.ledgerRepository
+        .findRaw()
+        .countDocuments({ walletId: new Types.ObjectId(walletId) }),
+    ]);
+
+    return { entries, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
   }
 
   async getBalance(userId: string) {
     const wallet = await this.getWalletByUserId(userId);
-    return {
-      balance: wallet.balance,
-      ledgerBalance: wallet.ledgerBalance,
-      currency: wallet.currency,
-    };
+    return { balance: wallet.balance, ledgerBalance: wallet.ledgerBalance, currency: wallet.currency };
   }
 }

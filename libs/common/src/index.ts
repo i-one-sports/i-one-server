@@ -16,6 +16,8 @@ export * from './schemas/tournament.schema';
 export * from './schemas/wallet.schema';
 export * from './schemas/transaction.schema';
 export * from './schemas/dva.schema';
+export * from './schemas/ledger-entry.schema';
+export * from './schemas/webhook-event.schema';
 export * from './schemas/session-payment.schema';
 export * from './schemas/bank-account.schema';
 export * from './schemas/bank.schema';

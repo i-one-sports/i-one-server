@@ -382,7 +382,7 @@ Owner accounts must submit identity verification documents before they can start
 
 **Flow**:
 1. Owner submits documents → status: `PENDING`
-2. Super admin approves → status: `APPROVED`, wallet + DVA created
+2. Super admin approves → status: `APPROVED`, wallet created
 3. Or super admin rejects → status: `REJECTED` with reason
 
 ### POST /verification/submit
@@ -460,7 +460,7 @@ Get all verification documents. Paginated. **Admin use.**
 ---
 
 ### PATCH /verification/:id/approve
-Approve a verification submission. Creates a wallet and Paystack Dedicated Virtual Account (DVA) for the user.
+Approve a verification submission. Creates a wallet for the user (no Paystack calls — owners fund their wallet separately via `POST /wallet/fund`).
 
 **Auth required**: Yes (JWT cookie + `SUPER_ADMIN` role)
 
@@ -472,12 +472,7 @@ Approve a verification submission. Creates a wallet and Paystack Dedicated Virtu
 {
   "message": "Verification approved and wallet created successfully",
   "verification": { ...verificationDocument, "status": "APPROVED" },
-  "wallet": { "_id": "...", "balance": 0, "currency": "NGN" },
-  "dva": {
-    "accountNumber": "1234567890",
-    "bankName": "Titan-Paystack",
-    "accountName": "John Doe"
-  }
+  "wallet": { "_id": "...", "balance": 0, "ledgerBalance": 0, "currency": "NGN", "status": "ACTIVE" }
 }
 ```
 
@@ -1768,25 +1763,76 @@ Get the captain for a team or set.
 ---
 
 ### GET /wallet/me
-Get the authenticated owner's wallet and DVA (Dedicated Virtual Account) details.
+Get the authenticated owner's wallet.
 
 **Auth required**: Yes (JWT cookie + `IsOwnerGuard`)
 
 **Success Response** `200 OK`:
 ```json
 {
-  "wallet": {
-    "_id": "...",
-    "balance": 50000,
-    "ledgerBalance": 50000,
-    "currency": "NGN",
-    "status": "ACTIVE"
-  },
-  "dva": {
-    "accountNumber": "1234567890",
-    "bankName": "Titan-Paystack",
-    "accountName": "John Doe"
-  }
+  "_id": "...",
+  "balance": 50000,
+  "ledgerBalance": 50000,
+  "currency": "NGN",
+  "status": "ACTIVE"
+}
+```
+
+---
+
+### POST /wallet/fund
+Initialize a Paystack payment so the owner can top up their own wallet. Returns a checkout URL. When the transfer clears, the `charge.success` webhook fires and the wallet is credited automatically.
+
+**Auth required**: Yes (JWT cookie + `IsOwnerGuard`)
+
+**Request Body**:
+```json
+{ "amount": 10000 }
+```
+
+**Success Response** `200 OK`:
+```json
+{
+  "authorizationUrl": "https://checkout.paystack.com/...",
+  "reference": "FUND_<uuid>",
+  "amount": 10000
+}
+```
+
+**Notes**:
+- Redirect the owner to `authorizationUrl` to complete the payment (supports bank transfer, card, etc.)
+- A `PENDING` transaction is created immediately; it becomes `SUCCESS` once the webhook confirms payment
+
+**Error Responses**:
+- `404` — wallet not found for this user
+
+---
+
+### GET /wallet/ledger
+Get the paginated ledger entry history for the authenticated owner's wallet. Each entry is an immutable record of a balance movement (credit or debit).
+
+**Auth required**: Yes (JWT cookie + `IsOwnerGuard`)
+
+**Query Parameters**:
+- `page` (number, default: 1)
+- `limit` (number, default: 50)
+
+**Success Response** `200 OK`:
+```json
+{
+  "entries": [
+    {
+      "_id": "...",
+      "walletId": "...",
+      "transactionId": "...",
+      "type": "CREDIT",
+      "amount": 5000,
+      "balanceAfter": 55000,
+      "reason": "SESSION_PAYMENT",
+      "createdAt": "2026-07-07T14:00:00.000Z"
+    }
+  ],
+  "pagination": { "page": 1, "limit": 50, "total": 120, "totalPages": 3 }
 }
 ```
 
@@ -2205,20 +2251,14 @@ data: {"type":"heartbeat","timestamp":1234567890}
 ## Admin
 
 ### GET /wallet/user/:userId
-Get wallet and DVA details for any user. Super admin only.
+Get wallet details for any user. Super admin only.
 
 **Auth required**: Yes (JWT cookie + `SUPER_ADMIN` role)
 
 **Path Parameters**:
 - `userId` — user ID
 
-**Success Response** `200 OK`:
-```json
-{
-  "wallet": { ...walletDocument },
-  "dva": { ...dvaDocument }
-}
-```
+**Success Response** `200 OK`: Wallet document.
 
 ---
 
@@ -2312,10 +2352,13 @@ Receive and process events from Paystack. **This endpoint is called by Paystack,
 **Handled Events**:
 | Event | Action |
 |---|---|
-| `charge.success` | If metadata has `sessionId`+`userId`: confirms session payment and credits owner wallet. Otherwise: credits the owner's wallet via DVA lookup. |
-| `transfer.success` | Logs successful withdrawal |
+| `charge.success` (session) | metadata has `sessionId`+`userId` → confirms session payment and credits owner wallet |
+| `charge.success` (wallet funding) | metadata has `type: "WALLET_FUNDING"` + `walletId` → credits the owner's wallet and marks the pending transaction as SUCCESS |
+| `transfer.success` | Marks the withdrawal transaction as SUCCESS |
 | `transfer.failed` | Refunds the debited wallet amount |
 | `transfer.reversed` | Refunds the debited wallet amount |
+
+**Idempotency**: Every webhook is stored in `WebhookEvent` before processing. A unique index on `eventId` (Paystack reference) means duplicate deliveries of the same event are silently ignored — no double-credits.
 
 **Success Response** `201 Created`:
 ```json
@@ -2513,13 +2556,28 @@ interface Transaction {
   balanceBefore: number;
   balanceAfter: number;
   status: 'PENDING' | 'SUCCESS' | 'FAILED' | 'REVERSED';
-  source: 'SESSION_PAYMENT' | 'ADMIN_FUNDING' | 'WITHDRAWAL' | 'TRANSFER' | 'REFUND';
+  source: 'SESSION_PAYMENT' | 'WALLET_FUNDING' | 'ADMIN_FUNDING' | 'WITHDRAWAL' | 'TRANSFER' | 'REFUND';
   reference: string;
   paystackReference?: string;
   description: string;
   sessionId?: string;
   createdAt: string;
   updatedAt: string;
+}
+```
+
+### LedgerEntry
+Immutable append-only record of every balance movement. The wallet `balance` field is a cached projection of the ledger.
+```typescript
+interface LedgerEntry {
+  _id: string;
+  walletId: string;
+  transactionId: string;
+  type: 'CREDIT' | 'DEBIT';
+  amount: number;
+  balanceAfter: number;  // wallet balance immediately after this entry
+  reason: string;        // source label, e.g. "SESSION_PAYMENT"
+  createdAt: string;
 }
 ```
 

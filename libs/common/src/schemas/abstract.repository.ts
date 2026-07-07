@@ -141,22 +141,17 @@ export abstract class  AbstractRepository<TDocument extends AbstractDocument> {
   }
 
   async updateMany(
-  filterQuery: FilterQuery<TDocument>,
-  update: UpdateQuery<TDocument>,
-): Promise<UpdateResult> {
-  console.log("Model name:", this.model.modelName);
-  return this.model.updateMany(filterQuery, update);
-}
+    filterQuery: FilterQuery<TDocument>,
+    update: UpdateQuery<TDocument>,
+  ): Promise<UpdateResult> {
+    return this.model.updateMany(filterQuery, update);
+  }
 
   async findAndUpdate(
     filterQuery: FilterQuery<TDocument>,
     update: Partial<TDocument>,
   ): Promise<any> {
-    return await new Promise((resolve) => {
-      resolve(
-        this.model.updateMany(filterQuery, update).sort({ createdAt: 'desc' }),
-      );
-    });
+    return this.model.updateMany(filterQuery, update);
   }
 
   async delete(id: Types.ObjectId): Promise<any> {

@@ -16,6 +16,7 @@ export enum TransactionStatus {
 
 export enum TransactionSource {
   SESSION_PAYMENT = 'SESSION_PAYMENT',
+  WALLET_FUNDING = 'WALLET_FUNDING',
   ADMIN_FUNDING = 'ADMIN_FUNDING',
   WITHDRAWAL = 'WITHDRAWAL',
   TRANSFER = 'TRANSFER',

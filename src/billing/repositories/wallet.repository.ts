@@ -1,15 +1,18 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AbstractRepository } from '@app/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { InjectModel, InjectConnection } from '@nestjs/mongoose';
+import { Connection, Model } from 'mongoose';
 import { Wallet } from '@app/common/schemas/wallet.schema';
 
 @Injectable()
 export class WalletRepository extends AbstractRepository<Wallet> {
   protected readonly logger = new Logger(WalletRepository.name);
 
-  constructor(@InjectModel(Wallet.name) walletModel: Model<Wallet>) {
-    super(walletModel);
+  constructor(
+    @InjectModel(Wallet.name) walletModel: Model<Wallet>,
+    @InjectConnection() connection: Connection,
+  ) {
+    super(walletModel, connection);
   }
 
   async updateBalance(

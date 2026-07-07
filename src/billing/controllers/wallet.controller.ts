@@ -23,17 +23,7 @@ export class WalletController {
   @Get('me')
   @UseGuards(IsOwnerGuard)
   async getMyWallet(@CurrentUser() user: User) {
-    const wallet = await this.walletService.getWalletByUserId(user._id.toString());
-    const dva = await this.walletService.getDVAByUserId(user._id.toString());
-
-    return {
-      wallet,
-      dva: {
-        accountNumber: dva.accountNumber,
-        bankName: dva.bankName,
-        accountName: dva.accountName,
-      },
-    };
+    return this.walletService.getWalletByUserId(user._id.toString());
   }
 
   @Get('balance')
@@ -57,10 +47,27 @@ export class WalletController {
   @UseGuards(RolesGuard)
   @Roles(USER_ROLE.SUPER_ADMIN)
   async getWalletByUserId(@Param('userId') userId: string) {
-    const wallet = await this.walletService.getWalletByUserId(userId);
-    const dva = await this.walletService.getDVAByUserId(userId);
+    return this.walletService.getWalletByUserId(userId);
+  }
 
-    return { wallet, dva };
+  @Post('fund')
+  @UseGuards(IsOwnerGuard)
+  async fundWallet(
+    @CurrentUser() user: User,
+    @Body('amount') amount: number,
+  ) {
+    return this.walletService.initializeWalletFunding(user._id.toString(), amount);
+  }
+
+  @Get('ledger')
+  @UseGuards(IsOwnerGuard)
+  async getLedger(
+    @CurrentUser() user: User,
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 50,
+  ) {
+    const wallet = await this.walletService.getWalletByUserId(user._id.toString());
+    return this.walletService.getLedger(wallet._id.toString(), page, limit);
   }
 
   @Get('session/:sessionId/payment-status')
