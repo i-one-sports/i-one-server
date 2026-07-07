@@ -1552,6 +1552,56 @@ Create a team and register it to the tournament in one step. Only valid during `
 
 ---
 
+### POST /tournaments/:id/team/:teamId/pay
+Initialize a Paystack checkout for the team's registration fee. Only needed when `registrationFee > 0`. Returns a URL the captain should be redirected to.
+
+**Auth required**: Yes (JWT cookie)
+
+**Path Parameters**:
+- `id` — tournament ID
+- `teamId` — team ID
+
+**Success Response** `201 Created`:
+```json
+{
+  "authorizationUrl": "https://checkout.paystack.com/...",
+  "reference": "TOURNEY_REG_<tournamentId>_<teamId>_<uuid>",
+  "amount": 2000
+}
+```
+
+**Notes**:
+- Redirect the captain to `authorizationUrl` to complete payment (supports bank transfer, card, etc.)
+- After payment, Paystack fires `POST /webhooks/paystack` and the server credits the location owner's wallet automatically
+
+**Error Responses**:
+- `404` — no pending registration payment found for this team (either already paid or `registrationFee` is 0)
+
+---
+
+### GET /tournaments/:id/team/:teamId/payment-status
+Get the registration fee payment status for a team.
+
+**Auth required**: Yes (JWT cookie)
+
+**Path Parameters**:
+- `id` — tournament ID
+- `teamId` — team ID
+
+**Success Response** `200 OK`:
+```json
+{
+  "status": "PENDING",
+  "amount": 2000,
+  "reference": "TOURNEY_REG_...",
+  "paidAt": null
+}
+```
+
+Returns `null` if the tournament has no registration fee.
+
+---
+
 ### DELETE /tournaments/:id/team/:teamId
 Remove a team from the tournament. Only valid during `registration` status. Callable by the **team's captain** or the **tournament organizer**.
 
@@ -2353,6 +2403,7 @@ Receive and process events from Paystack. **This endpoint is called by Paystack,
 | Event | Action |
 |---|---|
 | `charge.success` (session) | metadata has `sessionId`+`userId` → confirms session payment and credits owner wallet |
+| `charge.success` (tournament) | metadata has `type: "TOURNAMENT_REGISTRATION"` → credits the location owner's wallet and marks the team's registration as PAID |
 | `charge.success` (wallet funding) | metadata has `type: "WALLET_FUNDING"` + `walletId` → credits the owner's wallet and marks the pending transaction as SUCCESS |
 | `transfer.success` | Marks the withdrawal transaction as SUCCESS |
 | `transfer.failed` | Refunds the debited wallet amount |
@@ -2556,7 +2607,7 @@ interface Transaction {
   balanceBefore: number;
   balanceAfter: number;
   status: 'PENDING' | 'SUCCESS' | 'FAILED' | 'REVERSED';
-  source: 'SESSION_PAYMENT' | 'WALLET_FUNDING' | 'ADMIN_FUNDING' | 'WITHDRAWAL' | 'TRANSFER' | 'REFUND';
+  source: 'SESSION_PAYMENT' | 'TOURNAMENT_REGISTRATION' | 'WALLET_FUNDING' | 'ADMIN_FUNDING' | 'WITHDRAWAL' | 'TRANSFER' | 'REFUND';
   reference: string;
   paystackReference?: string;
   description: string;

@@ -2,6 +2,7 @@ import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PaystackService } from '@app/common/providers/paystack.service';
 import { WalletService } from './wallet.service';
 import { SessionPaymentService } from './session-payment.service';
+import { TournamentPaymentService } from './tournament-payment.service';
 import { WebhookEventRepository } from '../repositories/webhook-event.repository';
 import { TransactionRepository } from '../repositories/transaction.repository';
 import { WalletRepository } from '../repositories/wallet.repository';
@@ -17,6 +18,7 @@ export class WebhookService {
     private readonly paystackService: PaystackService,
     private readonly walletService: WalletService,
     private readonly sessionPaymentService: SessionPaymentService,
+    private readonly tournamentPaymentService: TournamentPaymentService,
     private readonly webhookEventRepository: WebhookEventRepository,
     private readonly transactionRepository: TransactionRepository,
     private readonly walletRepository: WalletRepository,
@@ -98,7 +100,14 @@ export class WebhookService {
       return;
     }
 
-    // Branch 2: Wallet funding — owner topped up their wallet via Paystack
+    // Branch 2: Tournament registration fee
+    if (metadata.type === 'TOURNAMENT_REGISTRATION') {
+      await this.tournamentPaymentService.confirmPayment(data.reference, amount);
+      this.logger.log(`Tournament registration confirmed: ref ${data.reference}`);
+      return;
+    }
+
+    // Branch 3: Wallet funding — owner topped up their wallet via Paystack
     if (metadata.type === 'WALLET_FUNDING' && metadata.walletId) {
       const wallet = await this.walletRepository.findOne({
         _id: new Types.ObjectId(metadata.walletId),

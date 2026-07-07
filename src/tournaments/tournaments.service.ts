@@ -8,6 +8,7 @@ import { LocationRepository } from 'src/locations/locations.repository';
 import { Types } from 'mongoose';
 import { BracketMatch, LeagueFixture, LeagueStanding, TeamSlot } from '@app/common/schemas/tournament.schema';
 import { TournamentEventService } from './tournament-event.service';
+import { TournamentPaymentService } from 'src/billing/services/tournament-payment.service';
 
 const KNOCKOUT_SIZES = [8, 16, 32];
 
@@ -21,6 +22,7 @@ export class TournamentsService {
     private readonly locationRepository: LocationRepository,
     private readonly userRepository: UserRepository,
     private readonly tournamentEventService: TournamentEventService,
+    private readonly tournamentPaymentService: TournamentPaymentService,
   ) {}
 
   // Fire-and-forget broadcast — same pipeline matches.service.ts uses for
@@ -241,12 +243,11 @@ export class TournamentsService {
     if (dto.captainId !== userId)
       throw new CustomHttpException('Only the captain can register their own team', HttpStatus.FORBIDDEN);
 
-    // Single query to get tournament status + team count
     const tournament = await this.tournamentRepository
       .findRaw()
       .findById(tournamentId)
-      .select('status maxTeams registeredTeams')
-      .lean();
+      .select('status maxTeams registeredTeams location registrationFee')
+      .lean() as any;
 
     if (!tournament) throw new CustomHttpException('Tournament not found', HttpStatus.NOT_FOUND);
     if (tournament.status !== TournamentStatus.REGISTRATION)
@@ -273,6 +274,22 @@ export class TournamentsService {
         { _id: tournamentId },
         { $addToSet: { registeredTeams: team._id } },
       );
+
+    // If the tournament charges a registration fee, create a PENDING payment record.
+    // The captain calls POST /tournaments/:id/team/:teamId/pay to get the checkout URL.
+    if (tournament.registrationFee > 0) {
+      const location = await this.locationRepository.findOne({ _id: tournament.location });
+      if (location?.owner) {
+        await this.tournamentPaymentService.createPendingPayment(
+          new Types.ObjectId(tournamentId),
+          team._id,
+          captain._id,
+          tournament.location,
+          location.owner as Types.ObjectId,
+          tournament.registrationFee,
+        );
+      }
+    }
 
     return team;
   }

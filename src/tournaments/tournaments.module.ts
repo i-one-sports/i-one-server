@@ -9,9 +9,11 @@ import { TournamentRepository } from './tournaments.repository';
 import { TournamentsController } from './tournaments.controller';
 import { LocationRepository } from 'src/locations/locations.repository';
 import { TournamentEventService } from './tournament-event.service';
+import { BillingModule } from 'src/billing/billing.module';
 
 @Module({
   imports: [
+    BillingModule,
     MongooseModule.forFeature([
       { name: User.name, schema: UserSchema },
       { name: Tournament.name, schema: TournamentSchema },

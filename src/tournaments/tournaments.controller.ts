@@ -18,6 +18,7 @@ import { Response } from 'express';
 import { JwtAuthGuard } from 'src/auth/guards/jwt.guard';
 import { TournamentsService } from './tournaments.service';
 import { TournamentEventService } from './tournament-event.service';
+import { TournamentPaymentService } from 'src/billing/services/tournament-payment.service';
 import { CurrentUser, User } from '@app/common';
 import { catchError, filter, finalize, map, merge, of, startWith } from 'rxjs';
 import {
@@ -36,6 +37,7 @@ export class TournamentsController {
   constructor(
     private readonly tournamentsService: TournamentsService,
     private readonly tournamentEventService: TournamentEventService,
+    private readonly tournamentPaymentService: TournamentPaymentService,
   ) {}
 
   // Create a tournament at a location
@@ -68,6 +70,26 @@ export class TournamentsController {
     @CurrentUser() user: User,
   ) {
     return this.tournamentsService.createTeamAndRegister(id, dto, user._id.toString());
+  }
+
+  // Pay the tournament registration fee. Returns a Paystack checkout URL.
+  // Only needed when the tournament has registrationFee > 0.
+  @Post(':id/team/:teamId/pay')
+  payRegistrationFee(
+    @Param('id') id: string,
+    @Param('teamId') teamId: string,
+    @CurrentUser() user: User,
+  ) {
+    return this.tournamentPaymentService.initializeCheckout(id, teamId, user.email);
+  }
+
+  // Get the payment status for a team's registration fee
+  @Get(':id/team/:teamId/payment-status')
+  getTeamPaymentStatus(
+    @Param('id') id: string,
+    @Param('teamId') teamId: string,
+  ) {
+    return this.tournamentPaymentService.getTeamPaymentStatus(id, teamId);
   }
 
   // Unregister a team (registration phase only — team captain or tournament organizer)

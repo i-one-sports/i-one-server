@@ -4,6 +4,7 @@ import { Wallet, WalletSchema } from '@app/common/schemas/wallet.schema';
 import { Transaction, TransactionSchema } from '@app/common/schemas/transaction.schema';
 import { LedgerEntry, LedgerEntrySchema } from '@app/common/schemas/ledger-entry.schema';
 import { WebhookEvent, WebhookEventSchema } from '@app/common/schemas/webhook-event.schema';
+import { TournamentPayment, TournamentPaymentSchema } from '@app/common/schemas/tournament-payment.schema';
 import { SessionPayment, SessionPaymentSchema } from '@app/common/schemas/session-payment.schema';
 import { BankAccount, BankAccountSchema } from '@app/common/schemas/bank-account.schema';
 import { Session, SessionSchema } from '@app/common/schemas/session.schema';
@@ -13,6 +14,7 @@ import { WalletRepository } from './repositories/wallet.repository';
 import { TransactionRepository } from './repositories/transaction.repository';
 import { LedgerRepository } from './repositories/ledger.repository';
 import { WebhookEventRepository } from './repositories/webhook-event.repository';
+import { TournamentPaymentRepository } from './repositories/tournament-payment.repository';
 import { SessionPaymentRepository } from './repositories/session-payment.repository';
 import { BankAccountRepository } from './repositories/bank-account.repository';
 
@@ -20,6 +22,7 @@ import { WalletService } from './services/wallet.service';
 import { SessionPaymentService } from './services/session-payment.service';
 import { WebhookService } from './services/webhook.service';
 import { WithdrawalService } from './services/withdrawal.service';
+import { TournamentPaymentService } from './services/tournament-payment.service';
 import { LocationBillingService } from './services/location-billing.service';
 
 import { WalletController } from './controllers/wallet.controller';
@@ -36,6 +39,7 @@ import { PaystackService } from '@app/common/providers/paystack.service';
       { name: Transaction.name, schema: TransactionSchema },
       { name: LedgerEntry.name, schema: LedgerEntrySchema },
       { name: WebhookEvent.name, schema: WebhookEventSchema },
+      { name: TournamentPayment.name, schema: TournamentPaymentSchema },
       { name: SessionPayment.name, schema: SessionPaymentSchema },
       { name: BankAccount.name, schema: BankAccountSchema },
       { name: Session.name, schema: SessionSchema },
@@ -54,9 +58,11 @@ import { PaystackService } from '@app/common/providers/paystack.service';
     LedgerRepository,
     WebhookEventRepository,
     SessionPaymentRepository,
+    TournamentPaymentRepository,
     BankAccountRepository,
     WalletService,
     SessionPaymentService,
+    TournamentPaymentService,
     WebhookService,
     WithdrawalService,
     LocationBillingService,
@@ -65,6 +71,7 @@ import { PaystackService } from '@app/common/providers/paystack.service';
   exports: [
     WalletService,
     SessionPaymentService,
+    TournamentPaymentService,
     WithdrawalService,
   ],
 })
