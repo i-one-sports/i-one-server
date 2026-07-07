@@ -147,10 +147,8 @@ export class VerificationService {
       throw new NotFoundException('User not found');
     }
 
-    // Create (or, on retry, reuse) the wallet and DVA *before* touching the
-    // verification/user status. If this fails, nothing below runs, so the
-    // verification stays exactly as it was and the admin can safely retry
-    // instead of getting stuck on "already approved" with no wallet.
+    // Create (or reuse) the wallet before touching verification/user status.
+    // If this fails, verification stays as-is and the admin can safely retry.
     let wallet: Wallet;
     try {
       wallet = await this.walletService.createWallet(verification.userId);
@@ -168,7 +166,7 @@ export class VerificationService {
     );
 
     if (!updatedVerification) {
-      // Lost a race with a concurrent approval; the wallet/DVA created above
+      // Lost a race with a concurrent approval; the wallet created above
       // is still valid and idempotent, so this isn't wasted work.
       throw new BadRequestException('Verification is already approved');
     }

@@ -38,13 +38,6 @@ export const mockAwsService = {
 };
 
 export const mockPaystackService = {
-  createCustomer: jest.fn().mockResolvedValue({ customer_code: 'CUS_TEST' }),
-  createDedicatedVirtualAccount: jest.fn().mockResolvedValue({
-    id: 101,
-    account_number: '1234567890',
-    account_name: 'I One Test',
-    bank: { name: 'Test Bank', code: '999' },
-  }),
   initializeTransaction: jest
     .fn()
     .mockImplementation(

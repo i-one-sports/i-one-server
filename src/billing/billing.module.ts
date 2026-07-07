@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { Wallet, WalletSchema } from '@app/common/schemas/wallet.schema';
 import { Transaction, TransactionSchema } from '@app/common/schemas/transaction.schema';
-import { DedicatedVirtualAccount, DvaSchema } from '@app/common/schemas/dva.schema';
 import { LedgerEntry, LedgerEntrySchema } from '@app/common/schemas/ledger-entry.schema';
 import { WebhookEvent, WebhookEventSchema } from '@app/common/schemas/webhook-event.schema';
 import { SessionPayment, SessionPaymentSchema } from '@app/common/schemas/session-payment.schema';
@@ -12,7 +11,6 @@ import { Set, SetSchema } from '@app/common/schemas/sets.schema';
 
 import { WalletRepository } from './repositories/wallet.repository';
 import { TransactionRepository } from './repositories/transaction.repository';
-import { DvaRepository } from './repositories/dva.repository';
 import { LedgerRepository } from './repositories/ledger.repository';
 import { WebhookEventRepository } from './repositories/webhook-event.repository';
 import { SessionPaymentRepository } from './repositories/session-payment.repository';
@@ -36,7 +34,6 @@ import { PaystackService } from '@app/common/providers/paystack.service';
     MongooseModule.forFeature([
       { name: Wallet.name, schema: WalletSchema },
       { name: Transaction.name, schema: TransactionSchema },
-      { name: DedicatedVirtualAccount.name, schema: DvaSchema },
       { name: LedgerEntry.name, schema: LedgerEntrySchema },
       { name: WebhookEvent.name, schema: WebhookEventSchema },
       { name: SessionPayment.name, schema: SessionPaymentSchema },
@@ -54,7 +51,6 @@ import { PaystackService } from '@app/common/providers/paystack.service';
   providers: [
     WalletRepository,
     TransactionRepository,
-    DvaRepository,
     LedgerRepository,
     WebhookEventRepository,
     SessionPaymentRepository,
