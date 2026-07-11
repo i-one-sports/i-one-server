@@ -378,7 +378,7 @@ Verify the email OTP and mark the user's email as verified.
 
 ## Verification (KYC)
 
-Owner accounts must submit identity verification documents before they can start sessions. The admin reviews and approves or rejects submissions.
+Owner accounts must submit identity verification documents before they can list pitches or receive payments. The admin reviews and approves or rejects submissions. **Players do not go through KYC** — email/phone verification is sufficient to join and start sessions.
 
 **Flow**:
 1. Owner submits documents → status: `PENDING`
@@ -589,6 +589,9 @@ Get locations near a coordinate, sorted by proximity.
 - `lat` (number, required) — latitude
 
 **Example**: `GET /location/nearby?lng=3.42158&lat=6.45306`
+
+**Notes**:
+- Results are capped to locations within **5 km** of the supplied coordinate (`$maxDistance: 5000`). Locations beyond 5 km are excluded regardless of query params.
 
 **Success Response** `200 OK`: Array of location documents sorted nearest-first.
 
@@ -851,7 +854,7 @@ Get all non-finished sessions, paginated.
 ---
 
 ### POST /sessions/start
-Start a new session at a location. The calling user becomes the captain. Requires the user's verification to be `APPROVED` or `PENDING`.
+Start a new session at a location. The calling user becomes the captain. Requires the user's email to be verified — **KYC/document verification is not required for players**.
 
 **Auth required**: Yes (JWT cookie)
 
@@ -863,7 +866,7 @@ Start a new session at a location. The calling user becomes the captain. Require
 **Success Response** `201 Created`: The created session document.
 
 **Error Responses**:
-- `403` — account not verified (no KYC doc or status is `REJECTED`)
+- `403` — email not verified
 - `404` — user or location not found
 
 ---
@@ -999,10 +1002,15 @@ End a session. Clears all member `currentSession` references and marks location 
 
 **Auth required**: Yes (JWT cookie)
 
-**Success Response** `200 OK**:
+**Authorization**: Only the session captain or the location owner can end a session.
+
+**Success Response** `200 OK`:
 ```json
 { "message": "Session ended successfully", "session": { ...sessionDocument } }
 ```
+
+**Error Responses**:
+- `403` — caller is neither the captain nor the location owner
 
 ---
 
@@ -1011,10 +1019,15 @@ Delete a session entirely.
 
 **Auth required**: Yes (JWT cookie)
 
+**Authorization**: Only the session captain or the location owner can delete a session.
+
 **Success Response** `200 OK`:
 ```json
 { "message": "Session deleted successfully" }
 ```
+
+**Error Responses**:
+- `403` — caller is neither the captain nor the location owner
 
 ---
 
@@ -1022,6 +1035,8 @@ Delete a session entirely.
 Reschedule a session to a new time.
 
 **Auth required**: Yes (JWT cookie)
+
+**Authorization**: Only the session captain or the location owner can reschedule a session.
 
 **Path Parameters**:
 - `sessionId` — session ID
@@ -1040,15 +1055,18 @@ Reschedule a session to a new time.
 ```
 
 **Error Responses**:
+- `403` — caller is neither the captain nor the location owner
 - `409` — overlaps with another session at the same location
 - `400` — new time falls outside the location's operating hours or spans midnight
 
 ---
 
 ### PATCH /sessions/matchtype
-Update match type for all sessions. Admin/utility endpoint.
+Update match type for all sessions. Restricted to super-admins.
 
 **Auth required**: Yes (JWT cookie)
+
+**Role required**: `SUPER_ADMIN` — any other role receives `403`.
 
 **Success Response** `200 OK`: MongoDB update result.
 
