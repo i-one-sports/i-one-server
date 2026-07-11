@@ -112,6 +112,14 @@ export class SessionsController {
     return this.sessionsService.deleteSession(sessionId, user._id.toString());
   }
 
+  @Post('cancel/:sessionId')
+  async cancelSession(
+    @Param('sessionId') sessionId: string,
+    @CurrentUser() user: User,
+  ) {
+    return this.sessionsService.cancelSession(sessionId, user._id.toString());
+  }
+
   @Patch('reschedule/:sessionId')
   async rescheduleSession(
     @Param('sessionId') sessionId: string,

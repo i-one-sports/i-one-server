@@ -221,6 +221,61 @@ export class PaystackService {
     }
   }
 
+  // Refunds a previously successful transaction back to the payer's original
+  // payment source. `amount` is naira (converted to kobo here) — omit for a
+  // full refund of the original charge. Paystack processes this async on
+  // their end; a successful response here means the refund was accepted, not
+  // necessarily settled yet.
+  async refundTransaction(reference: string, amount?: number, reason?: string) {
+    try {
+      const { data } = await this.axios.post('/refund', {
+        transaction: reference,
+        ...(amount !== undefined ? { amount: amount * 100 } : {}),
+        ...(reason ? { customer_note: reason, merchant_note: reason } : {}),
+      });
+
+      this.logger.log(`Refund requested for transaction: ${reference}`);
+      return data.data;
+    } catch (error: any) {
+      this.logger.error(
+        'Failed to refund transaction',
+        error?.response?.data || error?.message,
+      );
+      throw error;
+    }
+  }
+
+  // Only valid after a refund.needs-attention webhook — Paystack couldn't
+  // determine the customer's bank account from the original transaction
+  // (can happen for bank_transfer-channel payments) and needs it supplied
+  // explicitly to complete the refund. Calling this without that webhook
+  // having fired returns a 422 per Paystack's docs.
+  async retryRefundWithBankDetails(
+    refundId: string,
+    accountNumber: string,
+    bankId: string,
+    currency: string = 'NGN',
+  ) {
+    try {
+      const { data } = await this.axios.post(`/refund/retry_with_customer_details/${refundId}`, {
+        refund_account_details: {
+          currency,
+          account_number: accountNumber,
+          bank_id: bankId,
+        },
+      });
+
+      this.logger.log(`Refund retry submitted for refund: ${refundId}`);
+      return data.data;
+    } catch (error: any) {
+      this.logger.error(
+        'Failed to retry refund',
+        error?.response?.data || error?.message,
+      );
+      throw error;
+    }
+  }
+
   // ==================== TRANSFER METHODS ====================
 
   async createTransferRecipient(

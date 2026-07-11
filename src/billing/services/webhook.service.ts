@@ -34,6 +34,15 @@ export class WebhookService {
     const { event, data } = this.paystackService.parseWebhookEvent(body);
     this.logger.log(`Received webhook event: ${event} | ref: ${data?.reference}`);
 
+    // charge.success / transfer.* events carry `data.reference` — refund.*
+    // events don't (they carry transaction_reference / refund_reference
+    // instead). Falling back to Date.now() for those would defeat dedupe
+    // entirely (every delivery gets a "unique" id), so fall back to a
+    // stable key derived from the event + transaction reference instead.
+    const eventId =
+      data?.reference ||
+      (data?.transaction_reference ? `${event}_${data.transaction_reference}` : `${event}_${Date.now()}`);
+
     // Store the event BEFORE processing. The unique index on eventId means
     // if Paystack delivers the same event twice, the second insert throws a
     // duplicate key error and we skip processing entirely — no double-credits.
@@ -41,13 +50,13 @@ export class WebhookService {
       await this.webhookEventRepository.create({
         provider: 'paystack',
         event,
-        eventId: data?.reference || `${event}_${Date.now()}`,
+        eventId,
         payload: body,
         processed: false,
       });
     } catch (err: any) {
       if (err?.code === 11000) {
-        this.logger.warn(`Duplicate webhook ignored: ${data?.reference}`);
+        this.logger.warn(`Duplicate webhook ignored: ${eventId}`);
         return { status: 'duplicate' };
       }
       throw err;
@@ -67,12 +76,19 @@ export class WebhookService {
         case 'transfer.reversed':
           await this.handleTransferReversed(data);
           break;
+        case 'refund.processed':
+        case 'refund.failed':
+        case 'refund.needs-attention':
+        case 'refund.pending':
+        case 'refund.processing':
+          await this.sessionPaymentService.handleRefundWebhookEvent(event, data);
+          break;
         default:
           this.logger.log(`Unhandled webhook event: ${event}`);
       }
 
       await this.webhookEventRepository.findOneAndUpdate(
-        { eventId: data?.reference },
+        { eventId },
         { processed: true, processedAt: new Date() },
       );
     } catch (err: any) {

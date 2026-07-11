@@ -1028,6 +1028,41 @@ Delete a session entirely.
 
 **Error Responses**:
 - `403` — caller is neither the captain nor the location owner
+- `400` — session has paid members whose refunds have not cleared; cancel first and wait for refunds to settle
+
+---
+
+### POST /sessions/cancel/:sessionId
+Cancel a session and automatically request Paystack refunds for every member who has paid. The session moves to `CANCELLED` immediately; it only moves to `REFUNDED` once every refund's `refund.processed` webhook arrives from Paystack (this can take up to 10 business days).
+
+**Auth required**: Yes (JWT cookie)
+
+**Authorization**: Only the session captain or the location owner can cancel a session.
+
+**Success Response** `200 OK`:
+```json
+{
+  "message": "Session cancelled — refunds have been requested and will settle over the next few days",
+  "session": { ...sessionDocument },
+  "refunds": {
+    "allInitiated": true,
+    "totalPaid": 3,
+    "results": [
+      { "paymentId": "...", "userId": "...", "success": true }
+    ]
+  }
+}
+```
+
+**Notes**:
+- If no members have paid (`totalPaid: 0`), message is `"Session cancelled"` with no refund info.
+- If some refund requests fail (`allInitiated: false`), those members need manual follow-up — the session is still marked `CANCELLED`.
+- A session already in `CANCELLED` or `REFUNDED` status returns `400`.
+- Completed sessions (`finished: true`) cannot be cancelled.
+
+**Error Responses**:
+- `403` — caller is neither the captain nor the location owner
+- `400` — session is already cancelled, refunded, or completed
 
 ---
 

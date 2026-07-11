@@ -7,6 +7,7 @@ import {
   CustomHttpException,
   LOCATION_PRICING_OPTION,
   LOCATION_TIER,
+  SESSION_STATUS,
   Session,
   SessionI,
   User,
@@ -17,6 +18,7 @@ import { MATCH_TYPE } from '@app/common';
 import { CaptainsService } from 'src/captains/captains.service';
 import { CreateCaptainDto } from 'src/captains/dto/captains.dto';
 import { SessionPaymentService } from 'src/billing/services/session-payment.service';
+import { PaymentStatus } from '@app/common/schemas/session-payment.schema';
 import { NotificationService } from 'src/notifications/notification.service';
 
 @Injectable()
@@ -383,7 +385,7 @@ export class SessionsService {
       ),
       this.sessionRepository.findOneAndUpdate(
         { _id: session._id.toString() },
-        { captain: null, inProgress: false },
+        { captain: null, inProgress: false, finished: true, status: SESSION_STATUS.COMPLETED },
       ),
     ]);
 
@@ -442,6 +444,35 @@ export class SessionsService {
     const user = await this.userRepository.findOne({ _id: userId });
     if (!user)
       throw new CustomHttpException('User not found', HttpStatus.NOT_FOUND);
+
+    // A member who already paid can't just leave and let the owner keep the
+    // money — a refund must at least be *requested* first (Paystack refunds
+    // are asynchronous, so we can't wait for it to actually settle here —
+    // see SessionPaymentService.refundPayment). Only relevant before the
+    // session has been played; skip for free sessions or once it's finished
+    // (that's not a "leave", that's just... it happened).
+    if (session.paymentRequired && !session.finished) {
+      let payment: any = null;
+      try {
+        payment = await this.sessionPaymentService.getUserSessionPayment(sessionId, userId);
+      } catch {
+        // No payment record for this user on this session — nothing to refund.
+      }
+
+      if (payment && payment.status === PaymentStatus.PAID) {
+        try {
+          await this.sessionPaymentService.refundPayment(payment._id.toString(), 'Player left session');
+        } catch (error: any) {
+          this.logger.error(
+            `Refund request failed while ${userId} tried to leave session ${sessionId}: ${error.message}`,
+          );
+          throw new CustomHttpException(
+            'Could not start your refund, so you cannot leave yet. Please try again shortly.',
+            HttpStatus.INTERNAL_SERVER_ERROR,
+          );
+        }
+      }
+    }
 
     try {
       const [updatedSession] = await Promise.all([
@@ -581,6 +612,16 @@ export class SessionsService {
     if (!isCaptain && !isOwner)
       throw new CustomHttpException('Only the captain or location owner can delete this session', HttpStatus.FORBIDDEN);
 
+    if (session.paymentRequired) {
+      const hasUnresolvedPayments = await this.sessionPaymentService.hasUnresolvedPayments(sessionId);
+      if (hasUnresolvedPayments) {
+        throw new CustomHttpException(
+          'This session has paid members whose refunds have not cleared yet — cancel it first (if not already) and wait for refunds to settle before deleting',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+    }
+
     const updateQuery: UpdateQuery<User> = {
       $set: { currentSession: null, isCaptain: false },
     };
@@ -593,6 +634,69 @@ export class SessionsService {
     await this.sessionRepository.delete(session._id);
 
     return { message: 'Session deleted successfully' };
+  }
+
+  // Cancels a session and requests a refund for every member who paid.
+  // Captain/owner only, same guard pattern as end/delete/reschedule.
+  //
+  // Paystack refunds are asynchronous (can take up to 10 business days to
+  // settle), so this can only ever report that refunds were *requested*,
+  // not completed. The session stays CANCELLED — SessionPaymentService
+  // flips it to REFUNDED on its own once every payment's refund.processed
+  // webhook has actually arrived (see maybeCompleteSessionRefund there).
+  // A request that Paystack itself rejects immediately (bad reference,
+  // already refunded, etc.) shows up in refunds.results and needs manual
+  // follow-up — it will not be retried automatically.
+  async cancelSession(sessionId: string, userId: string) {
+    const session: Session = await this.sessionRepository.findOne({
+      _id: sessionId,
+    });
+    if (!session)
+      throw new CustomHttpException('Session not found', HttpStatus.NOT_FOUND);
+
+    const location = await this.locationRepository.findOne({ _id: session.location });
+    const isCaptain = session.captain?.toString() === userId;
+    const isOwner = location?.owner?.toString() === userId;
+    if (!isCaptain && !isOwner)
+      throw new CustomHttpException('Only the captain or location owner can cancel this session', HttpStatus.FORBIDDEN);
+
+    if (session.status === SESSION_STATUS.CANCELLED || session.status === SESSION_STATUS.REFUNDED) {
+      throw new CustomHttpException('Session is already cancelled', HttpStatus.BAD_REQUEST);
+    }
+
+    if (session.status === SESSION_STATUS.COMPLETED || session.finished) {
+      throw new CustomHttpException('Cannot cancel a completed session', HttpStatus.BAD_REQUEST);
+    }
+
+    const updatedSession = await this.sessionRepository.findOneAndUpdate(
+      { _id: sessionId },
+      { status: SESSION_STATUS.CANCELLED },
+    );
+
+    const refundSummary = await this.sessionPaymentService.refundAllForSession(sessionId);
+
+    await this.userRepository.updateMany(
+      { _id: { $in: session.members } },
+      { $set: { currentSession: null } },
+    );
+
+    if (!refundSummary.allInitiated) {
+      const failedCount = refundSummary.results.filter((r) => !r.success).length;
+      this.logger.error(
+        `Session ${sessionId} cancelled but ${failedCount}/${refundSummary.totalPaid} refund requests were rejected by Paystack — needs manual follow-up`,
+      );
+    }
+
+    return {
+      message:
+        refundSummary.totalPaid === 0
+          ? 'Session cancelled'
+          : refundSummary.allInitiated
+            ? 'Session cancelled — refunds have been requested and will settle over the next few days'
+            : 'Session cancelled — some refund requests failed and need manual follow-up',
+      session: updatedSession,
+      refunds: refundSummary,
+    };
   }
 
   async recheduleSession(

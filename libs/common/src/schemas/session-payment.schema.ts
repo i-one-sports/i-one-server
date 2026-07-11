@@ -6,6 +6,13 @@ export enum PaymentStatus {
   PENDING = 'PENDING',
   PAID = 'PAID',
   FAILED = 'FAILED',
+  // Paystack refunds are asynchronous (pending -> processing -> processed,
+  // or failed / needs-attention along the way) — see refund.* webhook
+  // handling in webhook.service.ts. REFUND_PENDING covers the whole
+  // in-flight window; REFUNDED is only set once refund.processed arrives.
+  REFUND_PENDING = 'REFUND_PENDING',
+  REFUND_NEEDS_ATTENTION = 'REFUND_NEEDS_ATTENTION',
+  REFUND_FAILED = 'REFUND_FAILED',
   REFUNDED = 'REFUNDED',
 }
 
@@ -37,6 +44,17 @@ export class SessionPayment extends AbstractDocument {
 
   @Prop({ type: Date, required: false })
   paidAt: Date;
+
+  // Absence means "never refunded" — correct default for every existing
+  // record, so no backfill migration needed for this field.
+  @Prop({ type: Date, required: false })
+  refundedAt: Date;
+
+  // Paystack's refund id (data.id from POST /refund) — lets the refund.*
+  // webhook handlers correlate an incoming event back to this payment
+  // without relying solely on transaction_reference.
+  @Prop({ type: String, required: false })
+  refundReference: string;
 
   @Prop({ type: Date, required: false })
   expiresAt: Date;
