@@ -31,7 +31,6 @@ describe('SessionsService', () => {
     getUsersWithActiveRecurringPayment: jest.Mock;
     getSessionMemberPaymentMap: jest.Mock;
   };
-  let verificationRepository: { findOne: jest.Mock };
   let notificationService: { emit: jest.Mock };
 
   const userId = new Types.ObjectId();
@@ -65,7 +64,6 @@ describe('SessionsService', () => {
       getUsersWithActiveRecurringPayment: jest.fn(),
       getSessionMemberPaymentMap: jest.fn(),
     };
-    verificationRepository = { findOne: jest.fn() };
     notificationService = { emit: jest.fn().mockResolvedValue(undefined) };
 
     service = new SessionsService(
@@ -75,21 +73,19 @@ describe('SessionsService', () => {
       userRepository as any,
       captainsService as any,
       sessionPaymentService as any,
-      verificationRepository as any,
       notificationService as any,
     );
   });
 
   describe('startSession', () => {
-    it('creates a pending session only for verified users', async () => {
+    it('creates a session for an email-verified user', async () => {
       const session = { _id: sessionId, location: locationId, captain: userId };
-      userRepository.findOne.mockResolvedValue({ _id: userId });
+      userRepository.findOne.mockResolvedValue({ _id: userId, emailVerified: true });
       locationRepository.findOne.mockResolvedValue({
         _id: locationId,
         owner: ownerId,
         name: 'Main Pitch',
       });
-      verificationRepository.findOne.mockResolvedValue({ status: 'APPROVED' });
       sessionRepository.create.mockResolvedValue(session);
       userRepository.findOneAndUpdate.mockResolvedValue({ _id: userId });
       captainsService.createCaptain.mockResolvedValue({
@@ -116,10 +112,9 @@ describe('SessionsService', () => {
       );
     });
 
-    it('blocks users without approved verification documents', async () => {
-      userRepository.findOne.mockResolvedValue({ _id: userId });
+    it('blocks users whose email is not verified', async () => {
+      userRepository.findOne.mockResolvedValue({ _id: userId, emailVerified: false });
       locationRepository.findOne.mockResolvedValue({ _id: locationId });
-      verificationRepository.findOne.mockResolvedValue(null);
 
       await expect(
         service.startSession(userId.toString(), locationId.toString()),

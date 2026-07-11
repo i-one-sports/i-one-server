@@ -19,8 +19,6 @@ import { SessionRepository } from './sessions.repository';
 import { CaptainsModule } from 'src/captains/captains.module';
 import { BillingModule } from 'src/billing/billing.module';
 import { NotificationsModule } from 'src/notifications/notifications.module';
-import { Verification, VerificationSchema } from '@app/common/schemas/verification.schema';
-import { VerificationRepository } from 'src/verification/verification.repository';
 
 @Module({
   imports: [
@@ -29,7 +27,6 @@ import { VerificationRepository } from 'src/verification/verification.repository
       { name: User.name, schema: UserSchema },
       { name: Location.name, schema: LocationSchema },
       { name: Match.name, schema: MatchSchema },
-      { name: Verification.name, schema: VerificationSchema },
     ]),
     CaptainsModule,
     BillingModule,
@@ -42,7 +39,6 @@ import { VerificationRepository } from 'src/verification/verification.repository
     UserRepository,
     LocationRepository,
     MatchRepository,
-    VerificationRepository,
   ],
   exports: [SessionsService],
 })

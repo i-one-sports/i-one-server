@@ -92,7 +92,7 @@ export class LocationsService {
       }
      
       return await this.locationRepository.create(payload);
-    } catch (error) {
+    } catch (error: any) {
       if (error.code === 11000) {
         throw new CustomHttpException(
           'Location with this name already exists',
@@ -124,7 +124,7 @@ export class LocationsService {
             type: 'Point',
             coordinates: [lng, lat],
           },
-          // $maxDistance: 5000,
+          $maxDistance: 5000,
         },
       },
     });

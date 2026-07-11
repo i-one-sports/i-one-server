@@ -17,7 +17,6 @@ import { MATCH_TYPE } from '@app/common';
 import { CaptainsService } from 'src/captains/captains.service';
 import { CreateCaptainDto } from 'src/captains/dto/captains.dto';
 import { SessionPaymentService } from 'src/billing/services/session-payment.service';
-import { VerificationRepository } from 'src/verification/verification.repository';
 import { NotificationService } from 'src/notifications/notification.service';
 
 @Injectable()
@@ -121,7 +120,6 @@ export class SessionsService {
     private readonly userRepository: UserRepository,
     private readonly CaptainService: CaptainsService,
     private readonly sessionPaymentService: SessionPaymentService,
-    private readonly verificationRepository: VerificationRepository,
     private readonly notificationService: NotificationService,
   ) {}
 
@@ -231,13 +229,9 @@ export class SessionsService {
     if (!user)
       throw new CustomHttpException('User not found', HttpStatus.NOT_FOUND);
 
-    const verification = await this.verificationRepository.findOne({
-      userId: new Types.ObjectId(userId),
-    });
-
-    if (!verification || verification.status === 'REJECTED') {
+    if (!user.emailVerified) {
       throw new CustomHttpException(
-        'Account not verified. Please submit your verification documents.',
+        'Please verify your email before starting a session.',
         HttpStatus.FORBIDDEN,
       );
     }
@@ -369,12 +363,18 @@ export class SessionsService {
     return newSession;
   }
 
-  async endSession(sessionId: string) {
+  async endSession(sessionId: string, userId: string) {
     const session: Session = await this.sessionRepository.findOne({
       _id: sessionId,
     });
     if (!session)
       throw new CustomHttpException('Session not found', HttpStatus.NOT_FOUND);
+
+    const location = await this.locationRepository.findOne({ _id: session.location });
+    const isCaptain = session.captain?.toString() === userId;
+    const isOwner = location?.owner?.toString() === userId;
+    if (!isCaptain && !isOwner)
+      throw new CustomHttpException('Only the captain or location owner can end this session', HttpStatus.FORBIDDEN);
 
     await Promise.all([
       this.userRepository.updateMany(
@@ -568,12 +568,18 @@ export class SessionsService {
     };
   }
 
-  async deleteSession(sessionId: string) {
+  async deleteSession(sessionId: string, userId: string) {
     const session: Session = await this.sessionRepository.findOne({
       _id: sessionId,
     });
     if (!session)
       throw new CustomHttpException('Session not found', HttpStatus.NOT_FOUND);
+
+    const location = await this.locationRepository.findOne({ _id: session.location });
+    const isCaptain = session.captain?.toString() === userId;
+    const isOwner = location?.owner?.toString() === userId;
+    if (!isCaptain && !isOwner)
+      throw new CustomHttpException('Only the captain or location owner can delete this session', HttpStatus.FORBIDDEN);
 
     const updateQuery: UpdateQuery<User> = {
       $set: { currentSession: null, isCaptain: false },
@@ -593,6 +599,7 @@ export class SessionsService {
     sessionId: string,
     startTime: Date,
     timeDuration: number,
+    userId: string,
   ) {
     const session = await this.sessionRepository.findOne({ _id: sessionId });
     if (!session) {
@@ -607,6 +614,11 @@ export class SessionsService {
     if (!location) {
       throw new CustomHttpException('Location not found', HttpStatus.NOT_FOUND);
     }
+
+    const isCaptain = session.captain?.toString() === userId;
+    const isOwner = location.owner?.toString() === userId;
+    if (!isCaptain && !isOwner)
+      throw new CustomHttpException('Only the captain or location owner can reschedule this session', HttpStatus.FORBIDDEN);
 
     this.validateSessionWithinOperatingHours(location, new Date(startTime), addedStopTime);
     const paymentConfig = this.buildPaymentConfig(location, timeDuration);

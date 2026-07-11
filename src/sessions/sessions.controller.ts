@@ -10,8 +10,10 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from 'src/auth/guards/jwt.guard';
+import { RolesGuard } from '@app/common/guards/roles.guard';
+import { Roles } from '@app/common/decorators/roles.decorator';
 import { SessionsService } from './sessions.service';
-import { CurrentUser, User } from '@app/common';
+import { CurrentUser, User, USER_ROLE } from '@app/common';
 import { createSessionRequest } from './dto/sessions.dto';
 
 @Controller('sessions')
@@ -95,28 +97,38 @@ export class SessionsController {
   }
 
   @Post('end/:sessionId')
-  async endSession(@Param('sessionId') sessionId: string) {
-    return this.sessionsService.endSession(sessionId);
+  async endSession(
+    @Param('sessionId') sessionId: string,
+    @CurrentUser() user: User,
+  ) {
+    return this.sessionsService.endSession(sessionId, user._id.toString());
   }
 
   @Delete('delete/:sessionId')
-  async deleteSession(@Param('sessionId') sessionId: string) {
-    return this.sessionsService.deleteSession(sessionId);
+  async deleteSession(
+    @Param('sessionId') sessionId: string,
+    @CurrentUser() user: User,
+  ) {
+    return this.sessionsService.deleteSession(sessionId, user._id.toString());
   }
 
   @Patch('reschedule/:sessionId')
   async rescheduleSession(
     @Param('sessionId') sessionId: string,
     @Body() data: { startTime: Date; timeDuration: number },
+    @CurrentUser() user: User,
   ) {
     return this.sessionsService.recheduleSession(
       sessionId,
       data.startTime,
       data.timeDuration,
+      user._id.toString(),
     );
   }
 
   @Patch('matchtype')
+  @UseGuards(RolesGuard)
+  @Roles(USER_ROLE.SUPER_ADMIN)
   async updateManySession() {
     return await this.sessionsService.updateAllSessions();
   }
