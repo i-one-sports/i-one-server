@@ -51,6 +51,8 @@ describe('UsersService', () => {
   });
 
   beforeEach(() => {
+    (crypto.randomInt as unknown as jest.Mock).mockReturnValue(111111);
+
     usersRepository = {
       findOne: jest.fn(),
       findOneAndUpdate: jest.fn(),
@@ -142,6 +144,15 @@ describe('UsersService', () => {
         'jane@example.com',
         'Welcome to I-One App!',
         expect.stringContaining('Hello Jane'),
+      );
+      expect(cacheService.set).toHaveBeenCalledWith(
+        'email_verify:jane@example.com',
+        '111111',
+        600,
+      );
+      expect(mailService.sendEmailVerificationOtp).toHaveBeenCalledWith(
+        'jane@example.com',
+        111111,
       );
     });
 
@@ -272,6 +283,15 @@ describe('UsersService', () => {
         expect.any(Object),
       );
       expect(statsService.initializeStat).toHaveBeenCalledWith(userId.toString());
+      expect(cacheService.set).toHaveBeenCalledWith(
+        'email_verify:owner@example.com',
+        '111111',
+        600,
+      );
+      expect(mailService.sendEmailVerificationOtp).toHaveBeenCalledWith(
+        'owner@example.com',
+        111111,
+      );
 
       const freeOwnerRequest: RegisterOwnerRequest = {
         user: {

@@ -21,6 +21,9 @@ describe('SessionPaymentService', () => {
   let paystackService: {
     initializeTransaction: jest.Mock;
   };
+  let sessionModel: {
+    findOneAndUpdate: jest.Mock;
+  };
 
   const sessionId = new Types.ObjectId();
   const locationId = new Types.ObjectId();
@@ -43,11 +46,15 @@ describe('SessionPaymentService', () => {
     paystackService = {
       initializeTransaction: jest.fn(),
     };
+    sessionModel = {
+      findOneAndUpdate: jest.fn(),
+    };
 
     service = new SessionPaymentService(
       sessionPaymentRepository as any,
       walletService as any,
       paystackService as any,
+      sessionModel as any,
     );
   });
 

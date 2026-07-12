@@ -184,6 +184,9 @@ export class UsersService {
     this.sendWelcomeEmail(createdUser).catch((err) =>
       this.logger.error(`Welcome email failed: ${err.message}`),
     );
+    await this.queueEmailVerificationOtp(createdUser).catch((err) =>
+      this.logger.error(`Email verification mail failed: ${err.message}`),
+    );
 
     return {
       message: 'Owner registration submitted successfully',
@@ -235,6 +238,9 @@ export class UsersService {
       this.sendWelcomeEmail(user).catch((err) =>
         console.error('Welcome email failed:', err),
       );
+      await this.queueEmailVerificationOtp(user).catch((err) =>
+        this.logger.error(`Email verification mail failed: ${err.message}`),
+      );
       this.logger.log(`User registered successfully: ${user._id} (${email})`);
       return user;
     } catch (error: any) {
@@ -252,6 +258,20 @@ export class UsersService {
     const subject = 'Welcome to I-One App!';
     const body = `Hello ${user.firstName},\n\nWelcome to I-One App! We're excited to have you on board.\n\nBest regards,\nThe I-One Team`;
     await this.mailService.sendMail(user.email, subject, body);
+  }
+
+  private async queueEmailVerificationOtp(user: Pick<User, 'email'>) {
+    const email = user.email.toLowerCase();
+    const otp = crypto.randomInt(100000, 999999);
+    const key = `email_verify:${email}`;
+
+    await this.cacheService.set(key, otp.toString(), this.EMAIL_VERIFY_TTL);
+
+    this.mailService
+      .sendEmailVerificationOtp(email, otp)
+      .catch((err) =>
+        this.logger.error(`Email verification mail failed: ${err.message}`),
+      );
   }
 
   private buildOwnerNickname(email: string) {
@@ -491,16 +511,7 @@ export class UsersService {
       );
     }
 
-    const otp = crypto.randomInt(100000, 999999);
-    const key = `email_verify:${email.toLowerCase()}`;
-
-    await this.cacheService.set(key, otp.toString(), this.EMAIL_VERIFY_TTL);
-
-    this.mailService
-      .sendEmailVerificationOtp(user.email, otp)
-      .catch((err) =>
-        this.logger.error(`Email verification mail failed: ${err.message}`),
-      );
+    await this.queueEmailVerificationOtp(user);
 
     return { message: 'Verification OTP sent to your email' };
   }

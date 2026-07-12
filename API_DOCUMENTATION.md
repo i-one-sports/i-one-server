@@ -63,7 +63,9 @@ Check if the server is running.
 ## Authentication
 
 ### POST /auth/user/login
-Authenticate a user. Sets an HTTP-only JWT cookie on success.
+Authenticate a user. Sets an HTTP-only JWT cookie on success. Login is allowed
+before email verification so the client can show a signed-in verification state,
+but protected app actions are blocked until `emailVerified` is `true`.
 
 **Auth required**: No
 
@@ -129,6 +131,8 @@ Register a new user account.
 - `position`: `"DF"` | `"MF"` | `"ST"`
 - `phoneNumber`: Nigerian format (`+234...`)
 - `avatar`: optional — upload first with `POST /user/avatar`, then include URL here
+- Registration automatically queues an email verification OTP. The OTP expires
+  in 10 minutes and can be resent with `POST /user/verify-email/send`.
 
 **Success Response** `201 Created`: Full user document.
 
@@ -329,6 +333,27 @@ Reset the user's password after OTP has been verified.
 ---
 
 ## Email Verification
+
+Email verification applies to normal users and owner/admin accounts. A user can
+log in before verifying their email, but protected app actions return
+`EMAIL_VERIFICATION_REQUIRED` until the OTP is confirmed. Super admin accounts
+are exempt from this guard.
+
+**Allowed while unverified**:
+- `GET /user`
+- `GET /user/profile`
+- `POST /user/verify-email/send`
+- `POST /user/verify-email/confirm`
+- `GET /auth/user/logout`
+
+**Blocked protected action response** `403 Forbidden`:
+```json
+{
+  "message": "Email verification is required before continuing",
+  "code": "EMAIL_VERIFICATION_REQUIRED",
+  "nextStep": "VERIFY_EMAIL"
+}
+```
 
 ### POST /user/verify-email/send
 Send an email verification OTP to the user. OTP is stored in Redis and expires in 10 minutes.
@@ -2496,6 +2521,26 @@ All error responses follow this format:
 | `409` | Conflict (duplicate email, nickname, etc.) |
 | `429` | Too many SSE connections |
 | `500` | Server error |
+
+### Guard Errors
+
+Some `403` responses are actionable state transitions for the frontend:
+
+```json
+{
+  "message": "Email verification is required before continuing",
+  "code": "EMAIL_VERIFICATION_REQUIRED",
+  "nextStep": "VERIFY_EMAIL"
+}
+```
+
+```json
+{
+  "message": "Verification documents are required before continuing",
+  "code": "OWNER_VERIFICATION_REQUIRED",
+  "nextStep": "SUBMIT_VERIFICATION"
+}
+```
 
 ---
 
