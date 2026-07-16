@@ -1,6 +1,6 @@
 import { Injectable, HttpStatus, Logger } from '@nestjs/common';
 import { StatsRepository } from './stats.repository';
-import { StatsDto, statsQueryDto, updateStatsDto } from './dto/stats.dto';
+import { StatsDto, statsQueryDto } from './dto/stats.dto';
 import { CustomHttpException } from '@app/common';
 
 @Injectable()
@@ -64,23 +64,6 @@ public async getUserStatsBySeason(userId: string,query: statsQueryDto){
     } catch (error) {
       throw new CustomHttpException(
         `cannot create user stats ${JSON.stringify(error)}`,
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
-
-  public async updateStats(
-    userId: string,
-    query: statsQueryDto,
-    updateData: updateStatsDto,
-  ) {
-    try {
-      return this.statsRepository.findOneAndUpdate({userId, ...query}, {
-        $inc: { [updateData.statsType]: updateData.value },
-      });
-    } catch (error) {
-      throw new CustomHttpException(
-        `cannot update user stats ${JSON.stringify(error)}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }

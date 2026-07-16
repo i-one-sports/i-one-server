@@ -1825,16 +1825,19 @@ Fields are populated according to the `event` type — e.g. `result` carries `ma
 ## Stats
 
 ### GET /stats/:userId
-Get overall stats for the authenticated user. The `:userId` path param is accepted but the server always returns stats for the **current user**.
+Get overall stats for any user — public profile lookup, not scoped to the caller.
 
-**Auth required**: Yes (JWT cookie)
+**Auth required**: Yes (JWT cookie — just needs to be logged in, viewing someone else's stats is allowed)
+
+**Path Parameters**:
+- `userId` — the user whose stats to fetch
 
 **Success Response** `200 OK`: Aggregated stats document.
 
 ---
 
 ### GET /stats/season
-Get the authenticated user's stats for a specific season range.
+Get the authenticated user's own stats for a specific season range.
 
 **Auth required**: Yes (JWT cookie)
 
@@ -1846,24 +1849,7 @@ Get the authenticated user's stats for a specific season range.
 
 ---
 
-### PATCH /stats/update
-Update a specific stat for the authenticated user.
-
-**Auth required**: Yes (JWT cookie)
-
-**Query Parameters**:
-- `seasonStart` (number, required)
-- `seasonEnd` (number, required)
-
-**Request Body**:
-```json
-{
-  "statsType": "GOALS",
-  "value": 2
-}
-```
-
-**Success Response** `200 OK`: Updated stats document.
+**No self-edit endpoint on purpose.** There is deliberately no `PATCH /stats/update` (or equivalent) here — stats are never player-editable. They're written by `initializeStat` on signup (zeroed) and, once wired up, by match-end aggregation off owner/official-recorded goal-scorer data (see `POST /matches/goal-scorer/:matchId`) — not by a player calling an endpoint about themselves.
 
 ---
 

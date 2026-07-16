@@ -1,17 +1,22 @@
-import { Body, Controller, Get, Param, Patch, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { StatsService } from './stats.service';
-import { statsQueryDto, updateStatsDto } from './dto/stats.dto';
+import { statsQueryDto } from './dto/stats.dto';
 import { CurrentUser, User } from '@app/common';
 import { JwtAuthGuard } from 'src/auth/guards/jwt.guard';
 
+// No PATCH /stats/update here on purpose — stats are never self-reported.
+// They're only ever written by initializeStat (on signup) and, eventually,
+// by match-end aggregation off owner/official-recorded goal-scorer data
+// (see matches.service.ts — not wired up yet, tracked separately).
 @Controller('stats')
 @UseGuards(JwtAuthGuard)
 export class StatsController {
   constructor(private readonly statsService: StatsService) {}
 
+  // Public profile lookup — any authenticated user can view anyone's stats.
   @Get(':userId')
-  async overallUserStats(@CurrentUser() user: User) {
-    return this.statsService.overallUserStats(user._id.toString());
+  async overallUserStats(@Param('userId') userId: string) {
+    return this.statsService.overallUserStats(userId);
   }
 
   @Get('season')
@@ -20,18 +25,5 @@ export class StatsController {
     @Query() query: statsQueryDto,
   ) {
     return this.statsService.getUserStatsBySeason(user._id.toString(), query);
-  }
-
-  @Patch('update')
-  async updateStats(
-    @CurrentUser() user: User,
-    @Query() query: statsQueryDto,
-    @Body() updateData: updateStatsDto,
-  ) {
-    return this.statsService.updateStats(
-      user._id.toString(),
-      query,
-      updateData,
-    );
   }
 }
