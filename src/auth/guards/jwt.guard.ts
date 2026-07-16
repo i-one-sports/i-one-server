@@ -11,6 +11,7 @@ import {
 } from '@app/common';
 
 type AuthenticatedRequest = {
+  method?: string;
   originalUrl?: string;
   user?: User;
 };
@@ -23,6 +24,14 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
 
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const user = request.user;
+
+    if (this.shouldBlockUnverifiedEmail(user, request.originalUrl)) {
+      throw new ForbiddenException({
+        message: 'Email verification is required before continuing',
+        code: 'EMAIL_VERIFICATION_REQUIRED',
+        nextStep: 'VERIFY_EMAIL',
+      });
+    }
 
     if (!this.shouldBlockPendingOwner(user, request.originalUrl)) {
       return true;
@@ -45,8 +54,29 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     ].includes(user.ownerOnboardingStatus);
   }
 
+  private shouldBlockUnverifiedEmail(user?: User, originalUrl?: string) {
+    if (!user || user.role === USER_ROLE.SUPER_ADMIN) return false;
+    if (user.emailVerified) return false;
+    if (this.isAllowedEmailVerificationRoute(originalUrl)) return false;
+
+    return true;
+  }
+
   private isAllowedVerificationRoute(originalUrl?: string) {
     const path = originalUrl?.split('?')[0] ?? '';
-    return path.endsWith('/verification/submit') || path.endsWith('/verification/me');
+    return (
+      path.endsWith('/verification/submit') || path.endsWith('/verification/me')
+    );
+  }
+
+  private isAllowedEmailVerificationRoute(originalUrl?: string) {
+    const path = originalUrl?.split('?')[0] ?? '';
+    return (
+      path.endsWith('/user') ||
+      path.endsWith('/user/profile') ||
+      path.endsWith('/user/verify-email/send') ||
+      path.endsWith('/user/verify-email/confirm') ||
+      path.endsWith('/auth/user/logout')
+    );
   }
 }
