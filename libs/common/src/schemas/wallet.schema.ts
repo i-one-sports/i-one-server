@@ -7,6 +7,9 @@ export class Wallet extends AbstractDocument {
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   userId: Types.ObjectId;
 
+  // All money fields in this app are kobo (naira × 100) — matches
+  // Paystack's native unit, avoids floating point issues entirely.
+  // Frontend converts to/from naira for display; the backend never does.
   @Prop({ type: Number, default: 0, min: 0 })
   balance: number;
 

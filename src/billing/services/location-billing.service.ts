@@ -98,7 +98,12 @@ export class LocationBillingService {
           teamPlayersCount: {
             $first: { $size: { $ifNull: ['$mySet.players', []] } },
           },
-          totalPaid: { $sum: '$amount' },
+          // baseAmount (owner's actual take), not the full charged amount —
+          // otherwise this drifts from expectedTotal (teamPlayersCount ×
+          // session.paymentAmount, the base per-person price) by whatever
+          // commission was added on top. $ifNull covers legacy payments
+          // created before commission existed (no baseAmount stored).
+          totalPaid: { $sum: { $ifNull: ['$baseAmount', '$amount'] } },
           membersPaid: { $sum: 1 },
           latestPaidAt: { $max: '$paidAt' },
           sessionId: { $first: '$sessionId' },
@@ -227,10 +232,15 @@ export class LocationBillingService {
 
       const playerDetails = players.map((playerId) => {
         const payment = paymentByUser.get(playerId);
+        // baseAmount (owner's take), not the full charged amount — see
+        // totalPaid above for why this has to match expectedTotal's basis.
         return {
           userId: playerId,
           status: payment?.status ?? 'NOT_PAID',
-          amountPaid: payment?.status === PaymentStatus.PAID ? payment.amount : 0,
+          amountPaid:
+            payment?.status === PaymentStatus.PAID
+              ? (payment.baseAmount ?? payment.amount)
+              : 0,
           paidAt: payment?.paidAt ?? null,
         };
       });

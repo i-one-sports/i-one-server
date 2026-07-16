@@ -17,6 +17,7 @@ export class LedgerEntry extends AbstractDocument {
   @Prop({ type: String, enum: ['CREDIT', 'DEBIT'], required: true })
   type: 'CREDIT' | 'DEBIT';
 
+  // Kobo — see Wallet.balance for the app-wide currency unit convention.
   @Prop({ type: Number, required: true, min: 0 })
   amount: number;
 

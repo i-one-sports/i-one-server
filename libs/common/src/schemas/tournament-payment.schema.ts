@@ -20,6 +20,7 @@ export class TournamentPayment extends AbstractDocument {
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   ownerId: Types.ObjectId;
 
+  // Kobo — see Wallet.balance for the app-wide currency unit convention.
   @Prop({ type: Number, required: true, min: 0 })
   amount: number;
 

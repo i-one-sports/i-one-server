@@ -65,12 +65,14 @@ export class Tournament extends AbstractDocument {
   @Prop({ type: Types.ObjectId, ref: 'Location', required: true })
   location: Types.ObjectId;
 
+  // Kobo — see Wallet.balance for the app-wide currency unit convention.
   @Prop({ default: 0 })
   prizeMoney: number;
 
   @Prop({ required: true, unique: true, match: /^[a-zA-Z0-9_-]+$/ })
   code: string;
 
+  // Kobo.
   @Prop({ default: 0 })
   registrationFee: number;
 

@@ -21,6 +21,16 @@ describe('SessionPaymentService', () => {
   let paystackService: {
     initializeTransaction: jest.Mock;
   };
+  let settingsService: {
+    getCommissionPercentage: jest.Mock;
+  };
+  let platformCommissionRepository: {
+    create: jest.Mock;
+    findRaw: jest.Mock;
+  };
+  let sessionModel: {
+    findOneAndUpdate: jest.Mock;
+  };
 
   const sessionId = new Types.ObjectId();
   const locationId = new Types.ObjectId();
@@ -43,11 +53,26 @@ describe('SessionPaymentService', () => {
     paystackService = {
       initializeTransaction: jest.fn(),
     };
+    settingsService = {
+      // Default to 0% so existing amount-based assertions below don't need
+      // to account for commission unless a test explicitly sets otherwise.
+      getCommissionPercentage: jest.fn().mockResolvedValue(0),
+    };
+    platformCommissionRepository = {
+      create: jest.fn(),
+      findRaw: jest.fn(),
+    };
+    sessionModel = {
+      findOneAndUpdate: jest.fn(),
+    };
 
     service = new SessionPaymentService(
       sessionPaymentRepository as any,
       walletService as any,
       paystackService as any,
+      settingsService as any,
+      platformCommissionRepository as any,
+      sessionModel as any,
     );
   });
 
@@ -76,6 +101,9 @@ describe('SessionPaymentService', () => {
           ownerId,
           userId: userTwo,
           amount: 3000,
+          baseAmount: 3000,
+          commissionAmount: 0,
+          commissionPercentage: 0,
           status: PaymentStatus.PENDING,
           metadata: { pricingOption: LOCATION_PRICING_OPTION.MONTHLY },
         }),
@@ -100,6 +128,30 @@ describe('SessionPaymentService', () => {
       );
 
       expect(sessionPaymentRepository.insertMany).not.toHaveBeenCalled();
+    });
+
+    it('adds commission on top of the base price when a rate is configured', async () => {
+      settingsService.getCommissionPercentage.mockResolvedValue(5);
+      sessionPaymentRepository.find.mockResolvedValue([]);
+
+      await service.initializeSessionPayments(
+        sessionId,
+        locationId,
+        ownerId,
+        [userOne],
+        2000,
+      );
+
+      const insertedPayments =
+        sessionPaymentRepository.insertMany.mock.calls[0][0];
+      expect(insertedPayments[0]).toEqual(
+        expect.objectContaining({
+          baseAmount: 2000,
+          commissionAmount: 100,
+          commissionPercentage: 5,
+          amount: 2100,
+        }),
+      );
     });
   });
 
@@ -185,6 +237,48 @@ describe('SessionPaymentService', () => {
           status: PaymentStatus.PAID,
           transactionId,
           paidAt: expect.any(Date),
+        }),
+      );
+    });
+
+    it('credits only baseAmount and records the commission when the payment has one', async () => {
+      const paymentId = new Types.ObjectId();
+      const walletId = new Types.ObjectId();
+      const transactionId = new Types.ObjectId();
+
+      sessionPaymentRepository.findOne.mockResolvedValue({
+        _id: paymentId,
+        sessionId,
+        userId: userOne,
+        ownerId,
+        amount: 2100,
+        baseAmount: 2000,
+        commissionAmount: 100,
+        commissionPercentage: 5,
+      });
+      walletService.getWalletByUserId.mockResolvedValue({ _id: walletId });
+      walletService.creditWallet.mockResolvedValue({ _id: transactionId });
+      sessionPaymentRepository.findOneAndUpdate.mockResolvedValue({
+        _id: paymentId,
+        status: PaymentStatus.PAID,
+      });
+
+      await service.confirmSessionPayment(sessionId, userOne, 'PAYSTACK_REF', 2100);
+
+      expect(walletService.creditWallet).toHaveBeenCalledWith(
+        walletId,
+        2000,
+        TransactionSource.SESSION_PAYMENT,
+        'PAYSTACK_REF',
+        expect.objectContaining({ chargedAmount: 2100, commissionAmount: 100 }),
+        sessionId,
+      );
+      expect(platformCommissionRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionPaymentId: paymentId,
+          baseAmount: 2000,
+          commissionAmount: 100,
+          commissionPercentage: 5,
         }),
       );
     });

@@ -21,6 +21,8 @@ export * from './schemas/webhook-event.schema';
 export * from './schemas/session-payment.schema';
 export * from './schemas/bank-account.schema';
 export * from './schemas/bank.schema';
+export * from './schemas/settings.schema';
+export * from './schemas/platform-commission.schema';
 export * from './utils/phone.number';
 export * from './typings/global.interface';
 export * from './decorators/currentUser.decorator';

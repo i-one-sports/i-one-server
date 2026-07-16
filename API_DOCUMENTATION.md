@@ -15,14 +15,15 @@
 12. [Tournaments](#tournaments)
 13. [Stats](#stats)
 14. [Captains](#captains)
-15. [Wallet & Payments](#wallet--payments)
+15. [Wallet & Payments](#wallet--payments) — includes refund flow
 16. [Banks](#banks)
-17. [Location Billing](#location-billing) — owner transaction history & team payment validator
-18. [Notifications](#notifications)
-19. [Admin](#admin)
-20. [Webhooks](#webhooks)
-21. [Error Handling](#error-handling)
-22. [Types & Interfaces](#types--interfaces)
+17. [Settings](#settings) — platform commission rate
+18. [Location Billing](#location-billing) — owner transaction history & team payment validator
+19. [Notifications](#notifications)
+20. [Admin](#admin) — includes commission summary
+21. [Webhooks](#webhooks) — includes refund.* events
+22. [Error Handling](#error-handling)
+23. [Types & Interfaces](#types--interfaces)
 
 ---
 
@@ -525,11 +526,11 @@ Register a new sports location. Owner only.
   "pitchPhoto": "https://s3.amazonaws.com/pitches/photo.jpg",
   "friendly": true,
   "tournament": true,
-  "tournamentFee": 5000,
+  "tournamentFee": 500000,
   "tier": "paid",
   "pricingOption": "hourly",
-  "paymentPerPersonHourly": 1500,
-  "paymentPerPersonMonthly": 20000,
+  "paymentPerPersonHourly": 150000,
+  "paymentPerPersonMonthly": 2000000,
   "openingHour": "08:00",
   "closingHour": "22:00"
 }
@@ -538,8 +539,8 @@ Register a new sports location. Owner only.
 **Field Notes**:
 - `tier`: `"free"` | `"paid"` (required)
 - `pricingOption`: `"hourly"` | `"monthly"` — required when `tier` is `"paid"`
-- `paymentPerPersonHourly`: amount per player per session — required when `pricingOption` is `"hourly"`
-- `paymentPerPersonMonthly`: amount per player per month — required when `pricingOption` is `"monthly"`
+- `paymentPerPersonHourly`: amount per player per session, in **kobo** — required when `pricingOption` is `"hourly"` (e.g. `150000` = ₦1,500)
+- `paymentPerPersonMonthly`: amount per player per month, in **kobo** — required when `pricingOption` is `"monthly"`
 - `openingHour` / `closingHour`: operating hours in `HH:mm` 24-hour format (e.g. `"08:00"`, `"22:00"`). Sessions cannot be booked outside these hours.
 - Sessions that span midnight are rejected
 
@@ -710,14 +711,14 @@ Get revenue earned at this location for all time periods in a single call. Only 
 **Success Response** `200 OK`:
 ```json
 {
-  "this_week":  { "total": 50000,  "count": 3  },
-  "this_month": { "total": 200000, "count": 12 },
-  "this_year":  { "total": 950000, "count": 58 }
+  "this_week":  { "total": 5000000,  "count": 3  },
+  "this_month": { "total": 20000000, "count": 12 },
+  "this_year":  { "total": 95000000, "count": 58 }
 }
 ```
 
 **Field Notes**:
-- `total` — sum of paid session payment amounts for the period (in kobo/smallest currency unit)
+- `total` — sum of paid session payments for the period, in **kobo** (the owner's `baseAmount`, i.e. what they actually received — commission, if any, is excluded)
 - `count` — number of individual payments in that period
 - Periods: `this_week` starts Sunday 00:00, `this_month` starts the 1st, `this_year` starts Jan 1st
 
@@ -983,7 +984,9 @@ Get the member list for a session (nickname only).
 ---
 
 ### DELETE /sessions/leave/:sessionId
-Leave a session.
+Leave a session. If you've already paid for this session (and it hasn't started yet), a Paystack refund is requested automatically before you're removed — you can't leave with an outstanding paid-and-not-refunded session. If the refund can't even be requested (Paystack call fails), the leave is blocked entirely so you don't lose your spot and your money at the same time.
+
+Note: a successful leave only means the refund was *requested* — Paystack refunds are asynchronous and can take up to 10 business days to settle (see `POST /sessions/cancel/:sessionId` and the Webhooks section for how refund completion is tracked).
 
 **Auth required**: Yes (JWT cookie)
 
@@ -994,6 +997,9 @@ Leave a session.
   "session": { ...updatedSessionDocument }
 }
 ```
+
+**Error Responses**:
+- `500` — refund could not be requested; you remain in the session
 
 ---
 
@@ -1426,8 +1432,8 @@ Create a tournament at a location. Only authenticated users can create.
   "name": "Victoria Island Cup",
   "description": "Annual VI knockout tournament",
   "type": "knockout",
-  "prizeMoney": 500000,
-  "registrationFee": 2000,
+  "prizeMoney": 50000000,
+  "registrationFee": 200000,
   "minutesPerMatch": 10,
   "playersPerTeam": 5,
   "maxTeams": 8,
@@ -1446,8 +1452,8 @@ Create a tournament at a location. Only authenticated users can create.
 {
   "name": "Sangotedo League",
   "type": "league",
-  "prizeMoney": 300000,
-  "registrationFee": 1000,
+  "prizeMoney": 30000000,
+  "registrationFee": 100000,
   "minutesPerMatch": 30,
   "playersPerTeam": 6,
   "maxTeams": 6,
@@ -1487,8 +1493,8 @@ Get all tournaments for a location. Lightweight — no team population.
     "startDate": "2026-05-10T09:00:00.000Z",
     "endDate": "2026-05-12T09:00:00.000Z",
     "registrationDeadline": "2026-05-01T00:00:00.000Z",
-    "prizeMoney": 500000,
-    "registrationFee": 2000,
+    "prizeMoney": 50000000,
+    "registrationFee": 200000,
     "code": "AB1C2D",
     "winner": null
   }
@@ -1619,7 +1625,7 @@ Initialize a Paystack checkout for the team's registration fee. Only needed when
 {
   "authorizationUrl": "https://checkout.paystack.com/...",
   "reference": "TOURNEY_REG_<tournamentId>_<teamId>_<uuid>",
-  "amount": 2000
+  "amount": 200000
 }
 ```
 
@@ -1645,7 +1651,7 @@ Get the registration fee payment status for a team.
 ```json
 {
   "status": "PENDING",
-  "amount": 2000,
+  "amount": 200000,
   "reference": "TOURNEY_REG_...",
   "paidAt": null
 }
@@ -1855,13 +1861,21 @@ Get the captain for a team or set.
 
 ## Wallet & Payments
 
+**Currency units**: every amount in this API — request bodies, response bodies, and every money field on `Location`, `Session`, `SessionPayment`, `Tournament`, `TournamentPayment`, `Wallet`, `Transaction`, `LedgerEntry`, and `PlatformCommission` — is in **kobo** (naira × 100), matching Paystack's native unit exactly. The backend never converts to/from naira; it passes amounts straight through to Paystack unchanged. **The frontend is responsible for all naira↔kobo conversion** — divide by 100 to display, multiply by 100 before sending a naira value the user typed.
+
 ### Session Payment Flow
 
-1. A session fills up → server automatically creates a `PENDING` payment record for every member
-2. Each member calls `POST /wallet/session/:sessionId/pay` to get a Paystack checkout URL
+1. A session fills up → server automatically creates a `PENDING` payment record for every member. Each record's `amount` (what's charged to the player) is the location's base price plus the current platform commission (see `GET /settings/commission`), added on top — `baseAmount` is the location's price, unchanged; `commissionAmount` is the platform's cut.
+2. Each member calls `POST /wallet/session/:sessionId/pay` to get a Paystack checkout URL for `amount` (base + commission)
 3. Member pays via Paystack
-4. Paystack sends `charge.success` webhook → server confirms payment and credits owner wallet
+4. Paystack sends `charge.success` webhook → server confirms payment, credits the owner's wallet with `baseAmount` only (never the commission), and records the commission separately for revenue reporting (see `GET /admin/billing/commission-summary`)
 5. Once all members have paid, `canSessionStart()` returns `true`
+
+### Refund Flow
+
+Refunds happen via `POST /sessions/cancel/:sessionId` (owner/captain cancels — refunds every paid member) or `DELETE /sessions/leave/:sessionId` (a single paid member leaves before the session starts). Both only *request* a refund — Paystack refunds are asynchronous:
+
+`PENDING/PAID` → refund requested → `REFUND_PENDING` → Paystack webhook confirms → `REFUNDED` (owner wallet debited `baseAmount`, session flips to `REFUNDED` once every payment on it clears) — or `REFUND_FAILED` / `REFUND_NEEDS_ATTENTION` if Paystack can't complete it (see Webhooks section). A refund never claws back the commission from the owner, since the owner was never credited it in the first place.
 
 ---
 
@@ -1874,8 +1888,8 @@ Get the authenticated owner's wallet.
 ```json
 {
   "_id": "...",
-  "balance": 50000,
-  "ledgerBalance": 50000,
+  "balance": 5000000,
+  "ledgerBalance": 5000000,
   "currency": "NGN",
   "status": "ACTIVE"
 }
@@ -1890,7 +1904,7 @@ Initialize a Paystack payment so the owner can top up their own wallet. Returns 
 
 **Request Body**:
 ```json
-{ "amount": 10000 }
+{ "amount": 1000000 }
 ```
 
 **Success Response** `200 OK`:
@@ -1898,7 +1912,7 @@ Initialize a Paystack payment so the owner can top up their own wallet. Returns 
 {
   "authorizationUrl": "https://checkout.paystack.com/...",
   "reference": "FUND_<uuid>",
-  "amount": 10000
+  "amount": 1000000
 }
 ```
 
@@ -1929,8 +1943,8 @@ Get the paginated ledger entry history for the authenticated owner's wallet. Eac
       "walletId": "...",
       "transactionId": "...",
       "type": "CREDIT",
-      "amount": 5000,
-      "balanceAfter": 55000,
+      "amount": 500000,
+      "balanceAfter": 5500000,
       "reason": "SESSION_PAYMENT",
       "createdAt": "2026-07-07T14:00:00.000Z"
     }
@@ -1949,8 +1963,8 @@ Get the authenticated owner's current wallet balance.
 **Success Response** `200 OK`:
 ```json
 {
-  "balance": 50000,
-  "ledgerBalance": 50000,
+  "balance": 5000000,
+  "ledgerBalance": 5000000,
   "currency": "NGN"
 }
 ```
@@ -2025,9 +2039,11 @@ Initialize a Paystack checkout for the current user's session payment. Returns a
 {
   "authorizationUrl": "https://checkout.paystack.com/...",
   "reference": "SESSION_507f..._USER_507f..._uuid",
-  "amount": 2500
+  "amount": 250000
 }
 ```
+
+**Note**: `amount` here is the base session price plus platform commission (see `GET /settings/commission`) — it's what the player actually pays, not the location's listed price. The owner is credited only the base amount once payment is confirmed.
 
 **Notes**:
 - Redirect the user to `authorizationUrl` to complete payment
@@ -2097,7 +2113,7 @@ Withdraw funds to a bank account.
 **Request Body**:
 ```json
 {
-  "amount": 10000,
+  "amount": 1000000,
   "bankAccountId": "507f...",
   "reason": "Monthly payout"
 }
@@ -2151,6 +2167,46 @@ List all active banks (Nigeria, NGN by default).
 
 ---
 
+## Settings
+
+Platform-wide configuration. Currently just the commission rate — a singleton document, created on first read with `commissionPercentage: 0` (no commission charged until a super admin explicitly sets it).
+
+### GET /settings/commission
+Get the current platform commission percentage.
+
+**Auth required**: Yes (JWT cookie + `SUPER_ADMIN` role)
+
+**Success Response** `200 OK`:
+```json
+{
+  "commissionPercentage": 5,
+  "commissionUpdatedBy": "507f...",
+  "commissionUpdatedAt": "2026-07-16T10:00:00.000Z"
+}
+```
+
+---
+
+### PATCH /settings/commission
+Update the platform commission percentage. Takes effect for payments created *after* this call — payments already in flight keep the rate they were created with (see `commissionPercentage` on `SessionPayment`).
+
+**Auth required**: Yes (JWT cookie + `SUPER_ADMIN` role)
+
+**Request Body**:
+```json
+{ "percentage": 5 }
+```
+
+**Field Notes**:
+- `percentage`: number, `0`–`100`
+
+**Success Response** `200 OK`: Updated settings document.
+
+**Error Responses**:
+- `400` — percentage outside 0–100
+
+---
+
 ## Location Billing
 
 Endpoints for location owners to view session payment history grouped by team and validate per-team payment completeness.
@@ -2184,11 +2240,11 @@ Get paginated transaction history for a location, grouped by calendar date. Each
           "setId": "507f...",
           "sessionStartTime": "2026-03-20T17:00:00.000Z",
           "pricingOption": "hourly",
-          "paymentAmount": 1500,
+          "paymentAmount": 150000,
           "teamSize": 5,
           "membersPaid": 5,
-          "totalPaid": 7500,
-          "expectedTotal": 7500,
+          "totalPaid": 750000,
+          "expectedTotal": 750000,
           "paymentStatus": "COMPLETE",
           "paidAt": "2026-03-20T17:05:00.000Z"
         },
@@ -2198,11 +2254,11 @@ Get paginated transaction history for a location, grouped by calendar date. Each
           "setId": "507f...",
           "sessionStartTime": "2026-03-20T17:00:00.000Z",
           "pricingOption": "hourly",
-          "paymentAmount": 1500,
+          "paymentAmount": 150000,
           "teamSize": 5,
           "membersPaid": 3,
-          "totalPaid": 4500,
-          "expectedTotal": 7500,
+          "totalPaid": 450000,
+          "expectedTotal": 750000,
           "paymentStatus": "PARTIAL",
           "paidAt": "2026-03-20T17:10:00.000Z"
         }
@@ -2240,12 +2296,12 @@ Validate payment completeness for every team in a single session. Shows each tea
   "sessionId": "507f...",
   "sessionStartTime": "2026-03-20T17:00:00.000Z",
   "sessionStopTime": "2026-03-20T18:30:00.000Z",
-  "paymentAmount": 1500,
+  "paymentAmount": 150000,
   "pricingOption": "hourly",
   "sessionPaymentStatus": "PENDING",
-  "grandExpected": 15000,
-  "grandPaid": 10500,
-  "shortfall": 4500,
+  "grandExpected": 1500000,
+  "grandPaid": 1050000,
+  "shortfall": 450000,
   "allTeamsPaid": false,
   "teams": [
     {
@@ -2254,12 +2310,12 @@ Validate payment completeness for every team in a single session. Shows each tea
       "totalPlayers": 5,
       "playersPaid": 5,
       "playersUnpaid": 0,
-      "expectedTotal": 7500,
-      "totalPaid": 7500,
+      "expectedTotal": 750000,
+      "totalPaid": 750000,
       "shortfall": 0,
       "status": "COMPLETE",
       "playerDetails": [
-        { "userId": "507f...", "status": "PAID", "amountPaid": 1500, "paidAt": "2026-03-20T17:05:00.000Z" }
+        { "userId": "507f...", "status": "PAID", "amountPaid": 150000, "paidAt": "2026-03-20T17:05:00.000Z" }
       ]
     },
     {
@@ -2268,12 +2324,12 @@ Validate payment completeness for every team in a single session. Shows each tea
       "totalPlayers": 5,
       "playersPaid": 3,
       "playersUnpaid": 2,
-      "expectedTotal": 7500,
-      "totalPaid": 4500,
-      "shortfall": 3000,
+      "expectedTotal": 750000,
+      "totalPaid": 450000,
+      "shortfall": 300000,
       "status": "PARTIAL",
       "playerDetails": [
-        { "userId": "507f...", "status": "PAID",     "amountPaid": 1500, "paidAt": "2026-03-20T17:08:00.000Z" },
+        { "userId": "507f...", "status": "PAID",     "amountPaid": 150000, "paidAt": "2026-03-20T17:08:00.000Z" },
         { "userId": "507f...", "status": "NOT_PAID", "amountPaid": 0,    "paidAt": null }
       ]
     }
@@ -2378,7 +2434,7 @@ Update pricing options for a location. Owner only.
 {
   "tier": "paid",
   "pricingOption": "hourly",
-  "paymentPerPersonHourly": 1500
+  "paymentPerPersonHourly": 150000
 }
 ```
 
@@ -2387,7 +2443,7 @@ Update pricing options for a location. Owner only.
 {
   "tier": "paid",
   "pricingOption": "monthly",
-  "paymentPerPersonMonthly": 20000
+  "paymentPerPersonMonthly": 2000000
 }
 ```
 
@@ -2428,7 +2484,7 @@ Manually credit a user's wallet. Super admin only.
 ```json
 {
   "userId": "507f...",
-  "amount": 5000
+  "amount": 500000
 }
 ```
 
@@ -2439,6 +2495,24 @@ Manually credit a user's wallet. Super admin only.
   "transaction": { ...transactionDocument }
 }
 ```
+
+---
+
+### GET /admin/billing/commission-summary
+All-time platform revenue from commission. Super admin only.
+
+**Auth required**: Yes (JWT cookie + `SUPER_ADMIN` role)
+
+**Success Response** `200 OK`:
+```json
+{
+  "totalCommission": 4500000,
+  "count": 120
+}
+```
+
+**Notes**:
+- Sums the `PlatformCommission` audit collection directly — a payment's commission stays on record even if that payment is later refunded (refunds don't reverse the commission entry).
 
 ---
 
@@ -2455,14 +2529,20 @@ Receive and process events from Paystack. **This endpoint is called by Paystack,
 **Handled Events**:
 | Event | Action |
 |---|---|
-| `charge.success` (session) | metadata has `sessionId`+`userId` → confirms session payment and credits owner wallet |
+| `charge.success` (session) | metadata has `sessionId`+`userId` → confirms session payment, credits owner wallet with `baseAmount`, records commission (if any) |
 | `charge.success` (tournament) | metadata has `type: "TOURNAMENT_REGISTRATION"` → credits the location owner's wallet and marks the team's registration as PAID |
 | `charge.success` (wallet funding) | metadata has `type: "WALLET_FUNDING"` + `walletId` → credits the owner's wallet and marks the pending transaction as SUCCESS |
 | `transfer.success` | Marks the withdrawal transaction as SUCCESS |
 | `transfer.failed` | Refunds the debited wallet amount |
 | `transfer.reversed` | Refunds the debited wallet amount |
+| `refund.pending` / `refund.processing` | Logged only — the payment is already `REFUND_PENDING` from the initial refund request (`POST /sessions/cancel/:sessionId` or `DELETE /sessions/leave/:sessionId`) |
+| `refund.processed` | Debits the owner's wallet by `baseAmount`, marks the `SessionPayment` as `REFUNDED`, and flips the session to `REFUNDED` once every paid member on it has cleared |
+| `refund.failed` | Marks the payment `REFUND_FAILED` — needs manual follow-up/retry, no automatic retry |
+| `refund.needs-attention` | Marks the payment `REFUND_NEEDS_ATTENTION` — Paystack couldn't determine the player's bank account from the original transaction. **Not currently automatable**: this app doesn't collect player bank details anywhere, so completing this requires an ops person to obtain them and call the retry-refund flow manually. |
 
-**Idempotency**: Every webhook is stored in `WebhookEvent` before processing. A unique index on `eventId` (Paystack reference) means duplicate deliveries of the same event are silently ignored — no double-credits.
+**Idempotency**: Every webhook is stored in `WebhookEvent` before processing. A unique index on `eventId` means duplicate deliveries of the same event are silently ignored — no double-credits. `eventId` is `data.reference` for charge/transfer events; refund events don't carry that field, so it's derived as `` `${event}_${data.transaction_reference}` `` instead.
+
+**Known limitation**: the dedupe record is written *before* processing, so if processing throws partway through, Paystack's retries of that same event will be treated as duplicates and silently dropped rather than retried. Not specific to refunds — applies to all webhook types.
 
 **Success Response** `201 Created`:
 ```json
@@ -2554,6 +2634,8 @@ interface Session {
   paymentStatus: 'NOT_INITIATED' | 'PENDING' | 'COMPLETED' | 'EXPIRED';
   paymentDeadline?: Date;
   allPaymentsCompleted: boolean;
+  status: 'OPEN' | 'CANCELLED' | 'COMPLETED' | 'REFUNDED'; // lifecycle status, layered on top of finished/paymentStatus/isFull above — see POST /sessions/cancel. Absent on sessions created before this field existed until the backfill migration runs.
+  allRefunded: boolean;        // true once every paid member's refund has been confirmed by Paystack
   createdAt: string;
   updatedAt: string;
 }
@@ -2608,11 +2690,16 @@ interface SessionPayment {
   userId: string;
   locationId: string;
   ownerId: string;
-  amount: number;
-  status: 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
+  amount: number;              // what the player is charged: baseAmount + commissionAmount
+  baseAmount?: number;         // what the owner is credited (location's listed price). Absent on payments created before commission existed — treat as equal to `amount` (no commission) in that case.
+  commissionAmount?: number;   // platform's cut, added on top of baseAmount. Never credited to the owner.
+  commissionPercentage?: number; // commission rate snapshotted at the time this payment was created
+  status: 'PENDING' | 'PAID' | 'FAILED' | 'REFUND_PENDING' | 'REFUND_NEEDS_ATTENTION' | 'REFUND_FAILED' | 'REFUNDED';
   paymentReference: string;
   transactionId?: string;
   paidAt?: Date;
+  refundedAt?: Date;   // set only once refund.processed confirms the refund — absence means "never refunded"
+  refundReference?: string; // Paystack's refund id, used to correlate incoming refund.* webhooks
   expiresAt?: Date;
   metadata?: {
     pricingOption?: 'hourly' | 'monthly'; // used for recurring payment checks
@@ -2622,6 +2709,8 @@ interface SessionPayment {
   updatedAt: string;
 }
 ```
+
+**Status lifecycle**: `PENDING` → `PAID` → (on refund request) `REFUND_PENDING` → (Paystack confirms) `REFUNDED`, or `REFUND_FAILED` / `REFUND_NEEDS_ATTENTION` if Paystack can't complete it. See Webhooks section.
 
 ### Set (Team)
 ```typescript

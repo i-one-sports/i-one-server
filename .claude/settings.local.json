@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx ts-node -r tsconfig-paths/register src/helpers/seed-dashboard.ts)",
+      "Bash(npx ts-node:*)",
+      "Bash(npx tsc *)",
+      "Bash(xargs cat -n)",
+      "Bash(ls -la /private/tmp/claude-501/ 2>&1 | head -20; echo \"---\"; du -sh /private/tmp/claude-501 2>&1 | head -5)",
+      "Read(//private/tmp/claude-501/**)",
+      "Bash(mount)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
+    ]
+  }
+}

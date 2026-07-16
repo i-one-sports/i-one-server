@@ -9,6 +9,7 @@ import { SessionPayment, SessionPaymentSchema } from '@app/common/schemas/sessio
 import { BankAccount, BankAccountSchema } from '@app/common/schemas/bank-account.schema';
 import { Session, SessionSchema } from '@app/common/schemas/session.schema';
 import { Set, SetSchema } from '@app/common/schemas/sets.schema';
+import { PlatformCommission, PlatformCommissionSchema } from '@app/common/schemas/platform-commission.schema';
 
 import { WalletRepository } from './repositories/wallet.repository';
 import { TransactionRepository } from './repositories/transaction.repository';
@@ -17,6 +18,7 @@ import { WebhookEventRepository } from './repositories/webhook-event.repository'
 import { TournamentPaymentRepository } from './repositories/tournament-payment.repository';
 import { SessionPaymentRepository } from './repositories/session-payment.repository';
 import { BankAccountRepository } from './repositories/bank-account.repository';
+import { PlatformCommissionRepository } from './repositories/platform-commission.repository';
 
 import { WalletService } from './services/wallet.service';
 import { SessionPaymentService } from './services/session-payment.service';
@@ -31,9 +33,11 @@ import { AdminBillingController } from './controllers/admin-billing.controller';
 import { LocationBillingController } from './controllers/location-billing.controller';
 
 import { PaystackService } from '@app/common/providers/paystack.service';
+import { SettingsModule } from '../settings/settings.module';
 
 @Module({
   imports: [
+    SettingsModule,
     MongooseModule.forFeature([
       { name: Wallet.name, schema: WalletSchema },
       { name: Transaction.name, schema: TransactionSchema },
@@ -44,6 +48,7 @@ import { PaystackService } from '@app/common/providers/paystack.service';
       { name: BankAccount.name, schema: BankAccountSchema },
       { name: Session.name, schema: SessionSchema },
       { name: Set.name, schema: SetSchema },
+      { name: PlatformCommission.name, schema: PlatformCommissionSchema },
     ]),
   ],
   controllers: [
@@ -60,6 +65,7 @@ import { PaystackService } from '@app/common/providers/paystack.service';
     SessionPaymentRepository,
     TournamentPaymentRepository,
     BankAccountRepository,
+    PlatformCommissionRepository,
     WalletService,
     SessionPaymentService,
     TournamentPaymentService,

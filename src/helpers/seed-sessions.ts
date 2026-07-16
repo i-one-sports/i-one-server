@@ -59,7 +59,7 @@ async function seedSession(label: string, startHour: number, stopHour: number) {
     isFull: true,
     matchType: 'friendly',
     paymentRequired: true,
-    paymentAmount: 1000,
+    paymentAmount: 100000, // ₦1000 in kobo
     paymentStatus: 'PENDING',
     inProgress: false,
     finished: false,
@@ -102,14 +102,14 @@ async function seedSession(label: string, startHour: number, stopHour: number) {
   });
   console.log(`  Match created: ${match._id}`);
 
-  // 4. Payment records — Team Alpha PAID, Team Beta PENDING
+  // 4. Payment records — Team Alpha PAID, Team Beta PENDING (amounts in kobo — ₦1000 = 100000)
   const payments = await SessionPaymentModel.insertMany([
-    { _id: new Types.ObjectId(), sessionId, userId: EMEKA, locationId: LOCATION_ID, ownerId: OWNER_ID, amount: 1000, status: PaymentStatus.PAID,    paidAt: new Date() },
-    { _id: new Types.ObjectId(), sessionId, userId: TUNDE, locationId: LOCATION_ID, ownerId: OWNER_ID, amount: 1000, status: PaymentStatus.PAID,    paidAt: new Date() },
-    { _id: new Types.ObjectId(), sessionId, userId: CHIDI, locationId: LOCATION_ID, ownerId: OWNER_ID, amount: 1000, status: PaymentStatus.PAID,    paidAt: new Date() },
-    { _id: new Types.ObjectId(), sessionId, userId: FEMI,  locationId: LOCATION_ID, ownerId: OWNER_ID, amount: 1000, status: PaymentStatus.PENDING },
-    { _id: new Types.ObjectId(), sessionId, userId: UCHE,  locationId: LOCATION_ID, ownerId: OWNER_ID, amount: 1000, status: PaymentStatus.PENDING },
-    { _id: new Types.ObjectId(), sessionId, userId: KOLA,  locationId: LOCATION_ID, ownerId: OWNER_ID, amount: 1000, status: PaymentStatus.PENDING },
+    { _id: new Types.ObjectId(), sessionId, userId: EMEKA, locationId: LOCATION_ID, ownerId: OWNER_ID, amount: 100000, status: PaymentStatus.PAID,    paidAt: new Date() },
+    { _id: new Types.ObjectId(), sessionId, userId: TUNDE, locationId: LOCATION_ID, ownerId: OWNER_ID, amount: 100000, status: PaymentStatus.PAID,    paidAt: new Date() },
+    { _id: new Types.ObjectId(), sessionId, userId: CHIDI, locationId: LOCATION_ID, ownerId: OWNER_ID, amount: 100000, status: PaymentStatus.PAID,    paidAt: new Date() },
+    { _id: new Types.ObjectId(), sessionId, userId: FEMI,  locationId: LOCATION_ID, ownerId: OWNER_ID, amount: 100000, status: PaymentStatus.PENDING },
+    { _id: new Types.ObjectId(), sessionId, userId: UCHE,  locationId: LOCATION_ID, ownerId: OWNER_ID, amount: 100000, status: PaymentStatus.PENDING },
+    { _id: new Types.ObjectId(), sessionId, userId: KOLA,  locationId: LOCATION_ID, ownerId: OWNER_ID, amount: 100000, status: PaymentStatus.PENDING },
   ]);
   console.log(`  Payment records created: ${payments.length}`);
 

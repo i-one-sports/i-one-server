@@ -9,6 +9,8 @@ import { TransactionSource } from '@app/common/schemas/transaction.schema';
 import { Session } from '@app/common/schemas/session.schema';
 import { randomUUID } from 'crypto';
 import { LOCATION_PRICING_OPTION, SESSION_STATUS } from '@app/common';
+import { SettingsService } from '../../settings/settings.service';
+import { PlatformCommissionRepository } from '../repositories/platform-commission.repository';
 
 @Injectable()
 export class SessionPaymentService {
@@ -18,15 +20,24 @@ export class SessionPaymentService {
     private readonly sessionPaymentRepository: SessionPaymentRepository,
     private readonly walletService: WalletService,
     private readonly paystackService: PaystackService,
+    private readonly settingsService: SettingsService,
+    private readonly platformCommissionRepository: PlatformCommissionRepository,
     @InjectModel(Session.name) private readonly sessionModel: Model<Session>,
   ) {}
 
+  // `baseAmount` is the location's listed per-person price, in kobo — what
+  // the owner will be credited, unchanged by commission. The actual
+  // Paystack charge (`amount` on the created record) is baseAmount plus the
+  // platform's commission, added on top so the owner always receives the
+  // full listed price. The commission % is snapshotted per-payment at
+  // creation time so a later rate change doesn't retroactively alter
+  // payments already in flight.
   async initializeSessionPayments(
     sessionId: Types.ObjectId,
     locationId: Types.ObjectId,
     ownerId: Types.ObjectId,
     memberIds: Types.ObjectId[],
-    amount: number,
+    baseAmount: number,
     paymentDeadline?: Date,
     pricingOption?: LOCATION_PRICING_OPTION,
   ) {
@@ -41,13 +52,22 @@ export class SessionPaymentService {
     const newMemberIds = memberIds.filter((id) => !existingUserIds.has(id.toString()));
 
     if (newMemberIds.length > 0) {
+      const commissionPercentage = await this.settingsService.getCommissionPercentage();
+      // baseAmount is already kobo (an integer), so this is a plain
+      // percentage calc — round to the nearest kobo, no unit conversion needed.
+      const commissionAmount = Math.round((baseAmount * commissionPercentage) / 100);
+      const chargeAmount = baseAmount + commissionAmount;
+
       const newPayments = newMemberIds.map((userId) => ({
         _id: new Types.ObjectId(),
         sessionId,
         userId,
         locationId,
         ownerId,
-        amount,
+        amount: chargeAmount,
+        baseAmount,
+        commissionAmount,
+        commissionPercentage,
         status: PaymentStatus.PENDING,
         paymentReference: `SESSION_${sessionId}_USER_${userId}_${randomUUID()}`,
         expiresAt: paymentDeadline,
@@ -55,7 +75,10 @@ export class SessionPaymentService {
       }));
 
       await this.sessionPaymentRepository.insertMany(newPayments);
-      this.logger.log(`Created ${newMemberIds.length} new payment records for session: ${sessionId}`);
+      this.logger.log(
+        `Created ${newMemberIds.length} new payment records for session: ${sessionId} ` +
+        `(base: ${baseAmount}, commission: ${commissionAmount} @ ${commissionPercentage}%, charged: ${chargeAmount})`,
+      );
     }
   }
 
@@ -108,19 +131,52 @@ export class SessionPaymentService {
       throw new BadRequestException(`Amount mismatch: expected ${payment.amount}, got ${amount}`);
     }
 
+    // The owner is credited baseAmount, not the full charged amount — the
+    // difference (commissionAmount) is the platform's cut, recorded below
+    // but never credited to any wallet. Payments created before commission
+    // existed have no baseAmount stored; fall back to the full amount so
+    // those legacy records behave exactly as they did before (no commission).
+    const ownerCreditAmount = payment.baseAmount ?? amount;
+    const commissionAmount = payment.commissionAmount ?? 0;
+
     const ownerWallet = await this.walletService.getWalletByUserId(payment.ownerId.toString());
 
     const transaction = await this.walletService.creditWallet(
       ownerWallet._id,
-      amount,
+      ownerCreditAmount,
       TransactionSource.SESSION_PAYMENT,
       paystackReference,
       {
         sessionId: sessionId.toString(),
         userId: userId.toString(),
+        chargedAmount: amount,
+        commissionAmount,
       },
       sessionId,
     );
+
+    if (commissionAmount > 0) {
+      try {
+        await this.platformCommissionRepository.create({
+          sessionPaymentId: payment._id,
+          sessionId,
+          payerId: userId,
+          ownerId: payment.ownerId,
+          baseAmount: ownerCreditAmount,
+          commissionAmount,
+          commissionPercentage: payment.commissionPercentage ?? 0,
+          paymentReference: paystackReference,
+        });
+      } catch (error: any) {
+        // Unique index on sessionPaymentId — a duplicate here just means a
+        // retry of the same webhook after the commission record already
+        // landed. Anything else is worth knowing about, but shouldn't block
+        // the payment confirmation that already succeeded above.
+        if (error?.code !== 11000) {
+          this.logger.error(`Failed to record platform commission for payment ${payment._id}: ${error.message}`);
+        }
+      }
+    }
 
     const updatedPayment = await this.sessionPaymentRepository.findOneAndUpdate(
       { _id: payment._id },
@@ -396,12 +452,23 @@ export class SessionPaymentService {
       return;
     }
 
+    // Only debit what the owner was actually credited (baseAmount), not the
+    // full amount Paystack refunds to the player. Paystack refunds the
+    // player their whole payment including commission — but the platform's
+    // commission cut was never credited to the owner's wallet in the first
+    // place, so there's nothing to claw back from them for that portion.
+    // (The commission itself isn't reversed here — see the note on
+    // PlatformCommission if you want refunds to also void the commission
+    // record; today it's left as a historical "commission was charged on
+    // this payment" fact even if the payment later got refunded.)
+    const ownerDebitAmount = payment.baseAmount ?? payment.amount;
+
     const ownerWallet = await this.walletService.getWalletByUserId(payment.ownerId.toString());
 
     try {
       await this.walletService.debitWallet(
         ownerWallet._id,
-        payment.amount,
+        ownerDebitAmount,
         TransactionSource.REFUND,
         `REFUND_${payment._id}`,
         {
@@ -480,6 +547,11 @@ export class SessionPaymentService {
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const yearStart = new Date(now.getFullYear(), 0, 1);
 
+    // Owner-facing revenue must reflect what the owner actually receives
+    // (baseAmount), not what the player was charged (amount) — the
+    // difference is platform commission, which never reaches the owner.
+    // $ifNull falls back to `amount` for payments created before commission
+    // existed (no baseAmount stored), matching their original behaviour.
     const aggregate = (startDate: Date) =>
       this.sessionPaymentRepository.findRaw().aggregate([
         {
@@ -492,7 +564,7 @@ export class SessionPaymentService {
         {
           $group: {
             _id: null,
-            total: { $sum: '$amount' },
+            total: { $sum: { $ifNull: ['$baseAmount', '$amount'] } },
             count: { $sum: 1 },
           },
         },
@@ -508,6 +580,27 @@ export class SessionPaymentService {
       this_week: { total: weekResult[0]?.total ?? 0, count: weekResult[0]?.count ?? 0 },
       this_month: { total: monthResult[0]?.total ?? 0, count: monthResult[0]?.count ?? 0 },
       this_year: { total: yearResult[0]?.total ?? 0, count: yearResult[0]?.count ?? 0 },
+    };
+  }
+
+  // All-time platform revenue from commission — sums PlatformCommission
+  // records directly rather than deriving from SessionPayment, since a
+  // payment's commission fact should stay on record even if that payment
+  // later gets refunded (see the note in completeRefund).
+  async getCommissionSummary() {
+    const [result] = await this.platformCommissionRepository.findRaw().aggregate([
+      {
+        $group: {
+          _id: null,
+          totalCommission: { $sum: '$commissionAmount' },
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    return {
+      totalCommission: result?.totalCommission ?? 0,
+      count: result?.count ?? 0,
     };
   }
 }

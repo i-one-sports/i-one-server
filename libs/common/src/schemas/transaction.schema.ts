@@ -35,6 +35,7 @@ export class Transaction extends AbstractDocument {
   @Prop({ type: String, enum: Object.values(TransactionType), required: true })
   type: TransactionType;
 
+  // Kobo — see Wallet.balance for the app-wide currency unit convention.
   @Prop({ type: Number, required: true, min: 0 })
   amount: number;
 

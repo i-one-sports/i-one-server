@@ -178,6 +178,8 @@ export class PaystackService {
 
   // ==================== TRANSACTION METHODS ====================
 
+  // `amount` is kobo, same as everywhere else in this app — Paystack's API
+  // already speaks kobo natively, so nothing gets converted here.
   async initializeTransaction(
     email: string,
     amount: number,
@@ -187,7 +189,7 @@ export class PaystackService {
     try {
       const { data } = await this.axios.post('/transaction/initialize', {
         email,
-        amount: amount * 100,
+        amount,
         reference,
         metadata,
         channels: ['bank_transfer'],
@@ -222,15 +224,15 @@ export class PaystackService {
   }
 
   // Refunds a previously successful transaction back to the payer's original
-  // payment source. `amount` is naira (converted to kobo here) — omit for a
-  // full refund of the original charge. Paystack processes this async on
-  // their end; a successful response here means the refund was accepted, not
+  // payment source. `amount` is kobo — omit for a full refund of the
+  // original charge. Paystack processes this async on their end; a
+  // successful response here means the refund was accepted, not
   // necessarily settled yet.
   async refundTransaction(reference: string, amount?: number, reason?: string) {
     try {
       const { data } = await this.axios.post('/refund', {
         transaction: reference,
-        ...(amount !== undefined ? { amount: amount * 100 } : {}),
+        ...(amount !== undefined ? { amount } : {}),
         ...(reason ? { customer_note: reason, merchant_note: reason } : {}),
       });
 
@@ -305,6 +307,7 @@ export class PaystackService {
     }
   }
 
+  // `amount` is kobo, same as everywhere else — no conversion needed.
   async initiateTransfer(
     amount: number,
     recipientCode: string,
@@ -314,7 +317,7 @@ export class PaystackService {
     try {
       const { data } = await this.axios.post('/transfer', {
         source: 'balance',
-        amount: amount * 100,
+        amount,
         recipient: recipientCode,
         reference,
         reason: reason || 'Withdrawal',

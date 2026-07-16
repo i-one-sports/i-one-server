@@ -102,7 +102,7 @@ export class WebhookService {
     this.logger.log(`Processing charge.success: ${data.reference}`);
 
     const metadata = data.metadata || {};
-    const amount = data.amount / 100; // Paystack sends kobo, convert to naira
+    const amount = data.amount; // kobo, same unit we store everywhere — no conversion
 
     // Branch 1: Session payment — user paid for a specific session via Paystack checkout
     if (metadata.sessionId && metadata.userId) {

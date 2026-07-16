@@ -38,6 +38,7 @@ export class Location extends AbstractDocument {
   })
   pricingOption?: LOCATION_PRICING_OPTION;
 
+  // Kobo — see Wallet.balance for the app-wide currency unit convention.
   @Prop({ type: Number, required: false })
   paymentPerPersonHourly?: number;
 
@@ -67,6 +68,7 @@ export class Location extends AbstractDocument {
   @Prop({ type: Boolean, default: true })
   tournament: boolean;
 
+  // Kobo — see Wallet.balance for the app-wide currency unit convention.
   @Prop({ type: Number, required: false })
   tournamentFee: number;
 

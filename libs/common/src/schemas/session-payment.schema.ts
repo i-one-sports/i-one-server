@@ -30,8 +30,32 @@ export class SessionPayment extends AbstractDocument {
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   ownerId: Types.ObjectId;
 
+  // Kobo — see Wallet.balance for the app-wide currency unit convention.
+  // What the player is actually charged via Paystack (baseAmount +
+  // commissionAmount). This is the figure used for checkout and for
+  // verifying the webhook-confirmed amount — unchanged behaviour from
+  // before commission existed.
   @Prop({ type: Number, required: true, min: 0 })
   amount: number;
+
+  // What the owner is credited — the location's listed price, with no
+  // commission deducted. Falls back to `amount` for any payment record
+  // created before commission existed (absence = no commission was ever
+  // applied to that record, which is the correct legacy behaviour).
+  @Prop({ type: Number, required: false, min: 0 })
+  baseAmount: number;
+
+  // Platform's cut, added on top of baseAmount to produce `amount`. Never
+  // credited to the owner's wallet — see PlatformCommission for the audit
+  // trail of where this money is tracked.
+  @Prop({ type: Number, required: false, min: 0 })
+  commissionAmount: number;
+
+  // Snapshot of Settings.commissionPercentage at the moment this payment
+  // was created, so historical payments stay accurate even if the platform
+  // commission rate changes later.
+  @Prop({ type: Number, required: false, min: 0, max: 100 })
+  commissionPercentage: number;
 
   @Prop({ type: String, enum: Object.values(PaymentStatus), default: PaymentStatus.PENDING })
   status: PaymentStatus;

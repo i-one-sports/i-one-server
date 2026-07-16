@@ -50,6 +50,7 @@ export class Session extends AbstractDocument {
   @Prop({ type:String, default: MATCH_TYPE.FRIENDLY })
   matchType: MATCH_TYPE;
 
+  // Kobo — see Wallet.balance for the app-wide currency unit convention.
   @Prop({ type: Number, required: false, min: 0 })
   paymentAmount: number;
 
