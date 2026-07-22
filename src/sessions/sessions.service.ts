@@ -528,6 +528,13 @@ export class SessionsService {
     }
   }
 
+  async getMyCurrentSession(userId: string) {
+    const user = await this.userRepository.findOne({ _id: userId });
+    if (!user?.currentSession) return null;
+
+    return this.viewSession(user.currentSession.toString());
+  }
+
   async viewSession(sessionId: string) {
     const session = await this.sessionRepository
       .findRaw()

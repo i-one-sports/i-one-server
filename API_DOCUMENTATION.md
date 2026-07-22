@@ -957,6 +957,15 @@ Join an existing session as a member.
 
 ---
 
+### GET /sessions/my-current
+Get the calling user's active session. Returns the full session document (same shape as `GET /sessions/:sessionId`) or `null` if the user is not currently in a session.
+
+**Auth required**: Yes (JWT cookie)
+
+**Success Response** `200 OK`: Full session document (see `GET /sessions/:sessionId`) or `null`.
+
+---
+
 ### GET /sessions/:sessionId
 Get a session with its members populated. If the session requires payment, each member includes a `paymentStatus` field for the paid/unpaid badge.
 

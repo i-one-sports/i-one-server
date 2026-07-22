@@ -23,6 +23,7 @@
     "seed:users": "ts-node src/helpers/seed-users",
     "seed:sessions": "ts-node -r tsconfig-paths/register src/helpers/seed-sessions",
     "migrate:session-status": "ts-node -r tsconfig-paths/register src/helpers/migrate-session-status",
+    "seed:payment-session": "ts-node -r tsconfig-paths/register src/helpers/seed-payment-session",
     "migrate:currency-to-kobo": "ts-node -r tsconfig-paths/register src/helpers/migrate-currency-to-kobo"
   },
   "dependencies": {

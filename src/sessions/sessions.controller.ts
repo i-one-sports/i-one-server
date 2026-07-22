@@ -78,6 +78,11 @@ export class SessionsController {
     return this.sessionsService.getSessionsByLocationAndDate(locationId, date);
   }
 
+  @Get('my-current')
+  async getMyCurrentSession(@CurrentUser() user: User) {
+    return this.sessionsService.getMyCurrentSession(user._id.toString());
+  }
+
   @Get(':sessionId')
   async viewSession(@Param('sessionId') sessionId: string) {
     return this.sessionsService.viewSession(sessionId);
