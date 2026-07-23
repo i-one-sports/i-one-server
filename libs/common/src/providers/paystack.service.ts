@@ -192,7 +192,6 @@ export class PaystackService {
         amount,
         reference,
         metadata,
-        channels: ['bank_transfer'],
       });
 
       this.logger.log(`Initialized transaction: ${reference}`);
