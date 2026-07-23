@@ -2,33 +2,29 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   Param,
   Post,
   Put,
   Query,
+  Req,
   Sse,
   UseGuards,
-  Res,
   HttpException,
   HttpStatus,
   Logger,
 } from '@nestjs/common';
-import { Response } from 'express';
+import { Request } from 'express';
 import { JwtAuthGuard } from 'src/auth/guards/jwt.guard';
 import { MatchesService } from './matches.service';
 import { MatchEventService } from './match-event.service';
-import { 
-  filter, 
-  map, 
-  catchError, 
-  retry, 
-  repeat, 
-  startWith, 
-  mergeMap, 
-  merge, 
-  timer, 
-  of, 
-  tap,
+import {
+  filter,
+  map,
+  catchError,
+  startWith,
+  merge,
+  of,
   finalize
 } from 'rxjs';
 import { MatchScoreUpdateEvent, CurrentUser } from '@app/common';
@@ -106,37 +102,26 @@ export class MatchesController {
   }
 
   @Sse('stream/:matchId')
+  @Header('Cache-Control', 'no-cache')
+  @Header('X-Accel-Buffering', 'no')
   matchScoreStream(
     @Param('matchId') matchId: string,
     @CurrentUser() user: any,
-    @Res({ passthrough: true }) response: Response
+    @Req() request: Request,
   ) {
     const userId = user?._id?.toString() || user?.id?.toString();
-    
+
     if (!userId) {
-      throw new HttpException(
-        'User authentication required',
-        HttpStatus.UNAUTHORIZED
-      );
+      throw new HttpException('User authentication required', HttpStatus.UNAUTHORIZED);
     }
 
-    // Check if user can connect
     const connectionCheck = this.matchEventService.canConnect(userId, 'match', matchId);
     if (!connectionCheck.allowed) {
-      throw new HttpException(
-        connectionCheck.reason || 'Connection not allowed',
-        HttpStatus.TOO_MANY_REQUESTS
-      );
+      throw new HttpException(connectionCheck.reason || 'Connection not allowed', HttpStatus.TOO_MANY_REQUESTS);
     }
 
-    // Add connection tracking
     const connectionId = this.matchEventService.addConnection(userId, 'match', { matchId });
     this.logger.log(`SSE connection established: ${connectionId} (User: ${userId}, Match: ${matchId})`);
-
-    // Set proper SSE headers
-    response.setHeader('Cache-Control', 'no-cache');
-    response.setHeader('Connection', 'keep-alive');
-    response.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
 
     let cleanupPerformed = false;
     const performCleanup = () => {
@@ -147,78 +132,45 @@ export class MatchesController {
       }
     };
 
-    // Cleanup on disconnect
-    response.on('close', performCleanup);
-    response.on('error', (error) => {
-      this.logger.error(`SSE connection error for ${connectionId}:`, error.message);
-      performCleanup();
-    });
+    request.on('close', performCleanup);
 
-    // Merge score updates with heartbeat
     return merge(
       this.matchEventService.getScoreUpdates().pipe(
-        filter((update: any) => 
-          update.matchId && update.matchId.toString() === matchId
-        )
+        filter((update: any) => update.matchId && update.matchId.toString() === matchId),
       ),
-      this.matchEventService.getHeartbeat()
+      this.matchEventService.getHeartbeat(),
     ).pipe(
-      startWith({ 
-        type: 'connected', 
-        message: 'Connection established', 
-        matchId,
-        userId,
-        timestamp: Date.now()
-      }),
+      startWith({ type: 'connected', message: 'Connection established', matchId, userId, timestamp: Date.now() }),
       map(update => ({ data: update })),
       catchError((error) => {
         this.logger.error(`SSE Stream error for ${connectionId}:`, error.message);
-        return of({
-          data: {
-            type: 'error',
-            message: 'Connection error occurred',
-            timestamp: Date.now(),
-            matchId
-          }
-        });
+        return of({ data: { type: 'error', message: 'Connection error occurred', timestamp: Date.now(), matchId } });
       }),
-      finalize(() => {
-        performCleanup();
-      })
+      finalize(() => performCleanup()),
     );
   }
 
   @Sse('stream/session/:sessionId')
+  @Header('Cache-Control', 'no-cache')
+  @Header('X-Accel-Buffering', 'no')
   sessionMatchesStream(
     @Param('sessionId') sessionId: string,
     @CurrentUser() user: any,
-    @Res({ passthrough: true }) response: Response
+    @Req() request: Request,
   ) {
     const userId = user?._id?.toString() || user?.id?.toString();
-    
+
     if (!userId) {
-      throw new HttpException(
-        'User authentication required',
-        HttpStatus.UNAUTHORIZED
-      );
+      throw new HttpException('User authentication required', HttpStatus.UNAUTHORIZED);
     }
 
-    // Check connection limits for session stream
     const connectionCheck = this.matchEventService.canConnect(userId, 'session', sessionId);
     if (!connectionCheck.allowed) {
-      throw new HttpException(
-        connectionCheck.reason || 'Connection not allowed',
-        HttpStatus.TOO_MANY_REQUESTS
-      );
+      throw new HttpException(connectionCheck.reason || 'Connection not allowed', HttpStatus.TOO_MANY_REQUESTS);
     }
 
     const connectionId = this.matchEventService.addConnection(userId, 'session', { sessionId });
     this.logger.log(`Session SSE connection established: ${connectionId} (User: ${userId}, Session: ${sessionId})`);
-
-    // Set proper SSE headers
-    response.setHeader('Cache-Control', 'no-cache');
-    response.setHeader('Connection', 'keep-alive');
-    response.setHeader('X-Accel-Buffering', 'no');
 
     let cleanupPerformed = false;
     const performCleanup = () => {
@@ -229,77 +181,44 @@ export class MatchesController {
       }
     };
 
-    // Cleanup on disconnect
-    response.on('close', performCleanup);
-    response.on('error', (error) => {
-      this.logger.error(`Session SSE connection error for ${connectionId}:`, error.message);
-      performCleanup();
-    });
+    request.on('close', performCleanup);
 
-    // Merge session score updates with heartbeat
     return merge(
       this.matchEventService.getScoreUpdates().pipe(
-        filter((update: any) => 
-          update.sessionId && update.sessionId.toString() === sessionId
-        )
+        filter((update: any) => update.sessionId && update.sessionId.toString() === sessionId),
       ),
-      this.matchEventService.getHeartbeat()
+      this.matchEventService.getHeartbeat(),
     ).pipe(
-      startWith({ 
-        type: 'connected', 
-        message: 'Session stream connected',
-        sessionId,
-        userId,
-        timestamp: Date.now()
-      }),
+      startWith({ type: 'connected', message: 'Session stream connected', sessionId, userId, timestamp: Date.now() }),
       map(update => ({ data: update })),
       catchError((error) => {
         this.logger.error(`Session SSE Stream error for ${connectionId}:`, error.message);
-        return of({
-          data: {
-            type: 'error',
-            message: 'Session stream error occurred',
-            timestamp: Date.now(),
-            sessionId
-          }
-        });
+        return of({ data: { type: 'error', message: 'Session stream error occurred', timestamp: Date.now(), sessionId } });
       }),
-      finalize(() => {
-        performCleanup();
-      })
+      finalize(() => performCleanup()),
     );
   }
 
   @Sse('stream')
+  @Header('Cache-Control', 'no-cache')
+  @Header('X-Accel-Buffering', 'no')
   streamAllMatches(
     @CurrentUser() user: any,
-    @Res({ passthrough: true }) response: Response
+    @Req() request: Request,
   ) {
     const userId = user?._id?.toString() || user?.id?.toString();
-    
+
     if (!userId) {
-      throw new HttpException(
-        'User authentication required',
-        HttpStatus.UNAUTHORIZED
-      );
+      throw new HttpException('User authentication required', HttpStatus.UNAUTHORIZED);
     }
 
-    // Check connection limits for global stream
     const connectionCheck = this.matchEventService.canConnect(userId, 'global');
     if (!connectionCheck.allowed) {
-      throw new HttpException(
-        connectionCheck.reason || 'Connection not allowed',
-        HttpStatus.TOO_MANY_REQUESTS
-      );
+      throw new HttpException(connectionCheck.reason || 'Connection not allowed', HttpStatus.TOO_MANY_REQUESTS);
     }
 
     const connectionId = this.matchEventService.addConnection(userId, 'global');
     this.logger.log(`Global SSE connection established: ${connectionId} (User: ${userId})`);
-
-    // Set proper SSE headers
-    response.setHeader('Cache-Control', 'no-cache');
-    response.setHeader('Connection', 'keep-alive');
-    response.setHeader('X-Accel-Buffering', 'no');
 
     let cleanupPerformed = false;
     const performCleanup = () => {
@@ -310,39 +229,19 @@ export class MatchesController {
       }
     };
 
-    // Cleanup on disconnect
-    response.on('close', performCleanup);
-    response.on('error', (error) => {
-      this.logger.error(`Global SSE connection error for ${connectionId}:`, error.message);
-      performCleanup();
-    });
+    request.on('close', performCleanup);
 
-    // Merge all score updates with heartbeat
     return merge(
       this.matchEventService.getScoreUpdates(),
-      this.matchEventService.getHeartbeat()
+      this.matchEventService.getHeartbeat(),
     ).pipe(
-      startWith({ 
-        type: 'connected', 
-        message: 'Global stream connected',
-        userId,
-        timestamp: Date.now()
-      }),
+      startWith({ type: 'connected', message: 'Global stream connected', userId, timestamp: Date.now() }),
       map(update => ({ data: update })),
       catchError((error) => {
         this.logger.error(`Global SSE Stream error for ${connectionId}:`, error.message);
-        return of({
-          data: {
-            type: 'error',
-            message: 'Global stream error occurred',
-            timestamp: Date.now(),
-            stream: 'global'
-          }
-        });
+        return of({ data: { type: 'error', message: 'Global stream error occurred', timestamp: Date.now(), stream: 'global' } });
       }),
-      finalize(() => {
-        performCleanup();
-      })
+      finalize(() => performCleanup()),
     );
   }
 
