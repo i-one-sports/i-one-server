@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import axios, { AxiosInstance } from 'axios';
 
 @Injectable()
@@ -201,7 +201,7 @@ export class PaystackService {
         'Failed to initialize transaction',
         error?.response?.data || error?.message,
       );
-      throw error;
+      throw this.paystackError(error, 'Failed to initialize transaction');
     }
   }
 
@@ -242,7 +242,7 @@ export class PaystackService {
         'Failed to refund transaction',
         error?.response?.data || error?.message,
       );
-      throw error;
+      throw this.paystackError(error, 'Failed to refund transaction');
     }
   }
 
@@ -367,6 +367,11 @@ export class PaystackService {
   }
 
   // ==================== WEBHOOK METHODS ====================
+
+  private paystackError(error: any, fallback: string): BadRequestException {
+    const message = error?.response?.data?.message || error?.message || fallback;
+    return new BadRequestException(message);
+  }
 
   validateWebhookSignature(signature: string, body: string): boolean {
     const crypto = require('crypto');

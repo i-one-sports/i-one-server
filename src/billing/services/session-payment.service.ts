@@ -93,20 +93,36 @@ export class SessionPaymentService {
       throw new NotFoundException('No pending payment found for this session');
     }
 
-    const result = await this.paystackService.initializeTransaction(
-      userEmail,
-      payment.amount,
-      payment.paymentReference,
-      { sessionId, userId },
+    // Generate a fresh reference every time. The PENDING status guarantees
+    // the old reference was never successfully paid, so it's safe to replace.
+    // This prevents Paystack's "Duplicate Transaction Reference" error on retry.
+    const reference = `SESSION_${sessionId}_USER_${userId}_${randomUUID()}`;
+
+    await this.sessionPaymentRepository.findOneAndUpdate(
+      { _id: payment._id },
+      { paymentReference: reference },
     );
 
-    this.logger.log(`Checkout initialized for session: ${sessionId}, user: ${userId}`);
+    try {
+      const result = await this.paystackService.initializeTransaction(
+        userEmail,
+        payment.amount,
+        reference,
+        { sessionId, userId },
+      );
 
-    return {
-      authorizationUrl: result.authorization_url,
-      reference: result.reference,
-      amount: payment.amount,
-    };
+      this.logger.log(`Checkout initialized for session: ${sessionId}, user: ${userId}`);
+
+      return {
+        authorizationUrl: result.authorization_url,
+        reference: result.reference,
+        amount: payment.amount,
+      };
+    } catch (error: any) {
+      const paystackMessage =
+        error?.response?.data?.message || error?.message || 'Payment initialization failed';
+      throw new BadRequestException(paystackMessage);
+    }
   }
 
   async confirmSessionPayment(
