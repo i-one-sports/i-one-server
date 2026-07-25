@@ -162,17 +162,31 @@ export class SessionPaymentService {
   ) {
     this.logger.log(`Confirming payment for session: ${sessionId}, user: ${userId}`);
 
-    const payment = await this.sessionPaymentRepository.findOne({
-      sessionId,
-      userId,
-      status: PaymentStatus.PENDING,
-    });
+    // Atomic claim: PENDING → PAID in a single DB operation.
+    // Two concurrent callers (webhook + inline confirm) can both reach here
+    // for the same payment. MongoDB guarantees only one findOneAndUpdate with
+    // { status: PENDING } succeeds — the other gets null and exits without
+    // touching the wallet, preventing double credits.
+    const payment = await this.sessionPaymentRepository.findOneAndUpdate(
+      { sessionId, userId, status: PaymentStatus.PENDING },
+      { status: PaymentStatus.PAID, paidAt: new Date() },
+    );
 
     if (!payment) {
-      throw new NotFoundException('Payment record not found or already processed');
+      this.logger.warn(
+        `confirmSessionPayment: no PENDING record found — already confirmed or does not exist ` +
+        `(session: ${sessionId}, user: ${userId}, ref: ${paystackReference})`,
+      );
+      return null;
     }
 
     if (payment.amount !== amount) {
+      // Revert — amount mismatch means the webhook data doesn't match what
+      // we initialised. Needs manual investigation before crediting.
+      await this.sessionPaymentRepository.findOneAndUpdate(
+        { _id: payment._id },
+        { status: PaymentStatus.PENDING, paidAt: null },
+      );
       throw new BadRequestException(`Amount mismatch: expected ${payment.amount}, got ${amount}`);
     }
 
@@ -225,11 +239,7 @@ export class SessionPaymentService {
 
     const updatedPayment = await this.sessionPaymentRepository.findOneAndUpdate(
       { _id: payment._id },
-      {
-        status: PaymentStatus.PAID,
-        transactionId: transaction._id,
-        paidAt: new Date(),
-      },
+      { transactionId: transaction._id },
     );
 
     this.logger.log(`Payment confirmed for session: ${sessionId}, user: ${userId}`);

@@ -106,13 +106,15 @@ export class WebhookService {
 
     // Branch 1: Session payment — user paid for a specific session via Paystack checkout
     if (metadata.sessionId && metadata.userId) {
-      await this.sessionPaymentService.confirmSessionPayment(
+      const confirmed = await this.sessionPaymentService.confirmSessionPayment(
         new Types.ObjectId(metadata.sessionId),
         new Types.ObjectId(metadata.userId),
         data.reference,
         amount,
       );
-      this.logger.log(`Session payment confirmed: ${data.reference}`);
+      if (confirmed) {
+        this.logger.log(`Session payment confirmed: ${data.reference}`);
+      }
       return;
     }
 
