@@ -90,6 +90,17 @@ export class SessionPaymentService {
     });
 
     if (!payment) {
+      // Payment is not PENDING — check if it was already confirmed (webhook
+      // arrived before the user retried). Return the same shape as alreadyPaid
+      // so the client shows "payment successful" rather than a 404 error.
+      const paid = await this.sessionPaymentRepository.findOne({
+        sessionId: new Types.ObjectId(sessionId),
+        userId: new Types.ObjectId(userId),
+        status: PaymentStatus.PAID,
+      });
+      if (paid) {
+        return { alreadyPaid: true, status: 'confirmed' };
+      }
       throw new NotFoundException('No pending payment found for this session');
     }
 
