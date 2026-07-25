@@ -4,7 +4,7 @@ import { Model, Types } from 'mongoose';
 import { SessionPaymentRepository } from '../repositories/session-payment.repository';
 import { WalletService } from './wallet.service';
 import { PaystackService } from '@app/common/providers/paystack.service';
-import { PaymentStatus } from '@app/common/schemas/session-payment.schema';
+import { PaymentStatus, type SessionPayment } from '@app/common/schemas/session-payment.schema';
 import { TransactionSource } from '@app/common/schemas/transaction.schema';
 import { Session } from '@app/common/schemas/session.schema';
 import { randomUUID } from 'crypto';
@@ -48,7 +48,7 @@ export class SessionPaymentService {
       userId: { $in: memberIds },
     });
 
-    const existingUserIds = new Set(existingPayments.map((p) => p.userId.toString()));
+    const existingUserIds = new Set(existingPayments.map((p: SessionPayment) => p.userId.toString()));
     const newMemberIds = memberIds.filter((id) => !existingUserIds.has(id.toString()));
 
     if (newMemberIds.length > 0) {
@@ -93,9 +93,38 @@ export class SessionPaymentService {
       throw new NotFoundException('No pending payment found for this session');
     }
 
-    // Generate a fresh reference every time. The PENDING status guarantees
-    // the old reference was never successfully paid, so it's safe to replace.
-    // This prevents Paystack's "Duplicate Transaction Reference" error on retry.
+    // Before issuing a new Paystack transaction, verify the existing reference
+    // on Paystack. The DB can show PENDING while Paystack shows success if the
+    // webhook missed (wrong URL, timeout, etc.) — in that case we auto-confirm
+    // the payment here instead of charging the user again.
+    if (payment.paymentReference) {
+      try {
+        const existing = await this.paystackService.verifyTransaction(payment.paymentReference);
+
+        if (existing?.status === 'success') {
+          this.logger.log(
+            `Paystack shows success for ref ${payment.paymentReference} but DB is still PENDING ` +
+            `— confirming payment inline (missed webhook)`,
+          );
+          await this.confirmSessionPayment(
+            new Types.ObjectId(sessionId),
+            new Types.ObjectId(userId),
+            payment.paymentReference,
+            existing.amount,
+          );
+          return { alreadyPaid: true, status: 'confirmed' };
+        }
+
+        // abandoned / failed — Paystack knows about the reference but the user
+        // never completed payment. Fall through and issue a new transaction.
+      } catch {
+        // Paystack has no record of this reference yet (first-ever call, or
+        // the reference came from the seed script). Fall through to initialize.
+      }
+    }
+
+    // Either first call or the previous transaction was abandoned/failed —
+    // generate a fresh reference so Paystack doesn't reject with duplicate_reference.
     const reference = `SESSION_${sessionId}_USER_${userId}_${randomUUID()}`;
 
     await this.sessionPaymentRepository.findOneAndUpdate(
