@@ -65,12 +65,18 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
   private isAllowedVerificationRoute(originalUrl?: string) {
     const path = originalUrl?.split('?')[0] ?? '';
     return (
-      path.endsWith('/verification/submit') || path.endsWith('/verification/me')
+      path.endsWith('/verification/submit') ||
+      path.endsWith('/verification/me') ||
+      this.isAllowedAccountStateRoute(path)
     );
   }
 
   private isAllowedEmailVerificationRoute(originalUrl?: string) {
     const path = originalUrl?.split('?')[0] ?? '';
+    return this.isAllowedAccountStateRoute(path);
+  }
+
+  private isAllowedAccountStateRoute(path: string) {
     return (
       path.endsWith('/user') ||
       path.endsWith('/user/profile') ||

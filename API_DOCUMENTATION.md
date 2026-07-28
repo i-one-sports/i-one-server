@@ -411,6 +411,14 @@ Owner accounts must submit identity verification documents before they can list 
 2. Super admin approves → status: `APPROVED`, wallet created
 3. Or super admin rejects → status: `REJECTED` with reason
 
+Pending/rejected owners are blocked from normal protected app actions until
+documents are approved, but they can still access:
+- `GET /user`
+- `GET /user/profile`
+- `POST /verification/submit`
+- `GET /verification/me`
+- `GET /auth/user/logout`
+
 ### POST /verification/submit
 Submit identity verification documents. Accepts multipart form data.
 
