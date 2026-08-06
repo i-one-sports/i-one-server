@@ -274,6 +274,13 @@ export class SessionsService {
     userId: string,
     sessionId: string,
   ) {
+
+    if (sessionId === "" || sessionId === null || sessionId === undefined){
+      throw new CustomHttpException(
+        'Id is missing in route,  ',
+        HttpStatus.BAD_REQUEST
+      )
+    }
     const session = await this.sessionRepository.findOne({ _id: sessionId });
     if (session === null) {
       throw new CustomHttpException(
@@ -540,6 +547,7 @@ export class SessionsService {
       .findRaw()
       .findOne({ _id: sessionId })
       .populate({ path: 'members', select: 'firstName lastName nickname avatar' })
+      .populate('location')
       .lean() as any;
 
     if (!session) {
