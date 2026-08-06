@@ -63,6 +63,14 @@ export class SessionPayment extends AbstractDocument {
   @Prop({ type: String, required: false })
   paymentReference: string;
 
+  // Every reference ever superseded by a later `paymentReference` on this
+  // row (checkout retried before the earlier one was confirmed). Retries
+  // must verify all of these, not just the current reference — otherwise a
+  // user who completes payment on an older, now-superseded checkout tab
+  // gets charged again because nothing ever looks their old reference up.
+  @Prop({ type: [String], default: [] })
+  previousReferences: string[];
+
   @Prop({ type: Types.ObjectId, ref: 'Transaction', required: false })
   transactionId: Types.ObjectId;
 

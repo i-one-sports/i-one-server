@@ -2744,6 +2744,7 @@ interface SessionPayment {
   commissionPercentage?: number; // commission rate snapshotted at the time this payment was created
   status: 'PENDING' | 'PAID' | 'FAILED' | 'REFUND_PENDING' | 'REFUND_NEEDS_ATTENTION' | 'REFUND_FAILED' | 'REFUNDED';
   paymentReference: string;
+  previousReferences?: string[]; // references superseded by a checkout retry — verified alongside `paymentReference` so a payment completed on an old, already-superseded checkout tab still gets caught
   transactionId?: string;
   paidAt?: Date;
   refundedAt?: Date;   // set only once refund.processed confirms the refund — absence means "never refunded"

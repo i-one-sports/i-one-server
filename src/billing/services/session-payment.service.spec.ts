@@ -20,6 +20,7 @@ describe('SessionPaymentService', () => {
   };
   let paystackService: {
     initializeTransaction: jest.Mock;
+    verifyTransaction: jest.Mock;
   };
   let settingsService: {
     getCommissionPercentage: jest.Mock;
@@ -52,6 +53,7 @@ describe('SessionPaymentService', () => {
     };
     paystackService = {
       initializeTransaction: jest.fn(),
+      verifyTransaction: jest.fn().mockRejectedValue(new Error('Transaction reference not found')),
     };
     settingsService = {
       // Default to 0% so existing amount-based assertions below don't need
@@ -163,7 +165,7 @@ describe('SessionPaymentService', () => {
       });
       paystackService.initializeTransaction.mockResolvedValue({
         authorization_url: 'https://paystack.test/checkout',
-        reference: 'SESSION_REF',
+        reference: 'SESSION_REF_NEW',
       });
 
       await expect(
@@ -174,16 +176,63 @@ describe('SessionPaymentService', () => {
         ),
       ).resolves.toEqual({
         authorizationUrl: 'https://paystack.test/checkout',
-        reference: 'SESSION_REF',
+        reference: 'SESSION_REF_NEW',
         amount: 3000,
       });
 
+      // No reference known to us has succeeded yet, so a fresh one is
+      // generated rather than reusing the (unverified) stored reference.
       expect(paystackService.initializeTransaction).toHaveBeenCalledWith(
         'player@example.com',
         3000,
-        'SESSION_REF',
+        expect.stringContaining(`SESSION_${sessionId}_USER_${userOne}_`),
         { sessionId: sessionId.toString(), userId: userOne.toString() },
       );
+
+      // The abandoned reference is preserved so a later retry can still
+      // catch a payment that completes on that old checkout tab.
+      expect(sessionPaymentRepository.findOneAndUpdate).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          $addToSet: { previousReferences: { $each: ['SESSION_REF'] } },
+        }),
+      );
+    });
+
+    it('confirms inline instead of charging again when an older superseded reference already succeeded on Paystack', async () => {
+      const paymentId = new Types.ObjectId();
+      sessionPaymentRepository.findOne.mockResolvedValue({
+        _id: paymentId,
+        amount: 3000,
+        paymentReference: 'SESSION_REF_LATEST',
+        previousReferences: ['SESSION_REF_OLD'],
+      });
+      // Latest reference is still unpaid, but an older, superseded one
+      // (from an earlier retry) actually went through on Paystack.
+      paystackService.verifyTransaction.mockImplementation((ref: string) =>
+        ref === 'SESSION_REF_OLD'
+          ? Promise.resolve({ status: 'success', amount: 3000 })
+          : Promise.reject(new Error('Transaction reference not found')),
+      );
+      const confirmSpy = jest
+        .spyOn(service, 'confirmSessionPayment')
+        .mockResolvedValue({} as any);
+
+      await expect(
+        service.initializeCheckout(
+          sessionId.toString(),
+          userOne.toString(),
+          'player@example.com',
+        ),
+      ).resolves.toEqual({ alreadyPaid: true, status: 'confirmed' });
+
+      expect(confirmSpy).toHaveBeenCalledWith(
+        sessionId,
+        userOne,
+        'SESSION_REF_OLD',
+        3000,
+      );
+      expect(paystackService.initializeTransaction).not.toHaveBeenCalled();
     });
 
     it('throws when there is no pending payment for the user', async () => {
