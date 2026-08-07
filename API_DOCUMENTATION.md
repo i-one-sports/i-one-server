@@ -2679,9 +2679,9 @@ interface Session {
   isFull: boolean;
   paymentRequired: boolean;
   paymentAmount?: number;
-  paymentStatus: 'NOT_INITIATED' | 'PENDING' | 'COMPLETED' | 'EXPIRED';
+  paymentStatus: 'NOT_INITIATED' | 'PENDING' | 'COMPLETED' | 'EXPIRED'; // flips PENDING -> COMPLETED once every member's SessionPayment confirms as PAID (checked after each individual confirmation, not on a timer)
   paymentDeadline?: Date;
-  allPaymentsCompleted: boolean;
+  allPaymentsCompleted: boolean; // mirrors paymentStatus === 'COMPLETED'
   status: 'OPEN' | 'CANCELLED' | 'COMPLETED' | 'REFUNDED'; // lifecycle status, layered on top of finished/paymentStatus/isFull above — see POST /sessions/cancel. Absent on sessions created before this field existed until the backfill migration runs.
   allRefunded: boolean;        // true once every paid member's refund has been confirmed by Paystack
   createdAt: string;

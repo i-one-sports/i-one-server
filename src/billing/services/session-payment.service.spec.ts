@@ -1,6 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Types } from 'mongoose';
-import { LOCATION_PRICING_OPTION } from '@app/common';
+import { LOCATION_PRICING_OPTION, SESSION_STATUS } from '@app/common';
 import { PaymentStatus } from '@app/common/schemas/session-payment.schema';
 import { TransactionSource } from '@app/common/schemas/transaction.schema';
 import { SessionPaymentService } from './session-payment.service';
@@ -345,6 +345,47 @@ describe('SessionPaymentService', () => {
 
       expect(walletService.creditWallet).not.toHaveBeenCalled();
       expect(sessionPaymentRepository.findOneAndUpdate).not.toHaveBeenCalled();
+    });
+
+    it('marks the session paymentStatus COMPLETED once every member has paid', async () => {
+      const paymentId = new Types.ObjectId();
+      const walletId = new Types.ObjectId();
+      const transactionId = new Types.ObjectId();
+
+      sessionPaymentRepository.findOneAndUpdate
+        // atomic PENDING -> PAID claim
+        .mockResolvedValueOnce({ _id: paymentId, sessionId, userId: userOne, ownerId, amount: 3000 })
+        // transactionId backfill at the end
+        .mockResolvedValueOnce({ _id: paymentId, status: PaymentStatus.PAID, transactionId });
+      walletService.getWalletByUserId.mockResolvedValue({ _id: walletId });
+      walletService.creditWallet.mockResolvedValue({ _id: transactionId });
+      const countDocuments = jest.fn().mockResolvedValueOnce(3).mockResolvedValueOnce(0);
+      sessionPaymentRepository.findRaw.mockReturnValue({ countDocuments });
+
+      await service.confirmSessionPayment(sessionId, userOne, 'PAYSTACK_REF', 3000);
+
+      expect(sessionModel.findOneAndUpdate).toHaveBeenCalledWith(
+        { _id: sessionId, status: SESSION_STATUS.OPEN },
+        { $set: { paymentStatus: 'COMPLETED', allPaymentsCompleted: true } },
+      );
+    });
+
+    it('leaves the session paymentStatus alone while other members are still unpaid', async () => {
+      const paymentId = new Types.ObjectId();
+      const walletId = new Types.ObjectId();
+      const transactionId = new Types.ObjectId();
+
+      sessionPaymentRepository.findOneAndUpdate
+        .mockResolvedValueOnce({ _id: paymentId, sessionId, userId: userOne, ownerId, amount: 3000 })
+        .mockResolvedValueOnce({ _id: paymentId, status: PaymentStatus.PAID, transactionId });
+      walletService.getWalletByUserId.mockResolvedValue({ _id: walletId });
+      walletService.creditWallet.mockResolvedValue({ _id: transactionId });
+      const countDocuments = jest.fn().mockResolvedValueOnce(3).mockResolvedValueOnce(1);
+      sessionPaymentRepository.findRaw.mockReturnValue({ countDocuments });
+
+      await service.confirmSessionPayment(sessionId, userOne, 'PAYSTACK_REF', 3000);
+
+      expect(sessionModel.findOneAndUpdate).not.toHaveBeenCalled();
     });
   });
 

@@ -268,7 +268,24 @@ export class SessionPaymentService {
 
     this.logger.log(`Payment confirmed for session: ${sessionId}, user: ${userId}`);
 
+    await this.maybeCompleteSessionPayments(sessionId);
+
     return updatedPayment;
+  }
+
+  // The session's own paymentStatus/allPaymentsCompleted are set once when
+  // payments are initialized (onSessionFull) but nothing was ever flipping
+  // them back once every member actually paid — individual SessionPayment
+  // rows would all show PAID while the session itself stayed stuck PENDING.
+  // Mirrors maybeCompleteSessionRefund below, but for the payment side.
+  private async maybeCompleteSessionPayments(sessionId: Types.ObjectId) {
+    const allPaid = await this.areAllPaymentsCompleted(sessionId);
+    if (!allPaid) return;
+
+    await this.sessionModel.findOneAndUpdate(
+      { _id: sessionId, status: SESSION_STATUS.OPEN },
+      { $set: { paymentStatus: 'COMPLETED', allPaymentsCompleted: true } },
+    );
   }
 
   async areAllPaymentsCompleted(sessionId: Types.ObjectId): Promise<boolean> {
