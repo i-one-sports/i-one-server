@@ -229,7 +229,7 @@ export class TournamentsService {
     const tournament = await this.tournamentRepository
       .findRaw()
       .findById(id)
-      .populate('organizer', 'firstName lastName nickname -password')
+      .populate('organizer', 'firstName lastName nickname')
       .populate('registeredTeams', 'name logo captain')
       .lean();
 
