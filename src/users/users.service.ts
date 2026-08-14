@@ -255,9 +255,7 @@ export class UsersService {
   }
 
   private async sendWelcomeEmail(user: User) {
-    const subject = 'Welcome to I-One App!';
-    const body = `Hello ${user.firstName},\n\nWelcome to I-One App! We're excited to have you on board.\n\nBest regards,\nThe I-One Team`;
-    await this.mailService.sendMail(user.email, subject, body);
+    await this.mailService.sendTemplateMail(user.email, 'welcome', { firstName: user.firstName });
   }
 
   private async queueEmailVerificationOtp(user: Pick<User, 'email'>) {
@@ -384,7 +382,7 @@ export class UsersService {
       }
 
       return accountName;
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(
         `Failed to resolve owner payout account: ${error.message}`,
       );
@@ -423,11 +421,7 @@ export class UsersService {
       },
     );
 
-    await this.mailService.sendMail(
-      user.email,
-      'PASSWORD RESET OTP',
-      `Your OTP for password reset is ${otp}. It is valid for 15 mins`,
-    );
+    await this.mailService.sendTemplateMail(user.email, 'password-reset', { otp, expiresInMinutes: 15 });
   }
 
   async verifyOtp(data: VerifyOtpDto) {

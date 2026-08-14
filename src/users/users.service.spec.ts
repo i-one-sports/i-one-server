@@ -33,6 +33,7 @@ describe('UsersService', () => {
   };
   let mailService: {
     sendMail: jest.Mock;
+    sendTemplateMail: jest.Mock;
     sendEmailVerificationOtp: jest.Mock;
   };
   let statsService: { initializeStat: jest.Mock };
@@ -61,6 +62,7 @@ describe('UsersService', () => {
     };
     mailService = {
       sendMail: jest.fn().mockResolvedValue(undefined),
+      sendTemplateMail: jest.fn().mockResolvedValue(undefined),
       sendEmailVerificationOtp: jest.fn().mockResolvedValue(undefined),
     };
     statsService = { initializeStat: jest.fn().mockResolvedValue(undefined) };
@@ -140,10 +142,10 @@ describe('UsersService', () => {
       expect(statsService.initializeStat).toHaveBeenCalledWith(
         userId.toString(),
       );
-      expect(mailService.sendMail).toHaveBeenCalledWith(
+      expect(mailService.sendTemplateMail).toHaveBeenCalledWith(
         'jane@example.com',
-        'Welcome to I-One App!',
-        expect.stringContaining('Hello Jane'),
+        'welcome',
+        { firstName: 'Jane' },
       );
       expect(cacheService.set).toHaveBeenCalledWith(
         'email_verify:jane@example.com',
@@ -344,10 +346,10 @@ describe('UsersService', () => {
           otpExpiration: expect.any(Date),
         }),
       );
-      expect(mailService.sendMail).toHaveBeenCalledWith(
+      expect(mailService.sendTemplateMail).toHaveBeenCalledWith(
         'jane@example.com',
-        'PASSWORD RESET OTP',
-        expect.stringContaining('123456'),
+        'password-reset',
+        { otp: 123456, expiresInMinutes: 15 },
       );
     });
 
