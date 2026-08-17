@@ -1550,6 +1550,8 @@ Get full tournament details — bracket or fixtures/standings (depending on `typ
 
 **Auth required**: Yes (JWT cookie)
 
+**Note**: `registeredTeams` never includes each team's join `code` — see `GET /tournaments/code/:code` for why.
+
 **Success Response** `200 OK` (knockout):
 ```json
 {
@@ -1627,8 +1629,22 @@ Get full tournament details — bracket or fixtures/standings (depending on `typ
 
 ---
 
+### GET /tournaments/code/:code
+Look up a tournament by its player-facing discovery code (`Tournament.code`, generated at creation). Same response shape as `GET /tournaments/:id`. Case-insensitive — the code is normalized to uppercase before lookup.
+
+**Auth required**: Yes (JWT cookie)
+
+**Note**: `registeredTeams` in the response never includes each team's join `code` — that would let any authenticated user join any team. A team's `code` is only ever returned once, in the `POST /tournaments/:id/team` response to its captain.
+
+**Error Responses**:
+- `404` — no tournament matches that code
+
+---
+
 ### POST /tournaments/:id/team
 Create a team and register it to the tournament in one step. Only valid during `registration` status. **Captains register their own team** — `captainId` must match the authenticated user.
+
+The team is created with **only the captain as a member** — there is no roster input here. The response includes a generated join `code`; the captain shares it privately with intended teammates, who each self-add via `POST /tournaments/team/join`.
 
 **Auth required**: Yes (JWT cookie, captain only — `captainId` must equal the calling user's ID)
 
@@ -1637,19 +1653,47 @@ Create a team and register it to the tournament in one step. Only valid during `
 {
   "teamName": "Team Alpha",
   "logo": "https://...",
-  "captainId": "507f...",
-  "playerIds": ["507f...", "507f..."]
+  "captainId": "507f..."
 }
 ```
 
 **Field Notes**:
-- `captainId` is automatically added to `playerIds`
 - `logo` is optional
+- No `playerIds` field — teammates join individually via `POST /tournaments/team/join`, not upfront at creation
+
+**Success Response** `201 Created`:
+```json
+{
+  "_id": "507f...",
+  "name": "Team Alpha",
+  "logo": "",
+  "captain": "507f...",
+  "players": ["507f..."],
+  "code": "K7X9QZ",
+  "tournamentId": "507f..."
+}
+```
 
 **Error Responses**:
 - `403` — `captainId` does not match the authenticated user
-- `400` — tournament full or not in registration phase
+- `400` — tournament full or not in registration phase, or the captain is already registered to another team in this tournament
 - `404` — tournament or captain not found
+
+---
+
+### POST /tournaments/team/join
+Join an existing team using the `code` its captain shared. Self-service — replaces needing every teammate's ID upfront at team creation. Not nested under a tournament ID; the code alone resolves both the team and its tournament.
+
+**Auth required**: Yes (JWT cookie)
+
+**Request Body**:
+```json
+{ "code": "K7X9QZ" }
+```
+
+**Error Responses**:
+- `404` — code doesn't match any team, or the team is no longer registered to a tournament (e.g. its captain unregistered it after the code was shared)
+- `400` — tournament is not in `registration` phase, caller is already on this team, the team is full (`playersPerTeam` reached), or caller is already registered to a different team in this tournament
 
 ---
 
@@ -1712,6 +1756,22 @@ Remove a team from the tournament. Only valid during `registration` status. Call
 - `403` — caller is neither the team's captain nor the tournament organizer
 - `400` — tournament has already started
 - `404` — tournament or team not found
+
+---
+
+### DELETE /tournaments/team/leave
+Leave your current team. Self-service, for non-captain members only — captains must use `DELETE /tournaments/:id/team/:teamId` to unregister the whole team instead. Only valid during `registration` status.
+
+**Auth required**: Yes (JWT cookie)
+
+**Success Response** `200 OK`:
+```json
+{ "message": "You have left the team" }
+```
+
+**Error Responses**:
+- `400` — caller is the team's captain, or the tournament has already started
+- `404` — caller is not on any team
 
 ---
 

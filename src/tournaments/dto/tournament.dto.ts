@@ -89,10 +89,12 @@ export class CreateTeamAndRegisterDto {
   @IsNotEmpty()
   @IsMongoId()
   captainId: string;
+}
 
-  @IsOptional()
-  @IsMongoId({ each: true })
-  playerIds?: string[];
+export class JoinTeamDto {
+  @IsNotEmpty()
+  @IsString()
+  code: string;
 }
 
 export class RecordMatchResultDto {

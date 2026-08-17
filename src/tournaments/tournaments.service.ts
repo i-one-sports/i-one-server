@@ -2,8 +2,8 @@ import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { TournamentRepository } from './tournaments.repository';
 import { TeamRepository } from './teams.repository';
 import { UserRepository } from 'src/users/users.repository';
-import { CreateTournamentDto, CreateTeamAndRegisterDto, RecordMatchResultDto, ManualAdvanceDto, ScheduleMatchDto } from './dto/tournament.dto';
-import { CustomHttpException, Tournament, TournamentStatus, TournamentType, TournamentUpdateEvent } from '@app/common';
+import { CreateTournamentDto, CreateTeamAndRegisterDto, JoinTeamDto, RecordMatchResultDto, ManualAdvanceDto, ScheduleMatchDto } from './dto/tournament.dto';
+import { CustomHttpException, Tournament, TournamentStatus, TournamentType, TournamentUpdateEvent, generateUniqueCode } from '@app/common';
 import { LocationRepository } from 'src/locations/locations.repository';
 import { Types } from 'mongoose';
 import { BracketMatch, LeagueFixture, LeagueStanding, TeamSlot } from '@app/common/schemas/tournament.schema';
@@ -35,13 +35,6 @@ export class TournamentsService {
   }
 
   // ─── Helpers ───────────────────────────────────────────────────────────────
-
-  private generateCode(): string {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let code = '';
-    for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
-    return code;
-  }
 
   private shuffle<T>(arr: T[]): T[] {
     const a = [...arr];
@@ -178,11 +171,7 @@ export class TournamentsService {
       throw new CustomHttpException('maxTeams must be 8, 16, or 32 for knockout tournaments', HttpStatus.BAD_REQUEST);
     }
 
-    let code = this.generateCode();
-    // Ensure uniqueness
-    while (await this.tournamentRepository.findOne({ code })) {
-      code = this.generateCode();
-    }
+    const code = await generateUniqueCode((c) => this.tournamentRepository.findOne({ code: c }).then(Boolean));
 
     return this.tournamentRepository.create({
       _id: new Types.ObjectId(),
@@ -237,6 +226,22 @@ export class TournamentsService {
     return tournament;
   }
 
+  // Discovery by the player-facing tournament code. Deliberately excludes
+  // Team.code from the registeredTeams populate — this endpoint only needs
+  // JwtAuthGuard, so leaking team codes here would let any authenticated
+  // user join any team, defeating the "captain shares it privately" model.
+  async findByCode(code: string) {
+    const tournament = await this.tournamentRepository
+      .findRaw()
+      .findOne({ code: code.toUpperCase() })
+      .populate('organizer', 'firstName lastName nickname')
+      .populate('registeredTeams', 'name logo captain')
+      .lean();
+
+    if (!tournament) throw new CustomHttpException('Tournament not found', HttpStatus.NOT_FOUND);
+    return tournament;
+  }
+
   // ─── Team Registration ─────────────────────────────────────────────────────
 
   async createTeamAndRegister(tournamentId: string, dto: CreateTeamAndRegisterDto, userId: string) {
@@ -258,14 +263,28 @@ export class TournamentsService {
     const captain = await this.userRepository.findOne({ _id: dto.captainId });
     if (!captain) throw new CustomHttpException('Captain not found', HttpStatus.NOT_FOUND);
 
-    const playerIds = [...new Set([dto.captainId, ...(dto.playerIds ?? [])])];
+    // Only remaining creation-time membership check: the captain isn't already
+    // on another team in this tournament. Roster size and one-team-per-
+    // tournament enforcement for everyone else lives entirely in
+    // joinTeamByCode — a newly created team only ever has the captain.
+    const conflictingTeam = await this.teamRepository
+      .findRaw()
+      .findOne({ tournamentId: new Types.ObjectId(tournamentId), players: dto.captainId })
+      .select('_id')
+      .lean();
+    if (conflictingTeam)
+      throw new CustomHttpException('You are already registered to a team in this tournament', HttpStatus.BAD_REQUEST);
+
+    const teamCode = await generateUniqueCode((c) => this.teamRepository.findOne({ code: c }).then(Boolean));
 
     const team = await this.teamRepository.create({
       _id: new Types.ObjectId(),
       name: dto.teamName,
       logo: dto.logo ?? '',
       captain: dto.captainId as any,
-      players: playerIds as any,
+      players: [dto.captainId] as any,
+      code: teamCode,
+      tournamentId: new Types.ObjectId(tournamentId),
     });
 
     await this.tournamentRepository
@@ -318,6 +337,67 @@ export class TournamentsService {
       .updateOne({ _id: tournamentId }, { $pull: { registeredTeams: new Types.ObjectId(teamId) } });
 
     return { message: 'Team unregistered' };
+  }
+
+  async joinTeamByCode(dto: JoinTeamDto, userId: string) {
+    const team = await this.teamRepository.findOne({ code: dto.code.toUpperCase() }) as any;
+    if (!team) throw new CustomHttpException('Invalid team code', HttpStatus.NOT_FOUND);
+
+    const tournament = await this.tournamentRepository
+      .findRaw()
+      .findById(team.tournamentId)
+      .select('status playersPerTeam registeredTeams')
+      .lean() as any;
+
+    // unregisterTeam doesn't delete the Team doc, only pulls it from
+    // registeredTeams — without this check, joining a code from an
+    // unregistered team would silently add the player to a team that no
+    // longer counts toward the tournament.
+    const isStillRegistered = tournament?.registeredTeams?.some(
+      (id: Types.ObjectId) => id.toString() === team._id.toString(),
+    );
+    if (!tournament || !isStillRegistered)
+      throw new CustomHttpException('Team is no longer registered to a tournament', HttpStatus.NOT_FOUND);
+
+    if (tournament.status !== TournamentStatus.REGISTRATION)
+      throw new CustomHttpException('Tournament is not in registration phase', HttpStatus.BAD_REQUEST);
+
+    // team.players are ObjectId instances from a lean query, not strings —
+    // .toString() comparison matters here, same as the captain checks above.
+    if (team.players.some((p: any) => p.toString() === userId))
+      throw new CustomHttpException('You are already on this team', HttpStatus.BAD_REQUEST);
+
+    if (team.players.length >= tournament.playersPerTeam)
+      throw new CustomHttpException('Team is full', HttpStatus.BAD_REQUEST);
+
+    const conflictingTeam = await this.teamRepository
+      .findRaw()
+      .findOne({ tournamentId: team.tournamentId, players: userId })
+      .select('_id')
+      .lean();
+    if (conflictingTeam)
+      throw new CustomHttpException('You are already registered to a team in this tournament', HttpStatus.BAD_REQUEST);
+
+    return this.teamRepository.findOneAndUpdate({ _id: team._id }, { $addToSet: { players: userId } });
+  }
+
+  async leaveTeam(userId: string) {
+    const team = await this.teamRepository.findOne({ players: userId }) as any;
+    if (!team) throw new CustomHttpException('You are not on any team', HttpStatus.NOT_FOUND);
+
+    if (team.captain.toString() === userId)
+      throw new CustomHttpException('Captain cannot leave the team — unregister the team instead', HttpStatus.BAD_REQUEST);
+
+    const tournament = await this.tournamentRepository
+      .findRaw()
+      .findById(team.tournamentId)
+      .select('status')
+      .lean() as any;
+    if (tournament?.status !== TournamentStatus.REGISTRATION)
+      throw new CustomHttpException('Cannot leave after tournament has started', HttpStatus.BAD_REQUEST);
+
+    await this.teamRepository.findOneAndUpdate({ _id: team._id }, { $pull: { players: userId } });
+    return { message: 'You have left the team' };
   }
 
   // ─── Bracket / Fixtures ────────────────────────────────────────────────────

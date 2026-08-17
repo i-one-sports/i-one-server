@@ -35,3 +35,4 @@ export * from './utils/mail/mailer.service';
 export * from './utils/phone.number';
 export * from './utils/random'
 export * from './utils/logging.interceptor';
+export * from './utils/code.util';

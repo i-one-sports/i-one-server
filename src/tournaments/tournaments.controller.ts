@@ -24,6 +24,7 @@ import { catchError, filter, finalize, map, merge, of, startWith } from 'rxjs';
 import {
   CreateTournamentDto,
   CreateTeamAndRegisterDto,
+  JoinTeamDto,
   RecordMatchResultDto,
   ManualAdvanceDto,
   ScheduleMatchDto,
@@ -62,7 +63,15 @@ export class TournamentsController {
     return this.tournamentsService.findOne(id);
   }
 
-  // Create a team and register it to the tournament in one step (captain only — registers their own team)
+  // Discovery by the player-facing tournament code
+  @Get('code/:code')
+  findByCode(@Param('code') code: string) {
+    return this.tournamentsService.findByCode(code);
+  }
+
+  // Create a team (captain only, registers their own team). No roster is
+  // taken here — the response includes a join code the captain shares
+  // privately; everyone else joins via POST team/join.
   @Post(':id/team')
   createTeamAndRegister(
     @Param('id') id: string,
@@ -70,6 +79,20 @@ export class TournamentsController {
     @CurrentUser() user: User,
   ) {
     return this.tournamentsService.createTeamAndRegister(id, dto, user._id.toString());
+  }
+
+  // Join a team via its code — self-service, replaces needing every
+  // teammate's ID upfront at team creation.
+  @Post('team/join')
+  joinTeam(@Body() dto: JoinTeamDto, @CurrentUser() user: User) {
+    return this.tournamentsService.joinTeamByCode(dto, user._id.toString());
+  }
+
+  // Leave your current team (registration phase only). Captains must use
+  // DELETE :id/team/:teamId instead.
+  @Delete('team/leave')
+  leaveTeam(@CurrentUser() user: User) {
+    return this.tournamentsService.leaveTeam(user._id.toString());
   }
 
   // Pay the tournament registration fee. Returns a Paystack checkout URL.

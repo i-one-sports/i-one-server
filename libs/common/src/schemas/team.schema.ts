@@ -25,5 +25,14 @@ export class Team extends AbstractDocument {
 
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   captain: string;
+
+  // Shared with Tournament.code — a player-facing join code the captain
+  // shares privately so teammates can self-add via joinTeamByCode.
+  @Prop({ required: true, unique: true, match: /^[a-zA-Z0-9_-]+$/ })
+  code: string;
+
+  @Prop({ type: Types.ObjectId, ref: 'Tournament', required: true })
+  tournamentId: Types.ObjectId;
 }
 export const TeamSchema = SchemaFactory.createForClass(Team);
+TeamSchema.index({ tournamentId: 1 });
