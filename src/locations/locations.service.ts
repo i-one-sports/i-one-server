@@ -10,7 +10,7 @@ import {
   Location,
 } from '@app/common';
 import { MatchRepository } from '../matches/matches.repository';
-import { CreateLocationDto, UpdateLocationPricingDto, UpdatePitchConditionDto, ViewNearbyLocationsDto } from './dto/location.dto';
+import { CreateLocationDto, UpdateLocationPricingDto, UpdateOpeningHoursDto, UpdatePitchConditionDto, ViewNearbyLocationsDto } from './dto/location.dto';
 import { handleError } from 'src/helpers/errorHandler';
 import { SessionRepository } from 'src/sessions/sessions.repository';
 import { SessionPaymentService } from 'src/billing/services/session-payment.service';
@@ -243,6 +243,23 @@ export class LocationsService {
     );
 
     return { message: 'Pitch condition updated', location: updated };
+  }
+
+  async updateOpeningHours(locationId: string, ownerId: string, dto: UpdateOpeningHoursDto) {
+    await this.verifyOwnership(locationId, ownerId);
+
+    const [openHour, openMin] = dto.openingHour.split(':').map(Number);
+    const [closeHour, closeMin] = dto.closingHour.split(':').map(Number);
+    if (closeHour * 60 + closeMin <= openHour * 60 + openMin) {
+      throw new CustomHttpException('closingHour must be after openingHour', HttpStatus.BAD_REQUEST);
+    }
+
+    const updated = await this.locationRepository.findOneAndUpdate(
+      { _id: locationId },
+      { openingHour: dto.openingHour, closingHour: dto.closingHour },
+    );
+
+    return { message: 'Opening hours updated', location: updated };
   }
 
   async updateLocationPricing(locationId: string, ownerId: string, dto: UpdateLocationPricingDto) {

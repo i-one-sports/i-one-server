@@ -1,7 +1,7 @@
 import { Body, Controller, DefaultValuePipe, Get, Param, ParseIntPipe, Patch, Post, Query, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { JwtAuthGuard } from 'src/auth/guards/jwt.guard';
 import { LocationsService } from './locations.service';
-import { CreateLocationDto, UpdateLocationPricingDto, UpdatePitchConditionDto, ViewNearbyLocationsDto } from './dto/location.dto';
+import { CreateLocationDto, UpdateLocationPricingDto, UpdateOpeningHoursDto, UpdatePitchConditionDto, ViewNearbyLocationsDto } from './dto/location.dto';
 import { CurrentUser, IsOwner, UploadType, User, IsOwnerGuard } from '@app/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import * as multer from 'multer'
@@ -155,6 +155,16 @@ export class LocationsController {
       @Body() data: UpdateLocationPricingDto,
     ) {
       return this.locationsService.updateLocationPricing(locationId, user._id.toString(), data);
+    }
+
+    @UseGuards(IsOwnerGuard)
+    @Patch(':locationId/opening-hours')
+    async updateOpeningHours(
+      @IsOwner() user: User,
+      @Param('locationId') locationId: string,
+      @Body() data: UpdateOpeningHoursDto,
+    ) {
+      return this.locationsService.updateOpeningHours(locationId, user._id.toString(), data);
     }
 
   }

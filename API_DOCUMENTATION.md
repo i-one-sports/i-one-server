@@ -2563,6 +2563,41 @@ Update pricing options for a location. Owner only.
 
 ---
 
+### PATCH /location/:locationId/opening-hours
+Update a location's opening and closing hours. Owner only. Both fields are required together — this isn't a partial update, to avoid ending up with a mismatched pair (e.g. a stale closing time that's now before the new opening time).
+
+These hours are what `POST /sessions/start` and session creation check against (`validateSessionWithinOperatingHours` in `sessions.service.ts`) to reject session times outside them, so changing them takes effect on the next session booking, not retroactively on existing sessions.
+
+**Auth required**: Yes (JWT cookie + `IsOwnerGuard`)
+
+**Path Parameters**:
+- `locationId` — location ID
+
+**Request Body**:
+```json
+{ "openingHour": "08:00", "closingHour": "22:00" }
+```
+
+**Field Notes**:
+- Both fields required, format `HH:mm` (24-hour)
+- `closingHour` must be later than `openingHour` — same-day operating hours only, no overnight ranges (e.g. `22:00`–`02:00` isn't supported)
+
+**Success Response** `200 OK`:
+```json
+{
+  "message": "Opening hours updated",
+  "location": { "_id": "507f...", "name": "Arena Lagos", "openingHour": "08:00", "closingHour": "22:00", ... }
+}
+```
+
+**Error Responses**:
+- `400` — `closingHour` is not after `openingHour`
+- `401` — authenticated owner does not own this location
+- `403` — caller is not an owner at all
+- `404` — location not found
+
+---
+
 ### POST /admin/billing/fund-wallet
 Manually credit a user's wallet. Super admin only.
 

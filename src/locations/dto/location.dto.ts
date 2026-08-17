@@ -140,6 +140,20 @@ export class UpdateLocationPricingDto {
   paymentPerPersonMonthly?: number;
 }
 
+export class UpdateOpeningHoursDto {
+  @Matches(/^([01]\d|2[0-3]):([0-5]\d)$/, {
+    message: 'openingHour must be in HH:mm format',
+  })
+  @IsNotEmpty()
+  openingHour: string;
+
+  @Matches(/^([01]\d|2[0-3]):([0-5]\d)$/, {
+    message: 'closingHour must be in HH:mm format',
+  })
+  @IsNotEmpty()
+  closingHour: string;
+}
+
 export class ViewNearbyLocationsDto {
   longitude: string;
   latitude: string;
