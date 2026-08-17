@@ -32,6 +32,9 @@ describe('SessionPaymentService', () => {
   let sessionModel: {
     findOneAndUpdate: jest.Mock;
   };
+  let setsService: {
+    createSet: jest.Mock;
+  };
 
   const sessionId = new Types.ObjectId();
   const locationId = new Types.ObjectId();
@@ -67,6 +70,9 @@ describe('SessionPaymentService', () => {
     sessionModel = {
       findOneAndUpdate: jest.fn(),
     };
+    setsService = {
+      createSet: jest.fn().mockResolvedValue(undefined),
+    };
 
     service = new SessionPaymentService(
       sessionPaymentRepository as any,
@@ -75,6 +81,7 @@ describe('SessionPaymentService', () => {
       settingsService as any,
       platformCommissionRepository as any,
       sessionModel as any,
+      setsService as any,
     );
   });
 
@@ -361,13 +368,57 @@ describe('SessionPaymentService', () => {
       walletService.creditWallet.mockResolvedValue({ _id: transactionId });
       const countDocuments = jest.fn().mockResolvedValueOnce(3).mockResolvedValueOnce(0);
       sessionPaymentRepository.findRaw.mockReturnValue({ countDocuments });
+      sessionModel.findOneAndUpdate.mockResolvedValue({ _id: sessionId });
 
       await service.confirmSessionPayment(sessionId, userOne, 'PAYSTACK_REF', 3000);
+      // maybeCompleteSessionPayments's set-allocation call is fire-and-forget
+      await new Promise(process.nextTick);
 
       expect(sessionModel.findOneAndUpdate).toHaveBeenCalledWith(
         { _id: sessionId, status: SESSION_STATUS.OPEN },
         { $set: { paymentStatus: 'COMPLETED', allPaymentsCompleted: true } },
       );
+      expect(setsService.createSet).toHaveBeenCalledWith(sessionId.toString());
+    });
+
+    it('does not allocate sets when the session was not actually OPEN (already cancelled, or a duplicate race)', async () => {
+      const paymentId = new Types.ObjectId();
+      const walletId = new Types.ObjectId();
+      const transactionId = new Types.ObjectId();
+
+      sessionPaymentRepository.findOneAndUpdate
+        .mockResolvedValueOnce({ _id: paymentId, sessionId, userId: userOne, ownerId, amount: 3000 })
+        .mockResolvedValueOnce({ _id: paymentId, status: PaymentStatus.PAID, transactionId });
+      walletService.getWalletByUserId.mockResolvedValue({ _id: walletId });
+      walletService.creditWallet.mockResolvedValue({ _id: transactionId });
+      const countDocuments = jest.fn().mockResolvedValueOnce(3).mockResolvedValueOnce(0);
+      sessionPaymentRepository.findRaw.mockReturnValue({ countDocuments });
+      sessionModel.findOneAndUpdate.mockResolvedValue(null); // no session matched the OPEN filter
+
+      await service.confirmSessionPayment(sessionId, userOne, 'PAYSTACK_REF', 3000);
+      await new Promise(process.nextTick);
+
+      expect(setsService.createSet).not.toHaveBeenCalled();
+    });
+
+    it('does not let a set-allocation failure propagate out of payment confirmation', async () => {
+      const paymentId = new Types.ObjectId();
+      const walletId = new Types.ObjectId();
+      const transactionId = new Types.ObjectId();
+
+      sessionPaymentRepository.findOneAndUpdate
+        .mockResolvedValueOnce({ _id: paymentId, sessionId, userId: userOne, ownerId, amount: 3000 })
+        .mockResolvedValueOnce({ _id: paymentId, status: PaymentStatus.PAID, transactionId });
+      walletService.getWalletByUserId.mockResolvedValue({ _id: walletId });
+      walletService.creditWallet.mockResolvedValue({ _id: transactionId });
+      const countDocuments = jest.fn().mockResolvedValueOnce(3).mockResolvedValueOnce(0);
+      sessionPaymentRepository.findRaw.mockReturnValue({ countDocuments });
+      sessionModel.findOneAndUpdate.mockResolvedValue({ _id: sessionId });
+      setsService.createSet.mockRejectedValue(new Error('Set already created'));
+
+      await expect(
+        service.confirmSessionPayment(sessionId, userOne, 'PAYSTACK_REF', 3000),
+      ).resolves.toEqual({ _id: paymentId, status: PaymentStatus.PAID, transactionId });
     });
 
     it('leaves the session paymentStatus alone while other members are still unpaid', async () => {
@@ -386,6 +437,7 @@ describe('SessionPaymentService', () => {
       await service.confirmSessionPayment(sessionId, userOne, 'PAYSTACK_REF', 3000);
 
       expect(sessionModel.findOneAndUpdate).not.toHaveBeenCalled();
+      expect(setsService.createSet).not.toHaveBeenCalled();
     });
   });
 

@@ -34,10 +34,12 @@ import { LocationBillingController } from './controllers/location-billing.contro
 
 import { PaystackService } from '@app/common/providers/paystack.service';
 import { SettingsModule } from '../settings/settings.module';
+import { SetsModule } from '../sets/sets.module';
 
 @Module({
   imports: [
     SettingsModule,
+    SetsModule,
     MongooseModule.forFeature([
       { name: Wallet.name, schema: WalletSchema },
       { name: Transaction.name, schema: TransactionSchema },

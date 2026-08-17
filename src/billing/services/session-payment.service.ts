@@ -11,6 +11,7 @@ import { randomUUID } from 'crypto';
 import { LOCATION_PRICING_OPTION, SESSION_STATUS } from '@app/common';
 import { SettingsService } from '../../settings/settings.service';
 import { PlatformCommissionRepository } from '../repositories/platform-commission.repository';
+import { SetsService } from '../../sets/sets.service';
 
 @Injectable()
 export class SessionPaymentService {
@@ -23,6 +24,7 @@ export class SessionPaymentService {
     private readonly settingsService: SettingsService,
     private readonly platformCommissionRepository: PlatformCommissionRepository,
     @InjectModel(Session.name) private readonly sessionModel: Model<Session>,
+    private readonly setsService: SetsService,
   ) {}
 
   // `baseAmount` is the location's listed per-person price, in kobo — what
@@ -282,10 +284,22 @@ export class SessionPaymentService {
     const allPaid = await this.areAllPaymentsCompleted(sessionId);
     if (!allPaid) return;
 
-    await this.sessionModel.findOneAndUpdate(
+    const updated = await this.sessionModel.findOneAndUpdate(
       { _id: sessionId, status: SESSION_STATUS.OPEN },
       { $set: { paymentStatus: 'COMPLETED', allPaymentsCompleted: true } },
     );
+    // Only the update that actually flips PENDING -> COMPLETED should
+    // allocate sets (guards against a cancelled/already-completed session,
+    // and against firing twice if this ever races). Fire-and-forget with a
+    // logged failure — a set-allocation error must never fail the payment
+    // confirmation that triggered it. createSet() is itself idempotent
+    // (throws if sets already exist for this session), so a rare double
+    // trigger is harmless.
+    if (updated) {
+      this.setsService
+        .createSet(sessionId.toString())
+        .catch((err) => this.logger.error(`Auto set-allocation failed for session ${sessionId}: ${err.message}`));
+    }
   }
 
   async areAllPaymentsCompleted(sessionId: Types.ObjectId): Promise<boolean> {
