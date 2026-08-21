@@ -19,7 +19,7 @@ describe('WalletService', () => {
     updateBalance: jest.Mock;
     startTransaction: jest.Mock;
   };
-  let transactionRepository: { findOne: jest.Mock; create: jest.Mock };
+  let transactionRepository: { findOne: jest.Mock; create: jest.Mock; findRaw: jest.Mock };
   let ledgerRepository: { create: jest.Mock };
   let paystackService: { initializeTransaction: jest.Mock };
 
@@ -34,7 +34,7 @@ describe('WalletService', () => {
       // startTransaction returns undefined when no DB connection is injected (unit test env)
       startTransaction: jest.fn().mockResolvedValue(undefined),
     };
-    transactionRepository = { findOne: jest.fn(), create: jest.fn() };
+    transactionRepository = { findOne: jest.fn(), create: jest.fn(), findRaw: jest.fn() };
     ledgerRepository = { create: jest.fn() };
     paystackService = { initializeTransaction: jest.fn() };
 
@@ -75,8 +75,8 @@ describe('WalletService', () => {
   });
 
   describe('creditWallet', () => {
-    it('returns existing transaction for duplicate references without touching balance', async () => {
-      const existingTx = { _id: new Types.ObjectId(), reference: 'REF_1' };
+    it('returns existing transaction for a duplicate reference without touching balance (already SUCCESS)', async () => {
+      const existingTx = { _id: new Types.ObjectId(), reference: 'REF_1', status: TransactionStatus.SUCCESS };
       transactionRepository.findOne.mockResolvedValue(existingTx);
 
       await expect(
@@ -102,7 +102,7 @@ describe('WalletService', () => {
         service.creditWallet(walletId, 5000, TransactionSource.SESSION_PAYMENT, 'REF_2'),
       ).resolves.toBe(tx);
 
-      expect(walletRepository.updateBalance).toHaveBeenCalledWith(walletId.toString(), 5000, 2000);
+      expect(walletRepository.updateBalance).toHaveBeenCalledWith(walletId.toString(), 5000, 2000, undefined);
       expect(transactionRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({
           walletId,
@@ -121,6 +121,54 @@ describe('WalletService', () => {
         expect.objectContaining({ walletId, type: 'CREDIT', amount: 5000, balanceAfter: 7000 }),
         { session: undefined },
       );
+    });
+
+    // Regression test for the wallet-funding bug: initializeWalletFunding
+    // creates a PENDING transaction row at checkout time, using the same
+    // reference the webhook later credits with. That row must be completed
+    // in place, not mistaken for an already-processed duplicate (which was
+    // silently skipping the balance update and ledger entry entirely).
+    it('completes a pre-existing PENDING transaction in place instead of skipping the credit', async () => {
+      const pendingTxId = new Types.ObjectId();
+      const existingTx = {
+        _id: pendingTxId,
+        reference: 'FUND_1',
+        status: TransactionStatus.PENDING,
+      };
+      const wallet = { _id: walletId, userId, balance: 0 };
+      const updatedTx = { _id: pendingTxId, status: TransactionStatus.SUCCESS };
+      const findOneAndUpdate = jest.fn().mockResolvedValue(updatedTx);
+
+      transactionRepository.findOne.mockResolvedValue(existingTx);
+      transactionRepository.findRaw.mockReturnValue({ findOneAndUpdate });
+      walletRepository.findOne.mockResolvedValue(wallet);
+      walletRepository.updateBalance.mockResolvedValue({ ...wallet, balance: 100000 });
+      ledgerRepository.create.mockResolvedValue({});
+
+      const result = await service.creditWallet(
+        walletId,
+        100000,
+        TransactionSource.WALLET_FUNDING,
+        'FUND_1',
+      );
+
+      expect(walletRepository.updateBalance).toHaveBeenCalledWith(walletId.toString(), 100000, 0, undefined);
+      expect(findOneAndUpdate).toHaveBeenCalledWith(
+        { _id: pendingTxId },
+        expect.objectContaining({
+          status: TransactionStatus.SUCCESS,
+          balanceBefore: 0,
+          balanceAfter: 100000,
+          reference: 'FUND_1',
+        }),
+        { session: undefined, new: true },
+      );
+      expect(transactionRepository.create).not.toHaveBeenCalled();
+      expect(ledgerRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ walletId, type: 'CREDIT', amount: 100000, balanceAfter: 100000 }),
+        { session: undefined },
+      );
+      expect(result).toBe(updatedTx);
     });
 
     it('throws when the OCC balance guard detects a concurrent modification', async () => {
@@ -162,7 +210,7 @@ describe('WalletService', () => {
         service.debitWallet(walletId, 2500, TransactionSource.WITHDRAWAL, 'REF_5'),
       ).resolves.toBe(tx);
 
-      expect(walletRepository.updateBalance).toHaveBeenCalledWith(walletId.toString(), -2500, 8000);
+      expect(walletRepository.updateBalance).toHaveBeenCalledWith(walletId.toString(), -2500, 8000, undefined);
       expect(ledgerRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({ walletId, type: 'DEBIT', amount: 2500, balanceAfter: 5500 }),
         { session: undefined },

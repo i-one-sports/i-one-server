@@ -136,18 +136,15 @@ export class WebhookService {
         return;
       }
 
+      // creditWallet finds the PENDING transaction row created at checkout
+      // time (initializeWalletFunding) and completes it in place — with the
+      // real post-credit balance, not a value computed from a stale read.
       await this.walletService.creditWallet(
         wallet._id,
         amount,
         TransactionSource.WALLET_FUNDING,
         data.reference,
         { paystackData: data },
-      );
-
-      // Mark the pending WALLET_FUNDING transaction as SUCCESS
-      await this.transactionRepository.findOneAndUpdate(
-        { reference: data.reference, status: TransactionStatus.PENDING },
-        { status: TransactionStatus.SUCCESS, balanceAfter: wallet.balance + amount },
       );
 
       this.logger.log(`Wallet funded: ${metadata.walletId}, amount: ${amount}`);

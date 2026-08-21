@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AbstractRepository } from '@app/common';
 import { InjectModel, InjectConnection } from '@nestjs/mongoose';
-import { Connection, Model } from 'mongoose';
+import { ClientSession, Connection, Model } from 'mongoose';
 import { Wallet } from '@app/common/schemas/wallet.schema';
 
 @Injectable()
@@ -19,6 +19,7 @@ export class WalletRepository extends AbstractRepository<Wallet> {
     walletId: string,
     amount: number,
     currentBalance: number,
+    session?: ClientSession,
   ): Promise<Wallet | null> {
     return await this.model.findOneAndUpdate(
       {
@@ -28,7 +29,7 @@ export class WalletRepository extends AbstractRepository<Wallet> {
       {
         $inc: { balance: amount },
       },
-      { new: true, lean: true },
+      { new: true, lean: true, session },
     ).exec();
   }
 }

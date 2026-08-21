@@ -121,10 +121,15 @@ export class WalletService {
     this.logger.log(`Crediting wallet: ${walletId}, amount: ${amount}, ref: ${reference}`);
 
     const existingTx = await this.transactionRepository.findOne({ reference });
-    if (existingTx) {
+    if (existingTx?.status === TransactionStatus.SUCCESS) {
       this.logger.warn(`Duplicate credit detected for reference: ${reference}`);
       return existingTx;
     }
+    // existingTx may still be a PENDING placeholder created at checkout time
+    // (e.g. initializeWalletFunding) — that's not a duplicate, it's the row
+    // this credit is meant to complete. Fall through and credit normally,
+    // updating that row in place below instead of inserting a second one
+    // (reference has a unique index, so inserting would fail anyway).
 
     const wallet = await this.walletRepository.findOne({ _id: walletId });
     if (!wallet) throw new NotFoundException('Wallet not found');
@@ -138,6 +143,7 @@ export class WalletService {
         walletId.toString(),
         amount,
         balanceBefore,
+        session,
       );
 
       if (!updatedWallet) {
@@ -146,24 +152,27 @@ export class WalletService {
         );
       }
 
-      const transaction = await this.transactionRepository.create(
-        {
-          walletId,
-          userId: wallet.userId,
-          type: TransactionType.CREDIT,
-          amount,
-          balanceBefore,
-          balanceAfter,
-          status: TransactionStatus.SUCCESS,
-          source,
-          reference,
-          description: `Credit: ${source}`,
-          sessionId,
-          initiatedBy,
-          metadata,
-        },
-        { session },
-      );
+      const transactionData = {
+        walletId,
+        userId: wallet.userId,
+        type: TransactionType.CREDIT,
+        amount,
+        balanceBefore,
+        balanceAfter,
+        status: TransactionStatus.SUCCESS,
+        source,
+        reference,
+        description: `Credit: ${source}`,
+        sessionId,
+        initiatedBy,
+        metadata,
+      };
+
+      const transaction = existingTx
+        ? await this.transactionRepository
+            .findRaw()
+            .findOneAndUpdate({ _id: existingTx._id }, transactionData, { session, new: true })
+        : await this.transactionRepository.create(transactionData, { session });
 
       await this.ledgerRepository.create(
         {
@@ -221,6 +230,7 @@ export class WalletService {
         walletId.toString(),
         -amount,
         balanceBefore,
+        session,
       );
 
       if (!updatedWallet) {
