@@ -349,6 +349,7 @@ export class SessionsService {
         winningDecider,
         maxNumber,
         members: [userId],
+        isFull: maxNumber <= 1,
         paymentRequired: paymentConfig.paymentRequired,
         paymentAmount: paymentConfig.paymentAmount,
         paymentStatus: paymentConfig.paymentRequired ? 'NOT_INITIATED' : 'COMPLETED',
@@ -403,6 +404,13 @@ export class SessionsService {
     const session = await this.sessionRepository.findOne({ _id: sessionId });
     if (!session)
       throw new CustomHttpException('Session not found', HttpStatus.NOT_FOUND);
+
+    if (!session.maxNumber || session.maxNumber <= 0) {
+      throw new CustomHttpException(
+        'Session has not been configured yet',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
 
     const exists = session.members.some((id) => id.equals(userId));
 

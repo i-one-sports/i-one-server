@@ -52,6 +52,20 @@ export class SetsService {
         throw new CustomHttpException('Set already created', HttpStatus.BAD_REQUEST);
       }
 
+      if (!session.setNumber || session.setNumber <= 0) {
+        throw new CustomHttpException(
+          'Session has no setNumber configured',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      if (!session.isFull) {
+        throw new CustomHttpException(
+          'Session is not full yet',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
       const setData = Array(session.setNumber)
         .fill(null)
         .map((_, index) => ({
@@ -75,11 +89,13 @@ export class SetsService {
       };
     } catch (error: any) {
       console.error('Error creating sets:', error);
+      if (error instanceof CustomHttpException) {
+        throw error;
+      }
       throw new CustomHttpException(
         error.message,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
-      
     }
   }
 
