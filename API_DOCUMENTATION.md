@@ -506,7 +506,7 @@ Approve a verification submission. Creates a wallet for the user (no Paystack ca
 {
   "message": "Verification approved and wallet created successfully",
   "verification": { ...verificationDocument, "status": "APPROVED" },
-  "wallet": { "_id": "...", "balance": 0, "ledgerBalance": 0, "currency": "NGN", "status": "ACTIVE" }
+  "wallet": { "_id": "...", "balance": 0, "currency": "NGN", "status": "ACTIVE" }
 }
 ```
 
@@ -1977,7 +1977,6 @@ Get the authenticated owner's wallet.
 {
   "_id": "...",
   "balance": 5000000,
-  "ledgerBalance": 5000000,
   "currency": "NGN",
   "status": "ACTIVE"
 }
@@ -2052,7 +2051,6 @@ Get the authenticated owner's current wallet balance.
 ```json
 {
   "balance": 5000000,
-  "ledgerBalance": 5000000,
   "currency": "NGN"
 }
 ```
@@ -2874,7 +2872,6 @@ interface Wallet {
   _id: string;
   userId: string;
   balance: number;
-  ledgerBalance: number;
   status: 'ACTIVE' | 'SUSPENDED' | 'CLOSED';
   currency: string;           // 'NGN'
   createdAt: string;

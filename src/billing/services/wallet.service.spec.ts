@@ -51,7 +51,7 @@ describe('WalletService', () => {
 
   describe('createWallet', () => {
     it('creates a wallet with zero balance for a new user', async () => {
-      const wallet = { _id: walletId, userId, balance: 0, ledgerBalance: 0, status: 'ACTIVE', currency: 'NGN' };
+      const wallet = { _id: walletId, userId, balance: 0, status: 'ACTIVE', currency: 'NGN' };
       walletRepository.findOne.mockResolvedValue(null);
       walletRepository.create.mockResolvedValue(wallet);
 
@@ -59,7 +59,6 @@ describe('WalletService', () => {
       expect(walletRepository.create).toHaveBeenCalledWith({
         userId,
         balance: 0,
-        ledgerBalance: 0,
         status: 'ACTIVE',
         currency: 'NGN',
       });

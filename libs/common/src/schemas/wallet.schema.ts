@@ -13,9 +13,6 @@ export class Wallet extends AbstractDocument {
   @Prop({ type: Number, default: 0, min: 0 })
   balance: number;
 
-  @Prop({ type: Number, default: 0, min: 0 })
-  ledgerBalance: number;
-
   @Prop({ type: String, enum: ['ACTIVE', 'SUSPENDED', 'CLOSED'], default: 'ACTIVE' })
   status: string;
 

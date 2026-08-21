@@ -43,7 +43,6 @@ export class WalletService {
     const wallet = await this.walletRepository.create({
       userId,
       balance: 0,
-      ledgerBalance: 0,
       status: 'ACTIVE',
       currency: 'NGN',
     });
@@ -322,6 +321,6 @@ export class WalletService {
 
   async getBalance(userId: string) {
     const wallet = await this.getWalletByUserId(userId);
-    return { balance: wallet.balance, ledgerBalance: wallet.ledgerBalance, currency: wallet.currency };
+    return { balance: wallet.balance, currency: wallet.currency };
   }
 }
