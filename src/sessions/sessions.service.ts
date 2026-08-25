@@ -344,6 +344,7 @@ export class SessionsService {
         setNumber,
         playersPerTeam,
         minsPerSet,
+        timeDuration,
         startTime,
         stopTime: addedStopTime,
         winningDecider,
