@@ -9,6 +9,7 @@ import { SessionPayment, SessionPaymentSchema } from '@app/common/schemas/sessio
 import { BankAccount, BankAccountSchema } from '@app/common/schemas/bank-account.schema';
 import { Session, SessionSchema } from '@app/common/schemas/session.schema';
 import { Set, SetSchema } from '@app/common/schemas/sets.schema';
+import { Location, LocationSchema } from '@app/common/schemas/location.schema';
 import { PlatformCommission, PlatformCommissionSchema } from '@app/common/schemas/platform-commission.schema';
 
 import { WalletRepository } from './repositories/wallet.repository';
@@ -51,6 +52,7 @@ import { SetsModule } from '../sets/sets.module';
       { name: Session.name, schema: SessionSchema },
       { name: Set.name, schema: SetSchema },
       { name: PlatformCommission.name, schema: PlatformCommissionSchema },
+      { name: Location.name, schema: LocationSchema },
     ]),
   ],
   controllers: [

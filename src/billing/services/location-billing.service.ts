@@ -5,6 +5,7 @@ import { CustomHttpException } from '@app/common';
 import { SessionPayment, PaymentStatus } from '@app/common/schemas/session-payment.schema';
 import { Session } from '@app/common/schemas/session.schema';
 import { Set } from '@app/common/schemas/sets.schema';
+import { Location } from '@app/common/schemas/location.schema';
 
 @Injectable()
 export class LocationBillingService {
@@ -17,6 +18,9 @@ export class LocationBillingService {
 
     @InjectModel(Set.name)
     private readonly setModel: Model<Set>,
+
+    @InjectModel(Location.name)
+    private readonly locationModel: Model<Location>,
   ) {}
 
   /**
@@ -32,6 +36,14 @@ export class LocationBillingService {
     const skip = (page - 1) * limit;
     const ownerObjectId = new Types.ObjectId(ownerId);
     const locationObjectId = new Types.ObjectId(locationId);
+
+    // pricingOption is constant for every row here (all scoped to this one
+    // location), so fetch it once instead of joining it per-row.
+    const location = await this.locationModel
+      .findById(locationObjectId)
+      .select('pricingOption')
+      .lean()
+      .exec();
 
     const pipeline: any[] = [
       // Only paid records for this owner's location
@@ -93,7 +105,6 @@ export class LocationBillingService {
           },
           teamName: { $first: { $ifNull: ['$mySet.name', 'Ungrouped'] } },
           sessionStartTime: { $first: '$session.startTime' },
-          pricingOption: { $first: '$metadata.pricingOption' },
           paymentAmount: { $first: '$session.paymentAmount' },
           teamPlayersCount: {
             $first: { $size: { $ifNull: ['$mySet.players', []] } },
@@ -157,7 +168,7 @@ export class LocationBillingService {
         sessionId: row.sessionId,
         setId: row.setId,
         sessionStartTime: row.sessionStartTime,
-        pricingOption: row.pricingOption ?? null,
+        pricingOption: location?.pricingOption ?? null,
         paymentAmount: row.paymentAmount ?? 0,
         teamSize: row.teamPlayersCount,
         membersPaid: row.membersPaid,
@@ -202,6 +213,12 @@ export class LocationBillingService {
     if (!session) {
       throw new CustomHttpException('Session not found', HttpStatus.NOT_FOUND);
     }
+
+    const location = await this.locationModel
+      .findById(session.location)
+      .select('pricingOption')
+      .lean()
+      .exec();
 
     // Verify this session belongs to the owner's location
     const payments = await this.sessionPaymentModel
@@ -289,7 +306,7 @@ export class LocationBillingService {
       sessionStartTime: session.startTime,
       sessionStopTime: session.stopTime,
       paymentAmount: session.paymentAmount ?? 0,
-      pricingOption: (session as any).metadata?.pricingOption ?? null,
+      pricingOption: location?.pricingOption ?? null,
       sessionPaymentStatus: session.paymentStatus,
       grandExpected,
       grandPaid,
