@@ -190,6 +190,9 @@ export class LocationBillingService {
    */
   async getSessionTeamPaymentStatus(sessionId: string, ownerId: string) {
     const sessionObjectId = new Types.ObjectId(sessionId);
+    // req.user._id from the JWT strategy is a Mongoose ObjectId, not a string,
+    // despite the ownerId: string param type — normalize before comparing.
+    const ownerIdStr = ownerId.toString();
 
     const session = await this.sessionModel
       .findById(sessionObjectId)
@@ -207,7 +210,7 @@ export class LocationBillingService {
       .exec();
 
     const ownerMatch = payments.find(
-      (p) => p.ownerId.toString() === ownerId,
+      (p) => p.ownerId.toString() === ownerIdStr,
     );
     if (payments.length > 0 && !ownerMatch) {
       throw new CustomHttpException('Unauthorized', HttpStatus.FORBIDDEN);
