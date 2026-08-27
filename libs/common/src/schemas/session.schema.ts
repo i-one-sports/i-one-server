@@ -1,11 +1,11 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Types } from 'mongoose';
+import { SchemaTypes, Types } from 'mongoose';
 import { AbstractDocument } from './abstract.schema';
 import { MATCH_TYPE, SESSION_STATUS, WINNING_DECIDER } from '../types/common';
 
 @Schema({ timestamps: true, versionKey: false })
 export class Session extends AbstractDocument {
-  @Prop({ type: Types.ObjectId, ref: 'Location' })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Location' })
   location: string;
 
   @Prop({ default: 0 })
@@ -35,7 +35,7 @@ export class Session extends AbstractDocument {
   @Prop({ default: false })
   finished: boolean;
 
-  @Prop({ type: Types.ObjectId, ref: 'User' })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User' })
   captain: string;
 
   @Prop({ type: [{ type: Types.ObjectId, ref: 'User' }] })

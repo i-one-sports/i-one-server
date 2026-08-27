@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Types } from 'mongoose';
+import { SchemaTypes, Types } from 'mongoose';
 import { AbstractDocument } from './abstract.schema';
 
 export enum TransactionType {
@@ -26,10 +26,10 @@ export enum TransactionSource {
 
 @Schema({ timestamps: true, versionKey: false })
 export class Transaction extends AbstractDocument {
-  @Prop({ type: Types.ObjectId, ref: 'Wallet', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Wallet', required: true })
   walletId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true })
   userId: Types.ObjectId;
 
   @Prop({ type: String, enum: Object.values(TransactionType), required: true })
@@ -60,10 +60,10 @@ export class Transaction extends AbstractDocument {
   @Prop({ type: String, required: false })
   description: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'Session', required: false })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Session', required: false })
   sessionId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: false })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: false })
   initiatedBy: Types.ObjectId;
 
   @Prop({ type: Object, required: false })

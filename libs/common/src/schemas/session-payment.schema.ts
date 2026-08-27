@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Types } from 'mongoose';
+import { SchemaTypes, Types } from 'mongoose';
 import { AbstractDocument } from './abstract.schema';
 
 export enum PaymentStatus {
@@ -18,16 +18,16 @@ export enum PaymentStatus {
 
 @Schema({ timestamps: true, versionKey: false })
 export class SessionPayment extends AbstractDocument {
-  @Prop({ type: Types.ObjectId, ref: 'Session', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Session', required: true })
   sessionId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true })
   userId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Location', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Location', required: true })
   locationId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true })
   ownerId: Types.ObjectId;
 
   // Kobo — see Wallet.balance for the app-wide currency unit convention.
@@ -71,7 +71,7 @@ export class SessionPayment extends AbstractDocument {
   @Prop({ type: [String], default: [] })
   previousReferences: string[];
 
-  @Prop({ type: Types.ObjectId, ref: 'Transaction', required: false })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Transaction', required: false })
   transactionId: Types.ObjectId;
 
   @Prop({ type: Date, required: false })

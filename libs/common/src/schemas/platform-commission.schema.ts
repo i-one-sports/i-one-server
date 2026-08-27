@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Types } from 'mongoose';
+import { SchemaTypes, Types } from 'mongoose';
 import { AbstractDocument } from './abstract.schema';
 
 // Audit trail of platform commission collected. Deliberately NOT modeled as
@@ -10,16 +10,16 @@ import { AbstractDocument } from './abstract.schema';
 // reporting.
 @Schema({ timestamps: true, versionKey: false })
 export class PlatformCommission extends AbstractDocument {
-  @Prop({ type: Types.ObjectId, ref: 'SessionPayment', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'SessionPayment', required: true })
   sessionPaymentId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Session', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Session', required: true })
   sessionId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true })
   payerId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true })
   ownerId: Types.ObjectId;
 
   // Kobo — see Wallet.balance for the app-wide currency unit convention.

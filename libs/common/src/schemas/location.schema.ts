@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Types } from 'mongoose';
+import { SchemaTypes, Types } from 'mongoose';
 import { AbstractDocument } from './abstract.schema';
 import {
   LocationCoordinates,
@@ -72,7 +72,7 @@ export class Location extends AbstractDocument {
   @Prop({ type: Number, required: false })
   tournamentFee: number;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: false })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: false })
   owner?: Types.ObjectId;
 
   @Prop({ type: String, enum: PITCH_CONDITION, required: false })

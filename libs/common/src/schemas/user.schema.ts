@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Types } from 'mongoose';
+import { SchemaTypes, Types } from 'mongoose';
 import { AbstractDocument } from './abstract.schema';
 import { LocationCoordinates } from '../types/common';
 import {
@@ -52,7 +52,7 @@ export class User extends AbstractDocument {
   @Prop({ type: String, enum: USER_ROLE, default: USER_ROLE.USER })
   role: USER_ROLE;
 
-  @Prop({ type: Types.ObjectId, ref: 'Wallet', required: false })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Wallet', required: false })
   walletId: Types.ObjectId;
 
   @Prop({
@@ -68,7 +68,7 @@ export class User extends AbstractDocument {
   @Prop({ type: Date, required: false })
   termsAcceptedAt?: Date;
 
-  @Prop({ type: Types.ObjectId, ref: 'Session', default: null })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Session', default: null })
   currentSession: string;
 
   @Prop({ type: Number, default: null })

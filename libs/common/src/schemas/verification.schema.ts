@@ -1,10 +1,10 @@
 import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
 import { AbstractDocument } from "./abstract.schema";
-import { Types } from "mongoose";
+import { SchemaTypes, Types } from "mongoose";
 
 @Schema({versionKey: false,timestamps: true})
 export class Verification extends AbstractDocument {
-    @Prop({type:Types.ObjectId, ref: 'User'})
+    @Prop({type:SchemaTypes.ObjectId, ref: 'User'})
     userId: Types.ObjectId;
 
     @Prop({type: String, enum: ['BVN', 'NIN', 'DRIVERS_LICENSE', 'PASSPORT']})

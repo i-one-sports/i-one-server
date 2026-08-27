@@ -1,14 +1,14 @@
 import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
-import { Types } from "mongoose";
+import { SchemaTypes } from "mongoose";
 import { Team } from "./team.schema";
 import { TournamentLocation } from "./tournament-location.schema";
 
 @Schema()
 export class TournamentMatch {
-  @Prop({ type: Types.ObjectId, ref: 'Team' })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Team' })
   homeTeam: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'Team' })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Team' })
   awayTeam: string;
 
   @Prop({ default: null })

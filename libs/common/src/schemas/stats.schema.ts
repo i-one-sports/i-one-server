@@ -1,12 +1,12 @@
 import { Schema, SchemaFactory } from "@nestjs/mongoose";
 import { AbstractDocument } from "./abstract.schema";
 import { Prop } from "@nestjs/mongoose";
-import { Types } from "mongoose";
+import { SchemaTypes } from "mongoose";
 
 
 @Schema({timestamps:true, versionKey:false})
 export class Stat extends AbstractDocument {
- @Prop({ type: Types.ObjectId, ref: 'User' })
+ @Prop({ type: SchemaTypes.ObjectId, ref: 'User' })
   userId: string;
 
   @Prop()

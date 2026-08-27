@@ -1,6 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { TournamentStatus, TournamentType } from '../typings/global.interface';
-import { Types } from 'mongoose';
+import { SchemaTypes, Types } from 'mongoose';
 import { AbstractDocument } from './abstract.schema';
 
 // Denormalized team slot stored inside each bracket match.
@@ -62,7 +62,7 @@ export class Tournament extends AbstractDocument {
   @Prop({ default: '' })
   description: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'Location', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Location', required: true })
   location: Types.ObjectId;
 
   // Kobo — see Wallet.balance for the app-wide currency unit convention.
@@ -138,7 +138,7 @@ export class Tournament extends AbstractDocument {
   @Prop({ type: Object, default: null })
   winner: TeamSlot | null;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true })
   organizer: Types.ObjectId;
 
   @Prop({ required: true })

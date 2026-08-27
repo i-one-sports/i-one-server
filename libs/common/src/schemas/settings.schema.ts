@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Types } from 'mongoose';
+import { SchemaTypes, Types } from 'mongoose';
 import { AbstractDocument } from './abstract.schema';
 
 // Singleton document — there should only ever be one Settings row. Look it
@@ -20,7 +20,7 @@ export class Settings extends AbstractDocument {
   @Prop({ type: Number, default: 0, min: 0, max: 100 })
   commissionPercentage: number;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: false })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: false })
   commissionUpdatedBy: Types.ObjectId;
 
   @Prop({ type: Date, required: false })
