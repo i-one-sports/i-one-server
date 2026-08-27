@@ -1157,20 +1157,39 @@ Update match type for all sessions. Restricted to super-admins.
 
 ## Sets
 
-### POST /sets/create/:sessionId
-Create team sets for a session. The number of sets equals the session's `setNumber`. Team names are auto-assigned.
+Sets (teams) for a paid session are normally created **automatically** — the moment every member's payment is confirmed, the server allocates players into balanced teams on its own (fire-and-forget, so it never blocks or delays anyone's payment confirmation). In practice this lands well under a second after the last payment, but it's not instant, and — much more rarely — it can fail outright (e.g. an unexpected error) with nothing server-side to retry it automatically. `POST /sets/create/:sessionId` below is both the internal mechanism for that and the **manual fallback** the client should call if auto-allocation doesn't show up in time.
 
-**Auth required**: Yes (JWT cookie)
+**Recommended polling pattern** for the moment every member has paid:
+1. Once the session shows `allPaymentsCompleted: true` (or `paymentStatus: "COMPLETED"`) but `GET /sets/:sessionId` still returns `[]`, show a brief "Finalizing teams..." state.
+2. Poll `GET /sets/:sessionId` every **500ms**.
+3. Stop as soon as the response array is non-empty and show the teams.
+4. If still empty after **~10 attempts (5 seconds)**, stop polling and show a "Taking longer than expected" state with a **manual retry** button that calls `POST /sets/create/:sessionId` — this is the same endpoint auto-allocation uses internally, so retrying is safe and won't create duplicates (see error responses below).
+
+### POST /sets/create/:sessionId
+Create team sets for a session. The number of sets equals the session's `setNumber`, teams are auto-balanced from the session's members, team names are auto-assigned. Normally triggered automatically (see above) — call this directly only as the manual retry fallback.
+
+**Auth required**: Yes (JWT cookie, caller must be a member of the session)
 
 **Path Parameters**:
 - `sessionId` — session ID
 
-**Success Response** `201 Created**: Array of created set documents.
+**Success Response** `201 Created`:
+```json
+{
+  "message": "Sets created successfully",
+  "sets": [ { "_id": "507f...", "session": "507f...", "name": "Team 1", "players": [...] }, ... ]
+}
+```
+
+**Error Responses**:
+- `403` — caller is not a member of this session
+- `400` — sets already exist for this session (safe to ignore if retrying after a slow auto-allocation — just call `GET /sets/:sessionId` instead), session has no `setNumber` configured, or session is not yet full
+- `404` — session not found
 
 ---
 
 ### GET /sets/:sessionId
-Get all sets for a session.
+Get all sets for a session. Returns `[]` if sets haven't been allocated yet — this is the response to poll on (see the pattern above), not an error.
 
 **Auth required**: Yes (JWT cookie)
 

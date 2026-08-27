@@ -36,6 +36,25 @@ export class SetsService {
   }
 }
 
+  // Called by the controller — same as createSet but first verifies the
+  // caller is actually a member of the session. This is exposed as a
+  // user-facing "retry" action for when auto-allocation (triggered from
+  // maybeCompleteSessionPayments once everyone's paid) is slow or fails,
+  // so it needs its own guard beyond just JwtAuthGuard.
+  async createSetForMember(sessionId: string, userId: string) {
+    const session = await this.sessionRepository.findOne({ _id: sessionId });
+    if (!session) {
+      throw new CustomHttpException('Session not found', HttpStatus.NOT_FOUND);
+    }
+
+    const isMember = (session.members || []).map(String).includes(userId);
+    if (!isMember) {
+      throw new CustomHttpException('You are not a member of this session', HttpStatus.FORBIDDEN);
+    }
+
+    return this.createSet(sessionId);
+  }
+
   async createSet(sessionId: string) {
     try {
       const session: Session = await this.sessionRepository.findOne({ _id: sessionId });
