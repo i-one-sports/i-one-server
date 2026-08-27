@@ -65,7 +65,7 @@ export class SetsService {
         );
       }
 
-      const count = await this.setRepository.findRaw().countDocuments({ session: sessionId });
+      const count = await this.setRepository.findRaw().countDocuments({ session: new Types.ObjectId(sessionId) });
 
       if (count > 0) {
         throw new CustomHttpException('Set already created', HttpStatus.BAD_REQUEST);
@@ -123,7 +123,7 @@ export class SetsService {
   }
 
   async viewSetForSession(sessionId: string) {
-    return this.setRepository.findAndPopulate({ session: sessionId }, [
+    return this.setRepository.findAndPopulate({ session: new Types.ObjectId(sessionId) }, [
       'players',
     ]);
   }
