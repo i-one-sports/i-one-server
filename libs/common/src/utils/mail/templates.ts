@@ -118,8 +118,67 @@ function welcomeTemplate(vars: MailVariables): RenderedTemplate {
   };
 }
 
+function verificationSubmittedTemplate(vars: MailVariables): RenderedTemplate {
+  const firstName = vars.firstName || 'there';
+
+  const body = `
+    <h1 style="margin:0 0 12px; font-size:20px; line-height:1.3; font-weight:700; color:${TEXT_PRIMARY}; text-align:center;">Documents received</h1>
+    <p style="margin:0 0 16px; color:${TEXT_SECONDARY}; text-align:center;">Hi ${firstName}, we've received your verification documents and they're now under review.</p>
+    <p style="margin:0; color:${TEXT_SECONDARY}; text-align:center;">We'll email you again as soon as a decision is made — this usually takes 1-2 business days.</p>
+  `;
+
+  return {
+    subject: "We've received your verification documents",
+    html: renderLayout(body),
+    text: `Hi ${firstName},\n\nWe've received your verification documents and they're now under review. We'll email you again once a decision is made — usually within 1-2 business days.`,
+  };
+}
+
+function verificationApprovedTemplate(vars: MailVariables): RenderedTemplate {
+  const firstName = vars.firstName || 'there';
+
+  const body = `
+    <h1 style="margin:0 0 12px; font-size:20px; line-height:1.3; font-weight:700; color:${TEXT_PRIMARY}; text-align:center;">Verification approved</h1>
+    <p style="margin:0 0 16px; color:${TEXT_SECONDARY}; text-align:center;">Hi ${firstName}, great news — your verification has been approved.</p>
+    <p style="margin:0; color:${TEXT_SECONDARY}; text-align:center;">Your owner wallet is ready and your pitch listings are now live.</p>
+  `;
+
+  return {
+    subject: 'Your verification has been approved',
+    html: renderLayout(body),
+    text: `Hi ${firstName},\n\nGreat news — your verification has been approved. Your owner wallet is ready and your pitch listings are now live.`,
+  };
+}
+
+function verificationRejectedTemplate(vars: MailVariables): RenderedTemplate {
+  const firstName = vars.firstName || 'there';
+  const reason = String(vars.rejectionReason ?? 'No reason was provided.');
+
+  const body = `
+    <h1 style="margin:0 0 12px; font-size:20px; line-height:1.3; font-weight:700; color:${TEXT_PRIMARY}; text-align:center;">Verification not approved</h1>
+    <p style="margin:0 0 20px; color:${TEXT_SECONDARY}; text-align:center;">Hi ${firstName}, your recent verification submission wasn't approved.</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px;">
+      <tr>
+        <td style="padding:14px 18px; background-color:${SURFACE}; border:1px solid ${BORDER}; border-radius:10px; color:${TEXT_PRIMARY}; font-size:14px;">
+          ${reason}
+        </td>
+      </tr>
+    </table>
+    <p style="margin:0; color:${TEXT_SECONDARY}; text-align:center;">Please review the reason above, update your documents, and resubmit whenever you're ready.</p>
+  `;
+
+  return {
+    subject: 'Your verification needs attention',
+    html: renderLayout(body),
+    text: `Hi ${firstName},\n\nYour recent verification submission wasn't approved.\n\nReason: ${reason}\n\nPlease review, update your documents, and resubmit whenever you're ready.`,
+  };
+}
+
 export const LOCAL_TEMPLATES: Record<string, (vars: MailVariables) => RenderedTemplate> = {
   'email-verification': emailVerificationTemplate,
   'password-reset': passwordResetTemplate,
   welcome: welcomeTemplate,
+  'verification-submitted': verificationSubmittedTemplate,
+  'verification-approved': verificationApprovedTemplate,
+  'verification-rejected': verificationRejectedTemplate,
 };

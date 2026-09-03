@@ -51,6 +51,6 @@ import { PaystackService } from '@app/common/providers/paystack.service';
     BankAccountRepository,
     PaystackService,
   ],
-  exports: [UsersService, UserRepository],
+  exports: [UsersService, UserRepository, MailerService],
 })
 export class UsersModule {}

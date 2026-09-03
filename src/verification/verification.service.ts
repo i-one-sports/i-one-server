@@ -9,6 +9,7 @@ import { WithdrawalService } from '../billing/services/withdrawal.service';
 import { LocationRepository } from '../locations/locations.repository';
 import { LOCATION_STATUS, OWNER_ONBOARDING_STATUS } from '@app/common';
 import { Wallet } from '@app/common/schemas/wallet.schema';
+import { MailerService } from '@app/common';
 
 @Injectable()
 export class VerificationService {
@@ -20,7 +21,19 @@ export class VerificationService {
     private readonly userRepository: UserRepository,
     private readonly withdrawalService: WithdrawalService,
     private readonly locationRepository: LocationRepository,
+    private readonly mailService: MailerService,
   ) {}
+
+  // Fire-and-forget — a mail failure must never fail the verification
+  // action that triggered it. Matches the pattern used everywhere else
+  // this app sends mail (welcome email, OTPs).
+  private async notifyVerificationSubmitted(userId: Types.ObjectId) {
+    const user = await this.userRepository.findOne({ _id: userId });
+    if (!user?.email) return;
+    this.mailService
+      .sendTemplateMail(user.email, 'verification-submitted', { firstName: user.firstName })
+      .catch((err) => this.logger.error(`Verification-submitted email failed for user ${userId}: ${err.message}`));
+  }
 
   async submitVerification(
     userId: string,
@@ -52,7 +65,8 @@ export class VerificationService {
       );
 
       await this.markOwnerPendingReview(userObjectId);
-      
+      this.notifyVerificationSubmitted(userObjectId).catch(() => {});
+
       return this.formatVerificationResponse(
         'Verification documents updated successfully',
         verification
@@ -66,6 +80,7 @@ export class VerificationService {
     });
 
     await this.markOwnerPendingReview(userObjectId);
+    this.notifyVerificationSubmitted(userObjectId).catch(() => {});
 
     return this.formatVerificationResponse(
       'Verification documents submitted successfully',
@@ -202,6 +217,12 @@ export class VerificationService {
       );
     }
 
+    if (user.email) {
+      this.mailService
+        .sendTemplateMail(user.email, 'verification-approved', { firstName: user.firstName })
+        .catch((err) => this.logger.error(`Verification-approved email failed for user ${verification.userId}: ${err.message}`));
+    }
+
     this.logger.log(`Wallet created for user: ${verification.userId}`);
 
     return {
@@ -235,7 +256,7 @@ export class VerificationService {
       throw new BadRequestException('Verification is already rejected');
     }
 
-    await Promise.all([
+    const [user] = await Promise.all([
       this.userRepository.findOneAndUpdate(
         { _id: updatedVerification.userId },
         { ownerOnboardingStatus: OWNER_ONBOARDING_STATUS.REJECTED },
@@ -248,6 +269,12 @@ export class VerificationService {
         { $set: { status: LOCATION_STATUS.REJECTED } },
       ),
     ]);
+
+    if (user?.email) {
+      this.mailService
+        .sendTemplateMail(user.email, 'verification-rejected', { firstName: user.firstName, rejectionReason })
+        .catch((err) => this.logger.error(`Verification-rejected email failed for user ${updatedVerification.userId}: ${err.message}`));
+    }
 
     return {
       message: 'Verification rejected successfully',
