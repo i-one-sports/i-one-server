@@ -589,6 +589,10 @@ Upload or replace a pitch photo for a location.
 
 **Auth required**: Yes (JWT cookie + `IsOwnerGuard`)
 
+**Important**: this route is for approved owners only. Pending owners who have
+not completed KYC/document approval should not call this during signup; they
+will receive `OWNER_VERIFICATION_REQUIRED` from `JwtAuthGuard`.
+
 **Content-Type**: `multipart/form-data`
 
 **Path Parameters**:
@@ -601,6 +605,12 @@ Upload or replace a pitch photo for a location.
 ```json
 { "pitchPhoto": "https://s3.amazonaws.com/pitches/123.jpg" }
 ```
+
+**Error Responses**:
+- `400` — missing `file` form field
+- `403` — owner verification required, not an owner, or not the location owner
+- `404` — location not found
+- `502` — S3 upload failed
 
 ---
 

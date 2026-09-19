@@ -1,4 +1,19 @@
-import { Body, Controller, DefaultValuePipe, Get, Param, ParseIntPipe, Patch, Post, Query, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import {
+  BadGatewayException,
+  BadRequestException,
+  Body,
+  Controller,
+  DefaultValuePipe,
+  Get,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Post,
+  Query,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
 import { JwtAuthGuard } from 'src/auth/guards/jwt.guard';
 import { LocationsService } from './locations.service';
 import { CreateLocationDto, UpdateLocationPricingDto, UpdateOpeningHoursDto, UpdatePitchConditionDto, ViewNearbyLocationsDto } from './dto/location.dto';
@@ -24,12 +39,32 @@ export class LocationsController {
     @Post('pitch/:locationId')
     async uploadPitchPhoto(
       @UploadedFile() file: Express.Multer.File,
-      @Param('locationId') locationId: string
+      @Param('locationId') locationId: string,
+      @IsOwner() user: User,
     ) {
+      if (!file) {
+        throw new BadRequestException('Pitch photo file is required');
+      }
+
+      await this.locationsService.verifyLocationOwner(
+        locationId,
+        user._id.toString(),
+      );
+
       const pitchUrl = await this.awsService.upload(
         file,
         UploadType.PITCH,
         locationId
+      );
+
+      if (!pitchUrl) {
+        throw new BadGatewayException('Pitch photo upload failed');
+      }
+
+      await this.locationsService.updatePitchPhoto(
+        locationId,
+        user._id.toString(),
+        pitchUrl,
       );
       
       return { pitchPhoto:  pitchUrl};

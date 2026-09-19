@@ -220,6 +220,19 @@ export class LocationsService {
     return location;
   }
 
+  async verifyLocationOwner(locationId: string, ownerId: string) {
+    return this.verifyOwnership(locationId, ownerId);
+  }
+
+  async updatePitchPhoto(locationId: string, ownerId: string, pitchPhoto: string) {
+    await this.verifyOwnership(locationId, ownerId);
+
+    return this.locationRepository.findOneAndUpdate(
+      { _id: locationId },
+      { pitchPhoto },
+    );
+  }
+
   async getOwnerSummary(locationId: string, ownerId: string) {
     const location = await this.verifyOwnership(locationId, ownerId);
     return {
