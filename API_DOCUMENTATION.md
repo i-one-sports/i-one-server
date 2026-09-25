@@ -22,8 +22,9 @@
 19. [Notifications](#notifications)
 20. [Admin](#admin) — includes commission summary
 21. [Webhooks](#webhooks) — includes refund.* events
-22. [Error Handling](#error-handling)
-23. [Types & Interfaces](#types--interfaces)
+22. [Universal / App Links](#universal--app-links)
+23. [Error Handling](#error-handling)
+24. [Types & Interfaces](#types--interfaces)
 
 ---
 
@@ -2728,6 +2729,52 @@ Receive and process events from Paystack. **This endpoint is called by Paystack,
 ```json
 { "status": "success" }
 ```
+
+---
+
+## Universal / App Links
+
+Serves the platform link-verification files that let iOS/Android open the app directly (instead of a browser) when a user taps a shared session link (`https://<link-domain>/sessions/:sessionId`).
+
+**Not under the `/i-one` prefix** — these are fetched directly by the OS (Apple's CDN / Android's Digital Asset Links verifier) at the domain root, so `app.setGlobalPrefix('i-one', { exclude: [...] })` excludes both paths in `main.ts`.
+
+### GET /.well-known/apple-app-site-association
+Apple App Site Association (AASA) file. Built from `APPLE_TEAM_ID` + `APPLE_BUNDLE_ID` env vars.
+
+**Auth required**: No
+
+**Response** `200 OK`:
+```json
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      { "appID": "<APPLE_TEAM_ID>.<APPLE_BUNDLE_ID>", "paths": ["/sessions/*"] }
+    ]
+  }
+}
+```
+
+### GET /.well-known/assetlinks.json
+Android Digital Asset Links file. Built from `ANDROID_PACKAGE_NAME` + `ANDROID_SHA256_CERT_FINGERPRINTS` (comma-separated) env vars.
+
+**Auth required**: No
+
+**Response** `200 OK`:
+```json
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "<ANDROID_PACKAGE_NAME>",
+      "sha256_cert_fingerprints": ["<ANDROID_SHA256_CERT_FINGERPRINTS>"]
+    }
+  }
+]
+```
+
+**Note**: both endpoints serve empty/invalid identifiers until the four env vars above are set (see `.env`) and the chosen link domain's DNS points at this backend, and the mobile apps ship the matching Associated Domains entitlement (iOS) / intent filter (Android). Until then the files are reachable but won't verify.
 
 ---
 

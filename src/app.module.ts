@@ -24,6 +24,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { RedisModule } from './redis/redis.module';
 import { BanksModule } from './banks/banks.module';
 import { SettingsModule } from './settings/settings.module';
+import { DeepLinksModule } from './deep-links/deep-links.module';
 
 
 @Injectable()
@@ -69,6 +70,7 @@ class RootCronService {
     NotificationsModule,
     BanksModule,
     SettingsModule,
+    DeepLinksModule,
   ],
   controllers: [AppController],
   providers: [

@@ -2,7 +2,7 @@ import { HttpAdapterHost, NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from '@app/common';
 import cookieParser from 'cookie-parser';
-import { ValidationPipe } from '@nestjs/common';
+import { RequestMethod, ValidationPipe } from '@nestjs/common';
 import { populateDb } from './helpers/seed-users';
 import { json } from 'express';
 
@@ -56,7 +56,12 @@ async function bootstrap() {
 
 
   app.useGlobalFilters(new GlobalExceptionFilter(httpAdapter));
-  app.setGlobalPrefix('i-one');
+  app.setGlobalPrefix('i-one', {
+    exclude: [
+      { path: '.well-known/apple-app-site-association', method: RequestMethod.GET },
+      { path: '.well-known/assetlinks.json', method: RequestMethod.GET },
+    ],
+  });
   app.enableShutdownHooks();
   await app.listen(process.env.PORT ?? 3000);
 }
