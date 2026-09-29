@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { BankAccountRepository } from '../repositories/bank-account.repository';
+import { BankAccount } from '@app/common/schemas/bank-account.schema';
 import { WalletService } from './wallet.service';
 import { PaystackService } from '@app/common/providers/paystack.service';
 import { Types } from 'mongoose';
@@ -66,7 +67,7 @@ export class WithdrawalService {
     return bankAccount;
   }
 
-  async getBankAccounts(userId: string) {
+  async getBankAccounts(userId: string): Promise<BankAccount[]> {
     return await this.bankAccountRepository.find({
       userId: new Types.ObjectId(userId),
       status: 'ACTIVE',

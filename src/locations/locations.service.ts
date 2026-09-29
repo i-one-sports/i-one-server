@@ -14,6 +14,7 @@ import { CreateLocationDto, UpdateLocationPricingDto, UpdateOpeningHoursDto, Upd
 import { handleError } from 'src/helpers/errorHandler';
 import { SessionRepository } from 'src/sessions/sessions.repository';
 import { SessionPaymentService } from 'src/billing/services/session-payment.service';
+import { WithdrawalService } from 'src/billing/services/withdrawal.service';
 import { Types } from 'mongoose';
 import { CacheService } from 'src/cache/cache.service';
 
@@ -31,6 +32,7 @@ export class LocationsService {
     private readonly userRepository: UserRepository,
     private readonly matchRepository: MatchRepository,
     private readonly sessionPaymentService: SessionPaymentService,
+    private readonly withdrawalService: WithdrawalService,
     private readonly cacheService: CacheService,
   ) {}
 
@@ -319,6 +321,14 @@ export class LocationsService {
     }
 
     if (dto.tier === LOCATION_TIER.PAID) {
+      const bankAccounts = await this.withdrawalService.getBankAccounts(ownerId);
+      if (!bankAccounts.length) {
+        throw new CustomHttpException(
+          'Add a bank account before switching this pitch to paid pricing',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
       if (!dto.pricingOption) {
         throw new CustomHttpException(
           'pricingOption is required for paid locations',

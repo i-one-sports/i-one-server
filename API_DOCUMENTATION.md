@@ -2594,6 +2594,7 @@ Update pricing options for a location. Owner only.
 
 **Field Notes**:
 - `tier`: `"free"` | `"paid"` (required)
+- If `tier` is `"paid"`, the owner must already have at least one active bank account on file (`POST /wallet/bank-accounts`) — switching to paid with no payout destination configured is rejected
 - If `tier` is `"paid"`, `pricingOption` is required
 - If `pricingOption` is `"hourly"`, `paymentPerPersonHourly` must be greater than `0`
 - If `pricingOption` is `"monthly"`, `paymentPerPersonMonthly` must be greater than `0`
@@ -2608,7 +2609,7 @@ Update pricing options for a location. Owner only.
 ```
 
 **Error Responses**:
-- `400` — invalid pricing payload for selected tier/pricing option
+- `400` — invalid pricing payload for selected tier/pricing option, or switching to `"paid"` with no active bank account on file
 - `403` — not the owner of this location
 - `404` — location not found
 
