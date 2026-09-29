@@ -12,9 +12,8 @@ import {
   SessionI,
   User,
 } from '@app/common';
-import { UpdateQuery, FilterQuery, Types } from 'mongoose';
+import { UpdateQuery, Types } from 'mongoose';
 import { createSessionRequest } from './dto/sessions.dto';
-import { MATCH_TYPE } from '@app/common';
 import { CaptainsService } from 'src/captains/captains.service';
 import { CreateCaptainDto } from 'src/captains/dto/captains.dto';
 import { SessionPaymentService } from 'src/billing/services/session-payment.service';
@@ -793,30 +792,6 @@ export class SessionsService {
       message: 'Session rescheduled successfully',
       session: updatedSession,
     };
-  }
-
-  async updateAllSessions() {
-    try {
-      const filter: FilterQuery<Session> = {};
-      const update: UpdateQuery<Session> = {
-        $set: { matchType: MATCH_TYPE.FRIENDLY },
-      };
-
-      const updatedResult = await this.sessionRepository.updateMany(
-        filter,
-        update,
-      );
-      console.log('Updating with filter:', filter);
-      console.log('Updating with update:', update);
-
-      return updatedResult;
-    } catch (error: any) {
-      console.error('Error updating sessions:', error);
-      throw new CustomHttpException(
-        'Error updating sessions: ' + (error?.message || error),
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
   }
 
   async isCaptain(userId: string, sessionId: string): Promise<boolean> {

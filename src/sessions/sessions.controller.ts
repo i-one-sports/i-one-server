@@ -10,10 +10,8 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from 'src/auth/guards/jwt.guard';
-import { RolesGuard } from '@app/common/guards/roles.guard';
-import { Roles } from '@app/common/decorators/roles.decorator';
 import { SessionsService } from './sessions.service';
-import { CurrentUser, User, USER_ROLE } from '@app/common';
+import { CurrentUser, User } from '@app/common';
 import { createSessionRequest } from './dto/sessions.dto';
 
 @Controller('sessions')
@@ -137,12 +135,5 @@ export class SessionsController {
       data.timeDuration,
       user._id.toString(),
     );
-  }
-
-  @Patch('matchtype')
-  @UseGuards(RolesGuard)
-  @Roles(USER_ROLE.SUPER_ADMIN)
-  async updateManySession() {
-    return await this.sessionsService.updateAllSessions();
   }
 }

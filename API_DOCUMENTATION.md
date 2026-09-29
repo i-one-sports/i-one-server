@@ -425,6 +425,8 @@ Submit identity verification documents. Accepts multipart form data.
 
 **Auth required**: Yes (JWT cookie)
 
+**Role required**: `ADMIN` (owner accounts) — any other role receives `403`.
+
 **Content-Type**: `multipart/form-data`
 
 **Form Fields**:
@@ -465,6 +467,8 @@ Submit identity verification documents. Accepts multipart form data.
 Get the authenticated user's own verification document.
 
 **Auth required**: Yes (JWT cookie)
+
+**Role required**: `ADMIN` (owner accounts) — any other role receives `403`.
 
 **Success Response** `200 OK`: Verification document or `null` if none submitted.
 
@@ -1182,17 +1186,6 @@ Reschedule a session to a new time.
 - `403` — caller is neither the captain nor the location owner
 - `409` — overlaps with another session at the same location
 - `400` — new time falls outside the location's operating hours or spans midnight
-
----
-
-### PATCH /sessions/matchtype
-Update match type for all sessions. Restricted to super-admins.
-
-**Auth required**: Yes (JWT cookie)
-
-**Role required**: `SUPER_ADMIN` — any other role receives `403`.
-
-**Success Response** `200 OK`: MongoDB update result.
 
 ---
 

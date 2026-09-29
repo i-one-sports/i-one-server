@@ -59,6 +59,7 @@ export class VerificationController {
       },
     ),
   )
+  @Roles(USER_ROLE.ADMIN)
   @Post('submit')
   async submitVerificationDocuments(
     @UploadedFiles()
@@ -119,6 +120,7 @@ export class VerificationController {
     );
   }
 
+  @Roles(USER_ROLE.ADMIN)
   @Get('me')
   async getMyVerification(@CurrentUser() user: User) {
     return this.verificationService.getVerificationByUserId(
