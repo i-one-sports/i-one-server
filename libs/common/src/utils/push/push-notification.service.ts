@@ -28,11 +28,14 @@ export class PushNotificationService {
     this.logger.log(`Push provider: ${providerName}`);
   }
 
-  // firebase-admin throws synchronously if the service account is incomplete.
-  // That would happen here, inside Nest's DI construction — crashing the whole
-  // app on boot over a missing push config, not just disabling push. Checking
-  // first and falling back to a warning + noop keeps the blast radius to
-  // "push doesn't work" instead of "nothing works".
+  // firebase-admin throws synchronously — both for missing fields AND for
+  // present-but-malformed ones (e.g. a truncated/corrupted private key
+  // throws "Failed to parse private key." from inside cert()). Either way
+  // that throw would happen here, inside Nest's DI construction, crashing
+  // the whole app on boot over a push misconfiguration, not just disabling
+  // push. The upfront missing-var check gives a precise message for the
+  // common case; the try/catch around construction is the actual safety
+  // net that catches everything else (malformed values, library changes).
   private createFcmProvider(): BasePushProvider {
     const required = ['FIREBASE_PROJECT_ID', 'FIREBASE_CLIENT_EMAIL', 'FIREBASE_PRIVATE_KEY'];
     const missing = required.filter((key) => !this.configService.get<string>(key));
@@ -44,7 +47,14 @@ export class PushNotificationService {
       return new NoopPushProvider();
     }
 
-    return new FcmPushProvider(this.configService);
+    try {
+      return new FcmPushProvider(this.configService);
+    } catch (error: any) {
+      this.logger.error(
+        `Push disabled: failed to initialize Firebase (${error.message}) — falling back to a no-op push provider.`,
+      );
+      return new NoopPushProvider();
+    }
   }
 
   // Raw deviceToken, not a userId — same separation MailerService keeps by taking a raw email.
