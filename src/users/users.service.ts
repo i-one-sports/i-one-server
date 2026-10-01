@@ -630,6 +630,11 @@ export class UsersService {
     return updatedUser;
   }
 
+  async registerDeviceToken(userId: string, fcmToken: string) {
+    await this.usersRepository.findOneAndUpdate({ _id: userId }, { fcmToken });
+    return { success: true };
+  }
+
   async promoteUser(
     userId: string,
     role: USER_ROLE.ADMIN | USER_ROLE.SUPER_ADMIN,

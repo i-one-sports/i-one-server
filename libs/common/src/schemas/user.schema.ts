@@ -83,6 +83,9 @@ export class User extends AbstractDocument {
   @Prop({ type: Boolean, default: false })
   emailVerified: boolean;
 
+  @Prop({ type: String, required: false, default: null })
+  fcmToken?: string;
+
   @Prop({
     type: {
       type: String,

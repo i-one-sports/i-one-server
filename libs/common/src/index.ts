@@ -32,6 +32,7 @@ export * from './guards/is-owner.guard';
 export * from './guards/roles.guard';
 export * from './filters/http-exception.filter copy';
 export * from './utils/mail/mailer.service';
+export * from './utils/push/push-notification.service';
 export * from './utils/phone.number';
 export * from './utils/random'
 export * from './utils/logging.interceptor';

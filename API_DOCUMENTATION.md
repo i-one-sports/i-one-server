@@ -222,6 +222,25 @@ Update the authenticated user's profile.
 
 ---
 
+### PATCH /user/device-token
+Register or update the authenticated user's FCM device token, used to deliver push notifications (see [Notifications](#notifications)). One token per user — registering a new one overwrites the previous.
+
+**Auth required**: Yes (JWT cookie)
+
+**Request Body**:
+```json
+{
+  "fcmToken": "e3f8a1b2c4d5..."
+}
+```
+
+**Success Response** `200 OK`:
+```json
+{ "success": true }
+```
+
+---
+
 ### PATCH /user/change-password
 Change the authenticated user's password. Requires the current password for verification.
 
@@ -2497,6 +2516,7 @@ Real-time in-app notifications delivered over SSE. The server pushes events to t
 - When a relevant event occurs (e.g. a session is booked at the owner's location), the server pushes it down the open connection instantly
 - Events are user-targeted — each user only receives their own notifications
 - Built on Redis Pub/Sub so events are delivered correctly even when running multiple server instances
+- Every event is also sent as an FCM push notification (if the target user has a registered device token via `PATCH /user/device-token`) — SSE for the live in-app feed, push for when the app isn't open. Both fire from the same event; a push failure never affects SSE delivery or the action that triggered the notification.
 
 ### GET /notifications/stream (SSE)
 Open a persistent notification stream for the authenticated user.

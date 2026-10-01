@@ -5,6 +5,7 @@ import {
   ChangePasswordDto,
   ForgotPasswordDto,
   PromoteUserDto,
+  RegisterDeviceTokenDto,
   RegisterOwnerRequest,
   registerUserRequest,
   ResetPasswordDto,
@@ -107,6 +108,15 @@ export class UsersController {
     @Body() data: UpdateUserDto,
   ) {
     return this.usersService.updateProfile(user._id.toString(), data);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('device-token')
+  async registerDeviceToken(
+    @CurrentUser() user: User,
+    @Body() data: RegisterDeviceTokenDto,
+  ) {
+    return this.usersService.registerDeviceToken(user._id.toString(), data.fcmToken);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)

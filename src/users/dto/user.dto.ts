@@ -68,6 +68,12 @@ export class UpdateUserDto {
   dateOfBirth?: Date;
 }
 
+export class RegisterDeviceTokenDto {
+  @IsString()
+  @IsNotEmpty()
+  fcmToken: string;
+}
+
 export class registerUserRequest {
   @IsString()
   @IsNotEmpty()
