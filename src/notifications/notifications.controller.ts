@@ -1,14 +1,17 @@
-import { Controller, HttpException, HttpStatus, Res, Sse, UseGuards } from '@nestjs/common';
+import { Body, Controller, HttpCode, HttpException, HttpStatus, Logger, Post, Res, Sse, UseGuards } from '@nestjs/common';
 import { Response } from 'express';
 import { merge, interval, Observable } from 'rxjs';
 import { map, startWith, finalize } from 'rxjs/operators';
-import { CurrentUser } from '@app/common';
+import { CurrentUser, Roles, RolesGuard, USER_ROLE } from '@app/common';
 import { JwtAuthGuard } from 'src/auth/guards/jwt.guard';
 import { NotificationService } from './notification.service';
+import { BroadcastNotificationDto } from './dto/notification.dto';
 
 @Controller('notifications')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class NotificationsController {
+  private readonly logger = new Logger(NotificationsController.name);
+
   constructor(private readonly notificationService: NotificationService) {}
 
   @Sse('stream')
@@ -37,5 +40,20 @@ export class NotificationsController {
     return merge(notifications$, heartbeat$).pipe(
       startWith({ data: { type: 'connected', userId, timestamp: Date.now() } }),
     );
+  }
+
+  @UseGuards(RolesGuard)
+  @Roles(USER_ROLE.SUPER_ADMIN)
+  @Post('broadcast')
+  @HttpCode(HttpStatus.ACCEPTED)
+  async broadcast(@Body() data: BroadcastNotificationDto) {
+    this.notificationService
+      .broadcastToAllUsers(data.title, data.body)
+      .then((result) =>
+        this.logger.log(`Broadcast complete: ${result.sent}/${result.totalUsers} sent`),
+      )
+      .catch((err) => this.logger.error('Broadcast failed', err));
+
+    return { message: 'Broadcast started' };
   }
 }

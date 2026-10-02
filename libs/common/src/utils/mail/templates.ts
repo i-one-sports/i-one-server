@@ -174,6 +174,22 @@ function verificationRejectedTemplate(vars: MailVariables): RenderedTemplate {
   };
 }
 
+function sessionCreatedTemplate(vars: MailVariables): RenderedTemplate {
+  const firstName = vars.firstName || 'there';
+  const locationName = vars.locationName || 'your pitch';
+
+  const body = `
+    <h1 style="margin:0 0 12px; font-size:20px; line-height:1.3; font-weight:700; color:${TEXT_PRIMARY}; text-align:center;">New session created</h1>
+    <p style="margin:0; color:${TEXT_SECONDARY}; text-align:center;">Hi ${firstName}, a session has just been created at ${locationName}.</p>
+  `;
+
+  return {
+    subject: `New session created at ${locationName}`,
+    html: renderLayout(body),
+    text: `Hi ${firstName},\n\nA session has just been created at ${locationName}.`,
+  };
+}
+
 export const LOCAL_TEMPLATES: Record<string, (vars: MailVariables) => RenderedTemplate> = {
   'email-verification': emailVerificationTemplate,
   'password-reset': passwordResetTemplate,
@@ -181,4 +197,5 @@ export const LOCAL_TEMPLATES: Record<string, (vars: MailVariables) => RenderedTe
   'verification-submitted': verificationSubmittedTemplate,
   'verification-approved': verificationApprovedTemplate,
   'verification-rejected': verificationRejectedTemplate,
+  'session-created': sessionCreatedTemplate,
 };

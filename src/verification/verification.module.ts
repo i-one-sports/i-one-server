@@ -9,6 +9,7 @@ import { BillingModule } from '../billing/billing.module';
 import { UsersModule } from '../users/users.module';
 import { Location, LocationSchema } from '@app/common';
 import { LocationRepository } from '../locations/locations.repository';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { LocationRepository } from '../locations/locations.repository';
     ]),
     BillingModule,
     UsersModule,
+    NotificationsModule,
   ],
   controllers: [VerificationController],
   providers: [VerificationService, VerificationRepository, LocationRepository, AwsService]

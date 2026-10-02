@@ -2,8 +2,16 @@ import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/commo
 import { Observable, Subject } from 'rxjs';
 import { filter } from 'rxjs/operators';
 import { RedisPubSubService } from 'src/redis/redis-pubsub.service';
-import { PushNotificationService } from '@app/common';
+import { PushNotificationService, User } from '@app/common';
 import { UserRepository } from 'src/users/users.repository';
+import { PushNotificationChannel } from './channels/push.channel';
+import { EmailNotificationChannel } from './channels/email.channel';
+import {
+  EmailNotificationParams,
+  NOTIFICATION_CHANNEL,
+  NOTIFICATION_TYPE,
+  PushNotificationParams,
+} from './notification.types';
 
 export interface AppNotification {
   targetUserId: string;
@@ -35,6 +43,8 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
     private readonly redisPubSub: RedisPubSubService,
     private readonly pushNotificationService: PushNotificationService,
     private readonly userRepository: UserRepository,
+    private readonly pushChannel: PushNotificationChannel,
+    private readonly emailChannel: EmailNotificationChannel,
   ) {
     // A dead device token must never keep failing silently forever —
     // clear it from the User doc the first time FCM reports it invalid.
@@ -54,32 +64,50 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
     await this.redisPubSub.unsubscribe(CHANNEL, this.messageHandler);
   }
 
-  async emit(notification: AppNotification): Promise<void> {
-    await this.redisPubSub.publish(CHANNEL, JSON.stringify(notification));
-
-    // Fire-and-forget — a push failure must never fail the action that
-    // triggered this notification (matches the mail fire-and-forget
-    // convention used across the app).
-    this.sendPush(notification).catch((err) =>
-      this.logger.error(`Failed to send push for ${notification.type}`, err),
-    );
-  }
-
-  private async sendPush(notification: AppNotification): Promise<void> {
-    const user = await this.userRepository.findOne({ _id: notification.targetUserId });
-    if (!user?.fcmToken) return; // no device registered — skip silently
-
-    await this.pushNotificationService.send(
-      user.fcmToken,
-      notification.title,
-      notification.body,
-      notification.payload ? { payload: JSON.stringify(notification.payload) } : undefined,
-    );
+  async send(channel: NOTIFICATION_CHANNEL.PUSH, params: PushNotificationParams): Promise<void>;
+  async send(channel: NOTIFICATION_CHANNEL.EMAIL, params: EmailNotificationParams): Promise<void>;
+  async send(
+    channel: NOTIFICATION_CHANNEL,
+    params: PushNotificationParams | EmailNotificationParams,
+  ): Promise<void> {
+    switch (channel) {
+      case NOTIFICATION_CHANNEL.PUSH:
+        return this.pushChannel.send(params as PushNotificationParams);
+      case NOTIFICATION_CHANNEL.EMAIL:
+        return this.emailChannel.send(params as EmailNotificationParams);
+      default:
+        this.logger.warn(`Unknown notification channel: ${channel}`);
+    }
   }
 
   getStream(userId: string): Observable<AppNotification> {
-    return this.notification$.pipe(
-      filter((n) => n.targetUserId === userId),
-    );
+    return this.notification$.pipe(filter((n) => n.targetUserId === userId));
+  }
+
+  private static readonly BROADCAST_BATCH_SIZE = 25;
+
+  async broadcastToAllUsers(title: string, body: string): Promise<{ totalUsers: number; sent: number }> {
+    const users: User[] = await this.userRepository.find({ fcmToken: { $ne: null } });
+    let sent = 0;
+
+    for (let i = 0; i < users.length; i += NotificationService.BROADCAST_BATCH_SIZE) {
+      const batch = users.slice(i, i + NotificationService.BROADCAST_BATCH_SIZE);
+      await Promise.all(
+        batch.map((user) =>
+          this.send(NOTIFICATION_CHANNEL.PUSH, {
+            type: NOTIFICATION_TYPE.ADMIN_BROADCAST,
+            targetUserId: user._id.toString(),
+            title,
+            body,
+          })
+            .then(() => {
+              sent++;
+            })
+            .catch((err) => this.logger.error(`Broadcast failed for user ${user._id}`, err)),
+        ),
+      );
+    }
+
+    return { totalUsers: users.length, sent };
   }
 }

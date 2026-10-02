@@ -6,7 +6,6 @@ import { UserRepository } from './users.repository';
 import {
   Location,
   LocationSchema,
-  MailerService,
   Team,
   TeamSchema,
   Tournament,
@@ -25,6 +24,7 @@ import { LocationRepository } from 'src/locations/locations.repository';
 import { BankAccount, BankAccountSchema } from '@app/common/schemas/bank-account.schema';
 import { BankAccountRepository } from 'src/billing/repositories/bank-account.repository';
 import { PaystackService } from '@app/common/providers/paystack.service';
+import { NotificationsModule } from 'src/notifications/notifications.module';
 
 @Module({
   imports: [
@@ -36,6 +36,7 @@ import { PaystackService } from '@app/common/providers/paystack.service';
       { name: BankAccount.name, schema: BankAccountSchema },
     ]),
     StatsModule,
+    NotificationsModule,
   ],
   controllers: [UsersController],
   providers: [
@@ -45,12 +46,11 @@ import { PaystackService } from '@app/common/providers/paystack.service';
     UserLocalStrategy,
     UsersJwtStrategy,
     JwtService,
-    MailerService,
     AwsService,
     LocationRepository,
     BankAccountRepository,
     PaystackService,
   ],
-  exports: [UsersService, UserRepository, MailerService],
+  exports: [UsersService, UserRepository],
 })
 export class UsersModule {}

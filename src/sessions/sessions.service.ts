@@ -7,6 +7,7 @@ import {
   CustomHttpException,
   LOCATION_PRICING_OPTION,
   LOCATION_TIER,
+  Location,
   SESSION_STATUS,
   Session,
   SessionI,
@@ -19,6 +20,8 @@ import { CreateCaptainDto } from 'src/captains/dto/captains.dto';
 import { SessionPaymentService } from 'src/billing/services/session-payment.service';
 import { PaymentStatus } from '@app/common/schemas/session-payment.schema';
 import { NotificationService } from 'src/notifications/notification.service';
+import { NOTIFICATION_CHANNEL, NOTIFICATION_TYPE } from 'src/notifications/notification.types';
+import { CacheService } from 'src/cache/cache.service';
 
 @Injectable()
 export class SessionsService {
@@ -122,6 +125,7 @@ export class SessionsService {
     private readonly CaptainService: CaptainsService,
     private readonly sessionPaymentService: SessionPaymentService,
     private readonly notificationService: NotificationService,
+    private readonly cacheService: CacheService,
   ) {}
 
   async findNearbySessionMatches(lng: number, lat: number) {
@@ -248,14 +252,29 @@ export class SessionsService {
     ]);
 
     if (location.owner) {
-      this.notificationService.emit({
-        targetUserId: location.owner.toString(),
-        type: 'SESSION_CREATED',
-        title: 'New Session Created',
-        body: `A session has been created at ${location.name}`,
-        payload: { sessionId: session._id.toString(), locationId },
-        timestamp: Date.now(),
-      }).catch((err) => this.logger.error('Failed to emit SESSION_CREATED notification', err));
+      this.notificationService
+        .send(NOTIFICATION_CHANNEL.PUSH, {
+          type: NOTIFICATION_TYPE.SESSION_CREATED,
+          targetUserId: location.owner.toString(),
+          title: 'New Session Created',
+          body: `A session has been created at ${location.name}`,
+          payload: { sessionId: session._id.toString(), locationId },
+        })
+        .catch((err) => this.logger.error('Failed to send SESSION_CREATED push', err));
+
+      this.userRepository
+        .findOne({ _id: location.owner })
+        .then((owner) => {
+          if (!owner?.email) return;
+          this.notificationService
+            .send(NOTIFICATION_CHANNEL.EMAIL, {
+              type: NOTIFICATION_TYPE.SESSION_CREATED,
+              to: owner.email,
+              variables: { firstName: owner.firstName ?? 'there', locationName: location.name },
+            })
+            .catch((err) => this.logger.error('Failed to send SESSION_CREATED email', err));
+        })
+        .catch((err) => this.logger.error('Failed to look up owner for SESSION_CREATED email', err));
     }
 
     return session;
@@ -359,18 +378,78 @@ export class SessionsService {
 
     this.locationRepository.findOne({ _id: session.location }).then((location) => {
       if (location?.owner) {
-        this.notificationService.emit({
-          targetUserId: location.owner.toString(),
-          type: 'SESSION_CONFIGURED',
-          title: 'Session Configured',
-          body: `A session at ${location.name} has been configured and is ready`,
-          payload: { sessionId, locationId: session.location.toString() },
-          timestamp: Date.now(),
-        }).catch((err) => this.logger.error('Failed to emit SESSION_CONFIGURED notification', err));
+        this.notificationService
+          .send(NOTIFICATION_CHANNEL.PUSH, {
+            type: NOTIFICATION_TYPE.SESSION_CONFIGURED,
+            targetUserId: location.owner.toString(),
+            title: 'Session Configured',
+            body: `A session at ${location.name} has been configured and is ready`,
+            payload: { sessionId, locationId: session.location.toString() },
+          })
+          .catch((err) => this.logger.error('Failed to send SESSION_CONFIGURED push', err));
       }
     }).catch((err) => this.logger.error('Failed to fetch location for notification', err));
 
     return newSession;
+  }
+
+  // `location` can be passed in when the caller already fetched it (e.g.
+  // recheduleSession, which needs it for other checks too) to avoid a
+  // redundant lookup; otherwise it's fetched here.
+  private async verifyCaptainOrOwner(
+    session: Session,
+    userId: string,
+    actionLabel: string,
+    location?: Location | null,
+  ): Promise<void> {
+    const loc = location !== undefined ? location : await this.locationRepository.findOne({ _id: session.location });
+    const isCaptain = session.captain?.toString() === userId;
+    const isOwner = loc?.owner?.toString() === userId;
+    if (!isCaptain && !isOwner) {
+      throw new CustomHttpException(
+        `Only the captain or location owner can ${actionLabel} this session`,
+        HttpStatus.FORBIDDEN,
+      );
+    }
+  }
+
+  async notifySessionMembers(
+    sessionId: string,
+    userId: string,
+    title: string,
+    body: string,
+  ): Promise<{ message: string }> {
+    const session = await this.sessionRepository.findOne({ _id: sessionId });
+    if (!session) throw new CustomHttpException('Session not found', HttpStatus.NOT_FOUND);
+
+    await this.verifyCaptainOrOwner(session, userId, 'send a broadcast for');
+
+    const cooldownKey = `broadcast-cooldown:${sessionId}`;
+    if (await this.cacheService.get(cooldownKey)) {
+      throw new CustomHttpException(
+        'A broadcast was already sent for this session recently — please wait a few minutes before sending another',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    const memberIds = session.members.map((m) => m.toString());
+    await Promise.all(
+      memberIds.map((targetUserId) =>
+        this.notificationService
+          .send(NOTIFICATION_CHANNEL.PUSH, {
+            type: NOTIFICATION_TYPE.SESSION_BROADCAST,
+            targetUserId,
+            title,
+            body,
+            payload: { sessionId },
+          })
+          .catch((err) => this.logger.error(`Failed to send broadcast to ${targetUserId}`, err)),
+      ),
+    );
+
+    await this.cacheService.set(cooldownKey, '1', 300); // 5 min TTL
+
+    return { message: 'Broadcast sent to all session members' };
   }
 
   async endSession(sessionId: string, userId: string) {
@@ -380,11 +459,7 @@ export class SessionsService {
     if (!session)
       throw new CustomHttpException('Session not found', HttpStatus.NOT_FOUND);
 
-    const location = await this.locationRepository.findOne({ _id: session.location });
-    const isCaptain = session.captain?.toString() === userId;
-    const isOwner = location?.owner?.toString() === userId;
-    if (!isCaptain && !isOwner)
-      throw new CustomHttpException('Only the captain or location owner can end this session', HttpStatus.FORBIDDEN);
+    await this.verifyCaptainOrOwner(session, userId, 'end');
 
     await Promise.all([
       this.userRepository.updateMany(
@@ -629,11 +704,7 @@ export class SessionsService {
     if (!session)
       throw new CustomHttpException('Session not found', HttpStatus.NOT_FOUND);
 
-    const location = await this.locationRepository.findOne({ _id: session.location });
-    const isCaptain = session.captain?.toString() === userId;
-    const isOwner = location?.owner?.toString() === userId;
-    if (!isCaptain && !isOwner)
-      throw new CustomHttpException('Only the captain or location owner can delete this session', HttpStatus.FORBIDDEN);
+    await this.verifyCaptainOrOwner(session, userId, 'delete');
 
     if (session.paymentRequired) {
       const hasUnresolvedPayments = await this.sessionPaymentService.hasUnresolvedPayments(sessionId);
@@ -677,11 +748,7 @@ export class SessionsService {
     if (!session)
       throw new CustomHttpException('Session not found', HttpStatus.NOT_FOUND);
 
-    const location = await this.locationRepository.findOne({ _id: session.location });
-    const isCaptain = session.captain?.toString() === userId;
-    const isOwner = location?.owner?.toString() === userId;
-    if (!isCaptain && !isOwner)
-      throw new CustomHttpException('Only the captain or location owner can cancel this session', HttpStatus.FORBIDDEN);
+    await this.verifyCaptainOrOwner(session, userId, 'cancel');
 
     if (session.status === SESSION_STATUS.CANCELLED || session.status === SESSION_STATUS.REFUNDED) {
       throw new CustomHttpException('Session is already cancelled', HttpStatus.BAD_REQUEST);
@@ -742,10 +809,7 @@ export class SessionsService {
       throw new CustomHttpException('Location not found', HttpStatus.NOT_FOUND);
     }
 
-    const isCaptain = session.captain?.toString() === userId;
-    const isOwner = location.owner?.toString() === userId;
-    if (!isCaptain && !isOwner)
-      throw new CustomHttpException('Only the captain or location owner can reschedule this session', HttpStatus.FORBIDDEN);
+    await this.verifyCaptainOrOwner(session, userId, 'reschedule', location);
 
     this.validateSessionWithinOperatingHours(location, new Date(startTime), addedStopTime);
     const paymentConfig = this.buildPaymentConfig(location, timeDuration);

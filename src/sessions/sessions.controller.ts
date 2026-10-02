@@ -12,7 +12,7 @@ import {
 import { JwtAuthGuard } from 'src/auth/guards/jwt.guard';
 import { SessionsService } from './sessions.service';
 import { CurrentUser, User } from '@app/common';
-import { createSessionRequest } from './dto/sessions.dto';
+import { BroadcastSessionMessageDto, createSessionRequest } from './dto/sessions.dto';
 
 @Controller('sessions')
 @UseGuards(JwtAuthGuard)
@@ -134,6 +134,20 @@ export class SessionsController {
       data.startTime,
       data.timeDuration,
       user._id.toString(),
+    );
+  }
+
+  @Post('notify/:sessionId')
+  async notifySessionMembers(
+    @Param('sessionId') sessionId: string,
+    @Body() data: BroadcastSessionMessageDto,
+    @CurrentUser() user: User,
+  ) {
+    return this.sessionsService.notifySessionMembers(
+      sessionId,
+      user._id.toString(),
+      data.title,
+      data.body,
     );
   }
 }

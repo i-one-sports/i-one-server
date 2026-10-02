@@ -9,7 +9,8 @@ import { WithdrawalService } from '../billing/services/withdrawal.service';
 import { LocationRepository } from '../locations/locations.repository';
 import { LOCATION_STATUS, OWNER_ONBOARDING_STATUS } from '@app/common';
 import { Wallet } from '@app/common/schemas/wallet.schema';
-import { MailerService } from '@app/common';
+import { NotificationService } from '../notifications/notification.service';
+import { NOTIFICATION_CHANNEL, NOTIFICATION_TYPE } from '../notifications/notification.types';
 
 @Injectable()
 export class VerificationService {
@@ -21,7 +22,7 @@ export class VerificationService {
     private readonly userRepository: UserRepository,
     private readonly withdrawalService: WithdrawalService,
     private readonly locationRepository: LocationRepository,
-    private readonly mailService: MailerService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   // Fire-and-forget — a mail failure must never fail the verification
@@ -30,8 +31,12 @@ export class VerificationService {
   private async notifyVerificationSubmitted(userId: Types.ObjectId) {
     const user = await this.userRepository.findOne({ _id: userId });
     if (!user?.email) return;
-    this.mailService
-      .sendTemplateMail(user.email, 'verification-submitted', { firstName: user.firstName })
+    this.notificationService
+      .send(NOTIFICATION_CHANNEL.EMAIL, {
+        type: NOTIFICATION_TYPE.VERIFICATION_SUBMITTED,
+        to: user.email,
+        variables: { firstName: user.firstName },
+      })
       .catch((err) => this.logger.error(`Verification-submitted email failed for user ${userId}: ${err.message}`));
   }
 
@@ -218,8 +223,12 @@ export class VerificationService {
     }
 
     if (user.email) {
-      this.mailService
-        .sendTemplateMail(user.email, 'verification-approved', { firstName: user.firstName })
+      this.notificationService
+        .send(NOTIFICATION_CHANNEL.EMAIL, {
+          type: NOTIFICATION_TYPE.VERIFICATION_APPROVED,
+          to: user.email,
+          variables: { firstName: user.firstName },
+        })
         .catch((err) => this.logger.error(`Verification-approved email failed for user ${verification.userId}: ${err.message}`));
     }
 
@@ -271,8 +280,12 @@ export class VerificationService {
     ]);
 
     if (user?.email) {
-      this.mailService
-        .sendTemplateMail(user.email, 'verification-rejected', { firstName: user.firstName, rejectionReason })
+      this.notificationService
+        .send(NOTIFICATION_CHANNEL.EMAIL, {
+          type: NOTIFICATION_TYPE.VERIFICATION_REJECTED,
+          to: user.email,
+          variables: { firstName: user.firstName, rejectionReason },
+        })
         .catch((err) => this.logger.error(`Verification-rejected email failed for user ${updatedVerification.userId}: ${err.message}`));
     }
 

@@ -1208,6 +1208,40 @@ Reschedule a session to a new time.
 
 ---
 
+### POST /sessions/notify/:sessionId
+Send a free-text push notification to every member of a session (e.g. "pitch closed today due to rain").
+
+**Auth required**: Yes (JWT cookie)
+
+**Authorization**: Only the session captain or the location owner can send a broadcast.
+
+**Path Parameters**:
+- `sessionId` — session ID
+
+**Request Body**:
+```json
+{
+  "title": "Pitch closed today",
+  "body": "Due to heavy rain, today's session is cancelled. Sorry for the inconvenience!"
+}
+```
+
+**Success Response** `200 OK`:
+```json
+{ "message": "Broadcast sent to all session members" }
+```
+
+**Notes**:
+- Push only — not sent by email (same-day logistics messages are time-sensitive; email is too slow).
+- Rate-limited to one broadcast per session every 5 minutes.
+
+**Error Responses**:
+- `403` — caller is neither the captain nor the location owner
+- `404` — session not found
+- `429` — a broadcast was already sent for this session recently
+
+---
+
 ## Sets
 
 Sets (teams) for a paid session are normally created **automatically** — the moment every member's payment is confirmed, the server allocates players into balanced teams on its own (fire-and-forget, so it never blocks or delays anyone's payment confirmation). In practice this lands well under a second after the last payment, but it's not instant, and — much more rarely — it can fail outright (e.g. an unexpected error) with nothing server-side to retry it automatically. `POST /sets/create/:sessionId` below is both the internal mechanism for that and the **manual fallback** the client should call if auto-allocation doesn't show up in time.
@@ -2516,7 +2550,8 @@ Real-time in-app notifications delivered over SSE. The server pushes events to t
 - When a relevant event occurs (e.g. a session is booked at the owner's location), the server pushes it down the open connection instantly
 - Events are user-targeted — each user only receives their own notifications
 - Built on Redis Pub/Sub so events are delivered correctly even when running multiple server instances
-- Every event is also sent as an FCM push notification (if the target user has a registered device token via `PATCH /user/device-token`) — SSE for the live in-app feed, push for when the app isn't open. Both fire from the same event; a push failure never affects SSE delivery or the action that triggered the notification.
+- Most events are also sent as an FCM push notification (if the target user has a registered device token via `PATCH /user/device-token`) — SSE for the live in-app feed, push for when the app isn't open. A push failure never affects SSE delivery or the action that triggered the notification.
+- Some notification types (welcome, password reset, email verification, KYC submitted/approved/rejected, session created) are also sent by email — channel and template are decided per notification type internally, not per call site.
 
 ### GET /notifications/stream (SSE)
 Open a persistent notification stream for the authenticated user.
@@ -2559,10 +2594,37 @@ data: {"type":"heartbeat","timestamp":1234567890}
 |---|---|---|
 | `SESSION_CREATED` | User calls `POST /sessions/start` at a location | Location owner |
 | `SESSION_CONFIGURED` | Captain calls `POST /sessions/create/:sessionId` | Location owner |
+| `SESSION_BROADCAST` | Captain/owner calls `POST /sessions/notify/:sessionId` | All session members |
+| `ADMIN_BROADCAST` | Super admin calls `POST /notifications/broadcast` | Every user with a registered device token |
 
 **Notes**:
 - Reconnect automatically if the connection drops — browsers handle this natively with `EventSource`
 - The heartbeat fires every 30 seconds to prevent proxy timeouts
+
+---
+
+### POST /notifications/broadcast
+Send a free-text push notification to every user on the platform with a registered device token. Super admin only.
+
+**Auth required**: Yes (JWT cookie + `SUPER_ADMIN` role)
+
+**Request Body**:
+```json
+{
+  "title": "New feature released",
+  "body": "Check out the new pitch discovery map!"
+}
+```
+
+**Success Response** `202 Accepted`:
+```json
+{ "message": "Broadcast started" }
+```
+
+**Notes**:
+- Returns immediately — the actual sends happen in the background, in batches of 25, so the request doesn't stay open for however long a full platform-wide send takes.
+- Push only, not email.
+- If the server restarts mid-broadcast, that run is not resumed (no persistent queue backs this yet).
 
 ---
 

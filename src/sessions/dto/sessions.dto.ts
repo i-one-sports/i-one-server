@@ -21,7 +21,17 @@ export class createSessionRequest {
   @IsDateString()
   startTime: Date;
 
- 
+
  @IsString()
   winningDecider: string;
+}
+
+export class BroadcastSessionMessageDto {
+  @IsNotEmpty()
+  @IsString()
+  title: string;
+
+  @IsNotEmpty()
+  @IsString()
+  body: string;
 }

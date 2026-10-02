@@ -26,7 +26,6 @@ import {
   LOCATION_STATUS,
   LOCATION_TIER,
   Location,
-  MailerService,
   OWNER_ONBOARDING_STATUS,
   Team,
   Tournament,
@@ -40,6 +39,8 @@ import { CacheService } from 'src/cache/cache.service';
 import { LocationRepository } from 'src/locations/locations.repository';
 import { BankAccountRepository } from 'src/billing/repositories/bank-account.repository';
 import { PaystackService } from '@app/common/providers/paystack.service';
+import { NotificationService } from 'src/notifications/notification.service';
+import { NOTIFICATION_CHANNEL, NOTIFICATION_TYPE } from 'src/notifications/notification.types';
 
 @Injectable()
 export class UsersService {
@@ -49,7 +50,7 @@ export class UsersService {
 
   constructor(
     private readonly usersRepository: UserRepository,
-    private readonly mailService: MailerService,
+    private readonly notificationService: NotificationService,
     private readonly statsService: StatsService,
     private readonly cacheService: CacheService,
     @InjectModel(Team.name) private readonly teamModel: Model<Team>,
@@ -256,7 +257,11 @@ export class UsersService {
   }
 
   private async sendWelcomeEmail(user: User) {
-    await this.mailService.sendTemplateMail(user.email, 'welcome', { firstName: user.firstName });
+    await this.notificationService.send(NOTIFICATION_CHANNEL.EMAIL, {
+      type: NOTIFICATION_TYPE.WELCOME,
+      to: user.email,
+      variables: { firstName: user.firstName },
+    });
   }
 
   private async queueEmailVerificationOtp(user: Pick<User, 'email'>) {
@@ -266,8 +271,12 @@ export class UsersService {
 
     await this.cacheService.set(key, otp.toString(), this.EMAIL_VERIFY_TTL);
 
-    this.mailService
-      .sendEmailVerificationOtp(email, otp)
+    this.notificationService
+      .send(NOTIFICATION_CHANNEL.EMAIL, {
+        type: NOTIFICATION_TYPE.EMAIL_VERIFICATION_OTP,
+        to: email,
+        variables: { otp, code: otp, expiresInMinutes: 10, email },
+      })
       .catch((err) =>
         this.logger.error(`Email verification mail failed: ${err.message}`),
       );
@@ -422,7 +431,11 @@ export class UsersService {
       },
     );
 
-    await this.mailService.sendTemplateMail(user.email, 'password-reset', { otp, expiresInMinutes: 15 });
+    await this.notificationService.send(NOTIFICATION_CHANNEL.EMAIL, {
+      type: NOTIFICATION_TYPE.PASSWORD_RESET,
+      to: user.email,
+      variables: { otp, expiresInMinutes: 15 },
+    });
   }
 
   async verifyOtp(data: VerifyOtpDto) {
