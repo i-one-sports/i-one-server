@@ -9,3 +9,17 @@ export class BroadcastNotificationDto {
   @IsString()
   body: string;
 }
+
+export class SendTestPushDto {
+  @IsNotEmpty()
+  @IsString()
+  fcmToken: string;
+
+  @IsNotEmpty()
+  @IsString()
+  title: string;
+
+  @IsNotEmpty()
+  @IsString()
+  body: string;
+}

@@ -5,7 +5,7 @@ import { map, startWith, finalize } from 'rxjs/operators';
 import { CurrentUser, Roles, RolesGuard, USER_ROLE } from '@app/common';
 import { JwtAuthGuard } from 'src/auth/guards/jwt.guard';
 import { NotificationService } from './notification.service';
-import { BroadcastNotificationDto } from './dto/notification.dto';
+import { BroadcastNotificationDto, SendTestPushDto } from './dto/notification.dto';
 
 @Controller('notifications')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -55,5 +55,13 @@ export class NotificationsController {
       .catch((err) => this.logger.error('Broadcast failed', err));
 
     return { message: 'Broadcast started' };
+  }
+
+  // @UseGuards(RolesGuard)
+  // @Roles(USER_ROLE.SUPER_ADMIN)
+  @Post('test-push')
+  async testPush(@Body() data: SendTestPushDto) {
+    await this.notificationService.sendTestPush(data.fcmToken, data.title, data.body);
+    return { message: 'Test push sent' };
   }
 }

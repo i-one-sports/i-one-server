@@ -110,4 +110,12 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
 
     return { totalUsers: users.length, sent };
   }
+
+  // Bypasses the usual userId -> fcmToken lookup entirely — lets you fire a
+  // push straight at a device token you already have in hand (e.g. pasted
+  // from device logs), without that token needing to belong to a real user
+  // in the DB. Testing-only entry point.
+  async sendTestPush(fcmToken: string, title: string, body: string): Promise<void> {
+    await this.pushNotificationService.send(fcmToken, title, body);
+  }
 }

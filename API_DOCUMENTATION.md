@@ -2628,6 +2628,30 @@ Send a free-text push notification to every user on the platform with a register
 
 ---
 
+### POST /notifications/test-push
+Send a push notification directly to a specific FCM device token. Super admin only. For testing the push pipeline against one device — does not look anything up in the database, so the token doesn't need to belong to a registered user.
+
+**Auth required**: Yes (JWT cookie + `SUPER_ADMIN` role)
+
+**Request Body**:
+```json
+{
+  "fcmToken": "e3f8a1b2c4d5...",
+  "title": "Test",
+  "body": "Testing push notifications"
+}
+```
+
+**Success Response** `200 OK`:
+```json
+{ "message": "Test push sent" }
+```
+
+**Notes**:
+- Always returns `200` regardless of whether the push actually succeeded — delivery failures (e.g. an invalid/expired token) are caught internally and only logged server-side (`Notification sent successfully` / `Notification failed: ...`), never surfaced in the response. Check server logs to confirm a test actually landed.
+
+---
+
 ## Admin
 
 ### GET /wallet/user/:userId
