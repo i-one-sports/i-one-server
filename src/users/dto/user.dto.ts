@@ -217,7 +217,7 @@ export class RegisterOwnerLocationDto {
   )
   @IsNumber()
   @Min(1)
-  paymentPerPersonHourly?: number;
+  pricePerHour?: number; // kobo, total for the pitch per hour (pooled)
 
   @ValidateIf(
     (dto: RegisterOwnerLocationDto) =>

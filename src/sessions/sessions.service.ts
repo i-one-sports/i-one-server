@@ -8,6 +8,7 @@ import {
   LOCATION_PRICING_OPTION,
   LOCATION_TIER,
   Location,
+  SESSION_PAYMENT_MODE,
   SESSION_STATUS,
   Session,
   SessionI,
@@ -66,15 +67,23 @@ export class SessionsService {
     }
   }
 
+  // Hourly pitches are POOL: the owner's pricePerHour × hours is the total the
+  // whole session pays, split however members choose. Monthly stays
+  // PER_PERSON (a per-player 30-day membership).
   private buildPaymentConfig(location: any, timeDurationMins: number) {
     if (location?.tier !== LOCATION_TIER.PAID) {
-      return { paymentRequired: false, paymentAmount: 0 };
+      return {
+        paymentRequired: false,
+        paymentAmount: 0,
+        paymentMode: SESSION_PAYMENT_MODE.POOL,
+        paymentTarget: 0,
+      };
     }
 
     if (location.pricingOption === LOCATION_PRICING_OPTION.HOURLY) {
-      if (!location.paymentPerPersonHourly || location.paymentPerPersonHourly <= 0) {
+      if (!location.pricePerHour || location.pricePerHour <= 0) {
         throw new CustomHttpException(
-          'Hourly pricing is selected but paymentPerPersonHourly is missing',
+          'This pitch has no total hourly price set yet — the owner must set pricePerHour before paid bookings',
           HttpStatus.BAD_REQUEST,
         );
       }
@@ -96,7 +105,9 @@ export class SessionsService {
       const hourUnits = Math.max(1, Math.ceil(timeDurationMins / 60));
       return {
         paymentRequired: true,
-        paymentAmount: location.paymentPerPersonHourly * hourUnits,
+        paymentAmount: 0,
+        paymentMode: SESSION_PAYMENT_MODE.POOL,
+        paymentTarget: location.pricePerHour * hourUnits,
       };
     }
 
@@ -108,7 +119,12 @@ export class SessionsService {
         );
       }
 
-      return { paymentRequired: true, paymentAmount: location.paymentPerPersonMonthly };
+      return {
+        paymentRequired: true,
+        paymentAmount: location.paymentPerPersonMonthly,
+        paymentMode: SESSION_PAYMENT_MODE.PER_PERSON,
+        paymentTarget: 0,
+      };
     }
 
     throw new CustomHttpException(
@@ -371,6 +387,10 @@ export class SessionsService {
         isFull: maxNumber <= 1,
         paymentRequired: paymentConfig.paymentRequired,
         paymentAmount: paymentConfig.paymentAmount,
+        paymentMode: paymentConfig.paymentMode,
+        paymentTarget: paymentConfig.paymentTarget,
+        amountPaid: 0,
+        amountReserved: 0,
         paymentStatus: paymentConfig.paymentRequired ? 'NOT_INITIATED' : 'COMPLETED',
         allPaymentsCompleted: !paymentConfig.paymentRequired,
       },
@@ -541,7 +561,23 @@ export class SessionsService {
     // see SessionPaymentService.refundPayment). Only relevant before the
     // session has been played; skip for free sessions or once it's finished
     // (that's not a "leave", that's just... it happened).
-    if (session.paymentRequired && !session.finished) {
+    const isPool = session.paymentMode === SESSION_PAYMENT_MODE.POOL;
+
+    if (isPool && session.paymentRequired && !session.finished) {
+      // Before the pot is full: their contributions are refunded. After:
+      // they leave with no refund (see handlePoolMemberLeave).
+      try {
+        await this.sessionPaymentService.handlePoolMemberLeave(sessionId, userId);
+      } catch (error: any) {
+        this.logger.error(
+          `Refund request failed while ${userId} tried to leave pool session ${sessionId}: ${error.message}`,
+        );
+        throw new CustomHttpException(
+          'Could not start your refund, so you cannot leave yet. Please try again shortly.',
+          HttpStatus.INTERNAL_SERVER_ERROR,
+        );
+      }
+    } else if (session.paymentRequired && !session.finished) {
       let payment: any = null;
       try {
         payment = await this.sessionPaymentService.getUserSessionPayment(sessionId, userId);
@@ -575,6 +611,10 @@ export class SessionsService {
         ),
         this.userRepository.findOneAndUpdate({ _id: userId }, { currentSession: null }),
       ]);
+
+      if (isPool && session.paymentRequired) {
+        await this.sessionPaymentService.publishPoolUpdate(sessionId, 'member_left');
+      }
 
       return {
         message: 'User successfully left session',
@@ -839,16 +879,45 @@ export class SessionsService {
       );
     }
 
+    // Once payment has opened (or anyone has money in the pot), the payment
+    // terms are frozen: changing the price, or flipping a legacy
+    // PER_PERSON session to POOL, under existing payment rows would leave
+    // players paying against terms that no longer match.
+    const paymentsStarted =
+      ['PENDING', 'COMPLETED'].includes(session.paymentStatus) ||
+      (session.amountPaid ?? 0) + (session.amountReserved ?? 0) > 0;
+
+    const currentMode = session.paymentMode ?? SESSION_PAYMENT_MODE.PER_PERSON;
+    const termsChanged =
+      paymentConfig.paymentMode !== currentMode ||
+      (paymentConfig.paymentTarget ?? 0) !== (session.paymentTarget ?? 0) ||
+      (paymentConfig.paymentAmount ?? 0) !== (session.paymentAmount ?? 0);
+
+    if (paymentsStarted && termsChanged) {
+      throw new CustomHttpException(
+        'Payment has already started for this session — keep the same duration, or cancel it and create a new one',
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    const paymentFields = paymentsStarted
+      ? {}
+      : {
+          paymentRequired: paymentConfig.paymentRequired,
+          paymentAmount: paymentConfig.paymentAmount,
+          paymentMode: paymentConfig.paymentMode,
+          paymentTarget: paymentConfig.paymentTarget,
+          paymentStatus: paymentConfig.paymentRequired ? 'NOT_INITIATED' : 'COMPLETED',
+          allPaymentsCompleted: !paymentConfig.paymentRequired,
+        };
+
     const updatedSession = await this.sessionRepository.findOneAndUpdate(
       { _id: sessionId },
       {
         startTime,
         timeDuration,
         stopTime: addedStopTime,
-        paymentRequired: paymentConfig.paymentRequired,
-        paymentAmount: paymentConfig.paymentAmount,
-        paymentStatus: paymentConfig.paymentRequired ? 'NOT_INITIATED' : 'COMPLETED',
-        allPaymentsCompleted: !paymentConfig.paymentRequired,
+        ...paymentFields,
       },
     );
 
@@ -883,7 +952,8 @@ export class SessionsService {
   }
 
   async onSessionFull(session: Session) {
-    if (!session.paymentAmount || session.paymentAmount <= 0) return;
+    const isPool = session.paymentMode === SESSION_PAYMENT_MODE.POOL;
+    if (isPool ? !(session.paymentTarget > 0) : !(session.paymentAmount > 0)) return;
 
     const location = await this.locationRepository.findOne({ _id: session.location });
     if (!location || !location.owner) {
@@ -900,6 +970,20 @@ export class SessionsService {
 
     const paymentDeadline = new Date();
     paymentDeadline.setHours(paymentDeadline.getHours() + 24);
+
+    if (isPool) {
+      // Open the pot. No rows are pre-created — each contribution creates
+      // its own at checkout. Only from NOT_INITIATED, so a session that
+      // fills up again after someone leaves can't reset a funded pot.
+      const opened = await this.sessionRepository.findOneAndUpdate(
+        { _id: session._id, paymentStatus: 'NOT_INITIATED' },
+        { paymentStatus: 'PENDING', paymentDeadline, allPaymentsCompleted: false },
+      );
+      if (opened) {
+        await this.sessionPaymentService.publishPoolUpdate(session._id.toString(), 'pool_opened');
+      }
+      return;
+    }
 
     const memberIds = session.members.map((m) => new Types.ObjectId(m));
     let payableMemberIds = memberIds;

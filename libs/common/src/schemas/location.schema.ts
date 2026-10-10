@@ -48,6 +48,13 @@ export class Location extends AbstractDocument {
   @Prop({ type: Number, required: false })
   paymentPerPersonHourly?: number;
 
+  // Kobo. Total price of the pitch per hour — what the whole session pays,
+  // split however members choose (SESSION_PAYMENT_MODE.POOL). Required for
+  // new paid hourly bookings; paymentPerPersonHourly is legacy and only kept
+  // for sessions created before pooling.
+  @Prop({ type: Number, required: false })
+  pricePerHour?: number;
+
   @Prop({ type: Number, required: false })
   paymentPerPersonMonthly?: number;
 

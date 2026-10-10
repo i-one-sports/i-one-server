@@ -1,7 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { SchemaTypes, Types } from 'mongoose';
 import { AbstractDocument } from './abstract.schema';
-import { MATCH_TYPE, SESSION_STATUS, WINNING_DECIDER } from '../types/common';
+import { MATCH_TYPE, SESSION_PAYMENT_MODE, SESSION_STATUS, WINNING_DECIDER } from '../types/common';
 
 @Schema({ timestamps: true, versionKey: false })
 export class Session extends AbstractDocument {
@@ -76,6 +76,29 @@ export class Session extends AbstractDocument {
 
   @Prop({ type: Boolean, default: false })
   allRefunded: boolean;
+
+  // POOL is the default going forward. NOTE: Mongoose applies this default
+  // when hydrating documents that lack the field, so sessions created before
+  // pooling MUST be backfilled to PER_PERSON (src/helpers/migrate-pool-payments.ts)
+  // before deploying — otherwise they'd be read as POOL mid-payment.
+  @Prop({ type: String, enum: Object.values(SESSION_PAYMENT_MODE), default: SESSION_PAYMENT_MODE.POOL })
+  paymentMode: SESSION_PAYMENT_MODE;
+
+  // POOL only. Kobo, base (owner's price × hours, before commission).
+  @Prop({ type: Number, required: false, min: 0 })
+  paymentTarget: number;
+
+  // POOL only. Base kobo of PAID contributions / of contributions currently
+  // reserved by an in-flight checkout. These exist as an atomic concurrency
+  // guard (so two players can't both pay the last ₦10k) and a fast read for
+  // the live snapshot — NOT as a balance. SessionPayment rows + the ledger
+  // stay the source of truth; SessionPaymentService.recomputePool rebuilds
+  // both from the rows.
+  @Prop({ type: Number, default: 0, min: 0 })
+  amountPaid: number;
+
+  @Prop({ type: Number, default: 0, min: 0 })
+  amountReserved: number;
 }
 export const SessionSchema = SchemaFactory.createForClass(Session);
 // Indexes to improve query performance for owner dashboard and session lookups

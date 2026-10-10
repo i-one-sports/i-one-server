@@ -226,7 +226,7 @@ describe('UsersService', () => {
             pitchSize: '175m x 180m',
             tier: LOCATION_TIER.PAID,
             pricingOption: LOCATION_PRICING_OPTION.HOURLY,
-            paymentPerPersonHourly: 2500,
+            pricePerHour: 2500,
             location: { coordinates: [3.1, 6.4] },
           },
           payout: {
@@ -272,7 +272,7 @@ describe('UsersService', () => {
           status: LOCATION_STATUS.PENDING_VERIFICATION,
           pitchMax: '5 x 5',
           pitchSize: '175m x 180m',
-          paymentPerPersonHourly: 2500,
+          pricePerHour: 2500,
         }),
         expect.any(Object),
       );

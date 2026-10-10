@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from 'src/auth/guards/jwt.guard';
 import { RolesGuard } from '@app/common/guards/roles.guard';
 import { Roles } from '@app/common/decorators/roles.decorator';
@@ -22,6 +22,12 @@ export class AdminBillingController {
   @Get('commission-summary')
   async commissionSummary() {
     return this.sessionPaymentService.getCommissionSummary();
+  }
+
+  // Rebuilds a POOL session's paid/reserved counters from its payment rows.
+  @Post('sessions/:sessionId/recompute-pool')
+  async recomputePool(@Param('sessionId') sessionId: string) {
+    return this.sessionPaymentService.recomputePool(sessionId);
   }
 
   @Post('fund-wallet')

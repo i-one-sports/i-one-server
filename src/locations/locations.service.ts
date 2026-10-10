@@ -54,7 +54,7 @@ export class LocationsService {
       pitchPhoto,
       tier,
       pricingOption,
-      paymentPerPersonHourly,
+      pricePerHour,
       paymentPerPersonMonthly,
       pitchMax,
       pitchSize,
@@ -104,7 +104,7 @@ export class LocationsService {
         payload.pricingOption = pricingOption;
 
         if (pricingOption === LOCATION_PRICING_OPTION.HOURLY) {
-          payload.paymentPerPersonHourly = paymentPerPersonHourly;
+          payload.pricePerHour = pricePerHour;
         }
 
         if (pricingOption === LOCATION_PRICING_OPTION.MONTHLY) {
@@ -316,6 +316,7 @@ export class LocationsService {
 
     if (dto.tier === LOCATION_TIER.FREE) {
       updatePayload.pricingOption = undefined;
+      updatePayload.pricePerHour = undefined;
       updatePayload.paymentPerPersonHourly = undefined;
       updatePayload.paymentPerPersonMonthly = undefined;
     }
@@ -339,14 +340,17 @@ export class LocationsService {
       updatePayload.pricingOption = dto.pricingOption;
 
       if (dto.pricingOption === LOCATION_PRICING_OPTION.HOURLY) {
-        if (!dto.paymentPerPersonHourly || dto.paymentPerPersonHourly <= 0) {
+        if (!dto.pricePerHour || dto.pricePerHour <= 0) {
           throw new CustomHttpException(
-            'paymentPerPersonHourly must be greater than 0 for hourly pricing',
+            'pricePerHour must be greater than 0 for hourly pricing',
             HttpStatus.BAD_REQUEST,
           );
         }
 
-        updatePayload.paymentPerPersonHourly = dto.paymentPerPersonHourly;
+        // Sessions snapshot their price when configured, so clearing the
+        // legacy per-person field doesn't affect sessions already in flight.
+        updatePayload.pricePerHour = dto.pricePerHour;
+        updatePayload.paymentPerPersonHourly = undefined;
         updatePayload.paymentPerPersonMonthly = undefined;
       }
 
@@ -359,6 +363,7 @@ export class LocationsService {
         }
 
         updatePayload.paymentPerPersonMonthly = dto.paymentPerPersonMonthly;
+        updatePayload.pricePerHour = undefined;
         updatePayload.paymentPerPersonHourly = undefined;
       }
     }

@@ -127,8 +127,7 @@ export class UsersService {
           locationPayload.pricingOption = locationDto.pricingOption;
 
           if (locationDto.pricingOption === LOCATION_PRICING_OPTION.HOURLY) {
-            locationPayload.paymentPerPersonHourly =
-              locationDto.paymentPerPersonHourly;
+            locationPayload.pricePerHour = locationDto.pricePerHour;
           }
 
           if (locationDto.pricingOption === LOCATION_PRICING_OPTION.MONTHLY) {
@@ -361,10 +360,10 @@ export class UsersService {
 
     if (
       location.pricingOption === LOCATION_PRICING_OPTION.HOURLY &&
-      (!location.paymentPerPersonHourly || location.paymentPerPersonHourly <= 0)
+      (!location.pricePerHour || location.pricePerHour <= 0)
     ) {
       throw new BadRequestException(
-        'paymentPerPersonHourly must be greater than 0 for hourly pricing',
+        'pricePerHour must be greater than 0 for hourly pricing',
       );
     }
 

@@ -1,4 +1,6 @@
-import { Controller, Get, Post, Delete, Param, Query, Body, UseGuards, Patch } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Param, Query, Body, UseGuards, Patch, Sse, Header } from '@nestjs/common';
+import { from, merge, Observable } from 'rxjs';
+import { filter, map } from 'rxjs/operators';
 import { JwtAuthGuard } from 'src/auth/guards/jwt.guard';
 import { IsOwnerGuard } from '@app/common/guards/is-owner.guard';
 import { RolesGuard } from '@app/common/guards/roles.guard';
@@ -10,6 +12,10 @@ import { WalletService } from '../services/wallet.service';
 import { SessionPaymentService } from '../services/session-payment.service';
 import { WithdrawalService } from '../services/withdrawal.service';
 import { AddBankAccountDto, WithdrawFundsDto } from '../dto/withdrawal.dto';
+import { SessionCheckoutDto } from '../dto/session-payment.dto';
+import { SessionPaymentEventService } from '../services/session-payment-event.service';
+import { CanViewPoolGuard } from '../guards/can-view-pool.guard';
+import { CanViewSessionPaymentsGuard } from '../guards/can-view-session-payments.guard';
 
 @Controller('wallet')
 @UseGuards(JwtAuthGuard)
@@ -18,6 +24,7 @@ export class WalletController {
     private readonly walletService: WalletService,
     private readonly sessionPaymentService: SessionPaymentService,
     private readonly withdrawalService: WithdrawalService,
+    private readonly sessionPaymentEventService: SessionPaymentEventService,
   ) {}
 
   @Get('me')
@@ -71,6 +78,7 @@ export class WalletController {
   }
 
   @Get('session/:sessionId/payment-status')
+  @UseGuards(CanViewSessionPaymentsGuard)
   async getSessionPaymentStatus(@Param('sessionId') sessionId: string) {
     return await this.sessionPaymentService.getSessionPaymentStatus(sessionId);
   }
@@ -90,11 +98,35 @@ export class WalletController {
   async initializeSessionPayment(
     @Param('sessionId') sessionId: string,
     @CurrentUser() user: User,
+    @Body() dto: SessionCheckoutDto,
   ) {
     return await this.sessionPaymentService.initializeCheckout(
       sessionId,
       user._id.toString(),
       user.email,
+      dto?.amount,
+    );
+  }
+
+  // Live paid / remaining for a POOL session. Sends the full snapshot on
+  // connect (so a reconnect always re-syncs from the DB), then a fresh
+  // snapshot whenever the pot changes, plus a 30s heartbeat.
+  @Sse('session/:sessionId/payment-stream')
+  @UseGuards(CanViewPoolGuard)
+  @Header('Cache-Control', 'no-cache')
+  @Header('X-Accel-Buffering', 'no')
+  sessionPaymentStream(@Param('sessionId') sessionId: string): Observable<any> {
+    const initial$ = from(this.sessionPaymentService.getPoolSnapshot(sessionId)).pipe(
+      map((snapshot) => ({ type: 'pool_snapshot', snapshot, timestamp: Date.now() })),
+    );
+
+    const updates$ = this.sessionPaymentEventService
+      .getPoolUpdates()
+      .pipe(filter((event) => event.snapshot?.sessionId === sessionId));
+
+    // Nest unsubscribes when the client disconnects.
+    return merge(initial$, updates$, this.sessionPaymentEventService.getHeartbeat()).pipe(
+      map((data) => ({ data })),
     );
   }
 

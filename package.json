@@ -25,7 +25,8 @@
     "migrate:session-status": "ts-node -r tsconfig-paths/register src/helpers/migrate-session-status",
     "seed:payment-session": "ts-node -r tsconfig-paths/register src/helpers/seed-payment-session",
     "migrate:currency-to-kobo": "ts-node -r tsconfig-paths/register src/helpers/migrate-currency-to-kobo",
-    "migrate:location-name-lower": "ts-node -r tsconfig-paths/register src/helpers/migrate-add-location-name-lower"
+    "migrate:location-name-lower": "ts-node -r tsconfig-paths/register src/helpers/migrate-add-location-name-lower",
+    "migrate:pool-payments": "ts-node -r tsconfig-paths/register src/helpers/migrate-pool-payments"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.858.0",

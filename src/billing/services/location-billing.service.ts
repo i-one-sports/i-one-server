@@ -1,7 +1,7 @@
 import { Injectable, HttpStatus } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { CustomHttpException } from '@app/common';
+import { CustomHttpException, SESSION_PAYMENT_MODE } from '@app/common';
 import { SessionPayment, PaymentStatus } from '@app/common/schemas/session-payment.schema';
 import { Session } from '@app/common/schemas/session.schema';
 import { Set } from '@app/common/schemas/sets.schema';
@@ -66,6 +66,14 @@ export class LocationBillingService {
       },
       { $unwind: { path: '$session', preserveNullAndEmptyArrays: true } },
 
+      // POOL sessions owe one total as a whole session, not a price per
+      // player per team — they're reported as a single session-level row.
+      {
+        $addFields: {
+          isPool: { $eq: ['$session.paymentMode', SESSION_PAYMENT_MODE.POOL] },
+        },
+      },
+
       // Join all Sets for the session
       {
         $lookup: {
@@ -97,17 +105,34 @@ export class LocationBillingService {
       },
 
       // Group by session + set to produce one row per team per session
+      // (one row per session for POOL)
       {
         $group: {
           _id: {
             sessionId: '$sessionId',
-            setId: { $ifNull: ['$mySet._id', '$sessionId'] },
+            setId: {
+              $cond: ['$isPool', 'POOL', { $ifNull: ['$mySet._id', '$sessionId'] }],
+            },
           },
-          teamName: { $first: { $ifNull: ['$mySet.name', 'Ungrouped'] } },
+          isPool: { $first: '$isPool' },
+          teamName: {
+            $first: {
+              $cond: ['$isPool', 'Whole session', { $ifNull: ['$mySet.name', 'Ungrouped'] }],
+            },
+          },
           sessionStartTime: { $first: '$session.startTime' },
           paymentAmount: { $first: '$session.paymentAmount' },
+          paymentTarget: { $first: '$session.paymentTarget' },
           teamPlayersCount: {
-            $first: { $size: { $ifNull: ['$mySet.players', []] } },
+            $first: {
+              $size: {
+                $cond: [
+                  '$isPool',
+                  { $ifNull: ['$session.members', []] },
+                  { $ifNull: ['$mySet.players', []] },
+                ],
+              },
+            },
           },
           // baseAmount (owner's actual take), not the full charged amount —
           // otherwise this drifts from expectedTotal (teamPlayersCount ×
@@ -115,22 +140,36 @@ export class LocationBillingService {
           // commission was added on top. $ifNull covers legacy payments
           // created before commission existed (no baseAmount stored).
           totalPaid: { $sum: { $ifNull: ['$baseAmount', '$amount'] } },
-          membersPaid: { $sum: 1 },
+          // Distinct payers — a POOL player can have several contributions.
+          payers: { $addToSet: '$userId' },
           latestPaidAt: { $max: '$paidAt' },
           sessionId: { $first: '$sessionId' },
-          setId: { $first: { $ifNull: ['$mySet._id', null] } },
+          setId: {
+            $first: { $cond: ['$isPool', null, { $ifNull: ['$mySet._id', null] }] },
+          },
         },
       },
+      { $addFields: { membersPaid: { $size: '$payers' } } },
 
       // Calculate expected amount and completeness
       {
         $addFields: {
           expectedTotal: {
-            $multiply: ['$teamPlayersCount', '$paymentAmount'],
+            $cond: [
+              '$isPool',
+              { $ifNull: ['$paymentTarget', 0] },
+              { $multiply: ['$teamPlayersCount', '$paymentAmount'] },
+            ],
           },
           paymentStatus: {
             $cond: {
-              if: { $eq: ['$teamPlayersCount', '$membersPaid'] },
+              if: {
+                $cond: [
+                  '$isPool',
+                  { $gte: ['$totalPaid', { $ifNull: ['$paymentTarget', 0] }] },
+                  { $eq: ['$teamPlayersCount', '$membersPaid'] },
+                ],
+              },
               then: 'COMPLETE',
               else: {
                 $cond: {
@@ -169,6 +208,7 @@ export class LocationBillingService {
         setId: row.setId,
         sessionStartTime: row.sessionStartTime,
         pricingOption: location?.pricingOption ?? null,
+        paymentMode: row.isPool ? SESSION_PAYMENT_MODE.POOL : SESSION_PAYMENT_MODE.PER_PERSON,
         paymentAmount: row.paymentAmount ?? 0,
         teamSize: row.teamPlayersCount,
         membersPaid: row.membersPaid,
@@ -216,22 +256,22 @@ export class LocationBillingService {
 
     const location = await this.locationModel
       .findById(session.location)
-      .select('pricingOption')
+      .select('pricingOption owner')
       .lean()
       .exec();
 
-    // Verify this session belongs to the owner's location
+    // Verify this session belongs to the owner's location — checked against
+    // the location itself, so it also holds before anyone has paid.
+    if (location?.owner?.toString() !== ownerIdStr) {
+      throw new CustomHttpException('Unauthorized', HttpStatus.FORBIDDEN);
+    }
+
     const payments = await this.sessionPaymentModel
       .find({ sessionId: sessionObjectId })
       .lean()
       .exec();
 
-    const ownerMatch = payments.find(
-      (p) => p.ownerId.toString() === ownerIdStr,
-    );
-    if (payments.length > 0 && !ownerMatch) {
-      throw new CustomHttpException('Unauthorized', HttpStatus.FORBIDDEN);
-    }
+    const isPool = session.paymentMode === SESSION_PAYMENT_MODE.POOL;
 
     // Load sets for this session
     const sets = await this.setModel
@@ -239,11 +279,34 @@ export class LocationBillingService {
       .lean()
       .exec();
 
-    // Build payment lookup keyed by userId
-    const paymentByUser = new Map<string, any>();
+    // Per-player totals. PER_PERSON has one row per player; POOL can have
+    // several (top-ups, expired checkouts), so sum the PAID ones and report
+    // PAID if any contribution landed.
+    const paymentByUser = new Map<string, { status: string; amountPaid: number; paidAt: Date | null }>();
     for (const p of payments) {
-      paymentByUser.set(p.userId.toString(), p);
+      const key = p.userId.toString();
+      const entry = paymentByUser.get(key) ?? { status: p.status, amountPaid: 0, paidAt: null };
+      if (p.status === PaymentStatus.PAID) {
+        // baseAmount (owner's take), not the full charged amount — so it
+        // matches the expected totals, which are also base prices.
+        entry.status = PaymentStatus.PAID;
+        entry.amountPaid += p.baseAmount ?? p.amount;
+        if (!entry.paidAt || (p.paidAt && p.paidAt > entry.paidAt)) entry.paidAt = p.paidAt;
+      } else if (entry.status !== PaymentStatus.PAID) {
+        entry.status = p.status;
+      }
+      paymentByUser.set(key, entry);
     }
+
+    // POOL totals come from every PAID contribution on the session —
+    // including players no longer in a team (e.g. left after the pot was
+    // full, which isn't refunded) — not just the players listed in sets.
+    const poolPaid = isPool
+      ? Array.from(paymentByUser.values()).reduce((sum, p) => sum + p.amountPaid, 0)
+      : 0;
+    const poolTarget = session.paymentTarget ?? 0;
+    const poolFunded =
+      isPool && (session.paymentStatus === 'COMPLETED' || (poolTarget > 0 && poolPaid >= poolTarget));
 
     const teamSummaries = sets.map((set) => {
       const players: string[] = (set.players as any[]).map((p) =>
@@ -252,15 +315,10 @@ export class LocationBillingService {
 
       const playerDetails = players.map((playerId) => {
         const payment = paymentByUser.get(playerId);
-        // baseAmount (owner's take), not the full charged amount — see
-        // totalPaid above for why this has to match expectedTotal's basis.
         return {
           userId: playerId,
           status: payment?.status ?? 'NOT_PAID',
-          amountPaid:
-            payment?.status === PaymentStatus.PAID
-              ? (payment.baseAmount ?? payment.amount)
-              : 0,
+          amountPaid: payment?.amountPaid ?? 0,
           paidAt: payment?.paidAt ?? null,
         };
       });
@@ -269,11 +327,13 @@ export class LocationBillingService {
       const membersPaid = playerDetails.filter(
         (p) => p.status === PaymentStatus.PAID,
       ).length;
-      const expectedTotal = players.length * (session.paymentAmount ?? 0);
-      const shortfall = Math.max(0, expectedTotal - totalPaid);
+      // POOL: the total is owed by the whole session, so a team has no
+      // expected amount of its own — see grandExpected below.
+      const expectedTotal = isPool ? null : players.length * (session.paymentAmount ?? 0);
+      const shortfall = isPool ? null : Math.max(0, expectedTotal - totalPaid);
 
       let status: 'COMPLETE' | 'PARTIAL' | 'UNPAID';
-      if (membersPaid === players.length && players.length > 0) {
+      if (isPool ? poolFunded : membersPaid === players.length && players.length > 0) {
         status = 'COMPLETE';
       } else if (membersPaid > 0) {
         status = 'PARTIAL';
@@ -295,23 +355,26 @@ export class LocationBillingService {
       };
     });
 
-    const grandExpected = teamSummaries.reduce(
-      (sum, t) => sum + t.expectedTotal,
-      0,
-    );
-    const grandPaid = teamSummaries.reduce((sum, t) => sum + t.totalPaid, 0);
+    const grandExpected = isPool
+      ? poolTarget
+      : teamSummaries.reduce((sum, t) => sum + t.expectedTotal, 0);
+    const grandPaid = isPool
+      ? poolPaid
+      : teamSummaries.reduce((sum, t) => sum + t.totalPaid, 0);
 
     return {
       sessionId,
       sessionStartTime: session.startTime,
       sessionStopTime: session.stopTime,
       paymentAmount: session.paymentAmount ?? 0,
+      paymentMode: isPool ? SESSION_PAYMENT_MODE.POOL : SESSION_PAYMENT_MODE.PER_PERSON,
+      paymentTarget: isPool ? poolTarget : null,
       pricingOption: location?.pricingOption ?? null,
       sessionPaymentStatus: session.paymentStatus,
       grandExpected,
       grandPaid,
       shortfall: Math.max(0, grandExpected - grandPaid),
-      allTeamsPaid: teamSummaries.every((t) => t.status === 'COMPLETE'),
+      allTeamsPaid: isPool ? poolFunded : teamSummaries.every((t) => t.status === 'COMPLETE'),
       teams: teamSummaries,
     };
   }

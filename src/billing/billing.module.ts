@@ -23,6 +23,7 @@ import { PlatformCommissionRepository } from './repositories/platform-commission
 
 import { WalletService } from './services/wallet.service';
 import { SessionPaymentService } from './services/session-payment.service';
+import { SessionPaymentEventService } from './services/session-payment-event.service';
 import { WebhookService } from './services/webhook.service';
 import { WithdrawalService } from './services/withdrawal.service';
 import { TournamentPaymentService } from './services/tournament-payment.service';
@@ -72,6 +73,7 @@ import { SetsModule } from '../sets/sets.module';
     PlatformCommissionRepository,
     WalletService,
     SessionPaymentService,
+    SessionPaymentEventService,
     TournamentPaymentService,
     WebhookService,
     WithdrawalService,

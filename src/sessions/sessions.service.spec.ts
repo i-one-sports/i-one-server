@@ -4,6 +4,7 @@ import {
   CustomHttpException,
   LOCATION_PRICING_OPTION,
   LOCATION_TIER,
+  SESSION_PAYMENT_MODE,
 } from '@app/common';
 import { SessionsService } from './sessions.service';
 
@@ -30,6 +31,10 @@ describe('SessionsService', () => {
     initializeSessionPayments: jest.Mock;
     getUsersWithActiveRecurringPayment: jest.Mock;
     getSessionMemberPaymentMap: jest.Mock;
+    handlePoolMemberLeave: jest.Mock;
+    publishPoolUpdate: jest.Mock;
+    getUserSessionPayment: jest.Mock;
+    refundPayment: jest.Mock;
   };
   let notificationService: { emit: jest.Mock };
 
@@ -63,6 +68,10 @@ describe('SessionsService', () => {
       initializeSessionPayments: jest.fn(),
       getUsersWithActiveRecurringPayment: jest.fn(),
       getSessionMemberPaymentMap: jest.fn(),
+      handlePoolMemberLeave: jest.fn().mockResolvedValue({ refunded: 0 }),
+      publishPoolUpdate: jest.fn().mockResolvedValue(undefined),
+      getUserSessionPayment: jest.fn(),
+      refundPayment: jest.fn(),
     };
     notificationService = { emit: jest.fn().mockResolvedValue(undefined) };
 
@@ -74,6 +83,7 @@ describe('SessionsService', () => {
       captainsService as any,
       sessionPaymentService as any,
       notificationService as any,
+      { get: jest.fn(), set: jest.fn(), delete: jest.fn() } as any,
     );
   });
 
@@ -127,7 +137,7 @@ describe('SessionsService', () => {
   describe('createSession', () => {
     const startTime = new Date('2026-05-03T10:00:00.000Z');
 
-    it('configures a paid hourly session and calculates amount per full hour', async () => {
+    it('configures a paid hourly session as a POOL whose target is the total price × hours', async () => {
       sessionRepository.findOne
         .mockResolvedValueOnce({ _id: sessionId, location: locationId })
         .mockResolvedValueOnce(null)
@@ -137,7 +147,7 @@ describe('SessionsService', () => {
         _id: locationId,
         tier: LOCATION_TIER.PAID,
         pricingOption: LOCATION_PRICING_OPTION.HOURLY,
-        paymentPerPersonHourly: 1500,
+        pricePerHour: 2000000,
         openingHour: '00:00',
         closingHour: '23:59',
       });
@@ -161,11 +171,46 @@ describe('SessionsService', () => {
         expect.objectContaining({
           maxNumber: 10,
           paymentRequired: true,
-          paymentAmount: 3000,
+          paymentMode: SESSION_PAYMENT_MODE.POOL,
+          paymentTarget: 4000000,
+          amountPaid: 0,
+          amountReserved: 0,
           paymentStatus: 'NOT_INITIATED',
           allPaymentsCompleted: false,
         }),
       );
+    });
+
+    it('rejects paid hourly bookings until the owner has set a total hourly price', async () => {
+      sessionRepository.findOne
+        .mockResolvedValueOnce({ _id: sessionId, location: locationId })
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null);
+      captainsService.isCaptain.mockResolvedValue(true);
+      locationRepository.findOne.mockResolvedValue({
+        _id: locationId,
+        tier: LOCATION_TIER.PAID,
+        pricingOption: LOCATION_PRICING_OPTION.HOURLY,
+        paymentPerPersonHourly: 1500, // legacy field only
+        openingHour: '00:00',
+        closingHour: '23:59',
+      });
+
+      await expect(
+        service.createSession(
+          {
+            setNumber: 5,
+            playersPerTeam: 2,
+            timeDuration: 60,
+            minsPerSet: 10,
+            startTime,
+            winningDecider: 'penalties' as any,
+          },
+          userId.toString(),
+          sessionId.toString(),
+        ),
+      ).rejects.toMatchObject({ status: HttpStatus.BAD_REQUEST });
+      expect(sessionRepository.findOneAndUpdate).not.toHaveBeenCalled();
     });
 
     it('rejects non-captains', async () => {
@@ -281,6 +326,7 @@ describe('SessionsService', () => {
           maxNumber: 2,
           isFull: true,
           paymentRequired: true,
+          paymentMode: SESSION_PAYMENT_MODE.PER_PERSON,
           paymentAmount: 5000,
         })
         .mockResolvedValueOnce({ _id: sessionId });
@@ -288,8 +334,9 @@ describe('SessionsService', () => {
         _id: locationId,
         owner: ownerId,
         tier: LOCATION_TIER.PAID,
-        pricingOption: LOCATION_PRICING_OPTION.HOURLY,
+        pricingOption: LOCATION_PRICING_OPTION.MONTHLY,
       });
+      sessionPaymentService.getUsersWithActiveRecurringPayment.mockResolvedValue(new Set());
 
       await service.joinSession(userId.toString(), sessionId.toString());
 
@@ -302,7 +349,7 @@ describe('SessionsService', () => {
         expect.arrayContaining([existingMember, userId]),
         5000,
         expect.any(Date),
-        LOCATION_PRICING_OPTION.HOURLY,
+        LOCATION_PRICING_OPTION.MONTHLY,
       );
     });
   });
@@ -335,6 +382,148 @@ describe('SessionsService', () => {
         { _id: sessionId },
         { paymentStatus: 'COMPLETED', allPaymentsCompleted: true },
       );
+    });
+  });
+
+  describe('pooled sessions', () => {
+    const poolSession = (overrides: any = {}) => ({
+      _id: sessionId,
+      location: locationId,
+      members: [userId],
+      paymentRequired: true,
+      paymentMode: SESSION_PAYMENT_MODE.POOL,
+      paymentTarget: 2000000,
+      paymentStatus: 'NOT_INITIATED',
+      ...overrides,
+    });
+
+    it('opens the pot when the session fills, without pre-creating per-player bills', async () => {
+      locationRepository.findOne.mockResolvedValue({
+        _id: locationId,
+        owner: ownerId,
+        tier: LOCATION_TIER.PAID,
+        pricingOption: LOCATION_PRICING_OPTION.HOURLY,
+      });
+      sessionRepository.findOneAndUpdate.mockResolvedValue({ _id: sessionId });
+
+      await service.onSessionFull(poolSession() as any);
+
+      expect(sessionRepository.findOneAndUpdate).toHaveBeenCalledWith(
+        { _id: sessionId, paymentStatus: 'NOT_INITIATED' },
+        expect.objectContaining({ paymentStatus: 'PENDING', allPaymentsCompleted: false }),
+      );
+      expect(sessionPaymentService.initializeSessionPayments).not.toHaveBeenCalled();
+      expect(sessionPaymentService.publishPoolUpdate).toHaveBeenCalledWith(sessionId.toString(), 'pool_opened');
+    });
+
+    it('does not reopen a pot that is already open or funded when the session fills again', async () => {
+      locationRepository.findOne.mockResolvedValue({
+        _id: locationId,
+        owner: ownerId,
+        tier: LOCATION_TIER.PAID,
+        pricingOption: LOCATION_PRICING_OPTION.HOURLY,
+      });
+      sessionRepository.findOneAndUpdate.mockResolvedValue(null); // filter on NOT_INITIATED didn't match
+
+      await service.onSessionFull(poolSession({ paymentStatus: 'COMPLETED' }) as any);
+
+      expect(sessionPaymentService.publishPoolUpdate).not.toHaveBeenCalled();
+    });
+
+    it('routes a pool member leaving through handlePoolMemberLeave, then broadcasts', async () => {
+      sessionRepository.findOne.mockResolvedValue(poolSession({ paymentStatus: 'PENDING' }));
+      userRepository.findOne.mockResolvedValue({ _id: userId });
+      sessionRepository.findOneAndUpdate.mockResolvedValue({ _id: sessionId });
+
+      await service.leaveSession(userId.toString(), sessionId.toString());
+
+      expect(sessionPaymentService.handlePoolMemberLeave).toHaveBeenCalledWith(
+        sessionId.toString(),
+        userId.toString(),
+      );
+      expect(sessionPaymentService.getUserSessionPayment).not.toHaveBeenCalled();
+      expect(sessionPaymentService.publishPoolUpdate).toHaveBeenCalledWith(sessionId.toString(), 'member_left');
+    });
+
+    it('blocks the leave when a needed refund could not be requested', async () => {
+      sessionRepository.findOne.mockResolvedValue(poolSession({ paymentStatus: 'PENDING' }));
+      userRepository.findOne.mockResolvedValue({ _id: userId });
+      sessionPaymentService.handlePoolMemberLeave.mockRejectedValue(new Error('Paystack down'));
+
+      await expect(
+        service.leaveSession(userId.toString(), sessionId.toString()),
+      ).rejects.toMatchObject({ status: HttpStatus.INTERNAL_SERVER_ERROR });
+      expect(sessionRepository.findOneAndUpdate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('recheduleSession', () => {
+    const startTime = new Date('2026-05-03T10:00:00.000Z');
+    const location = {
+      _id: locationId,
+      owner: ownerId,
+      tier: LOCATION_TIER.PAID,
+      pricingOption: LOCATION_PRICING_OPTION.HOURLY,
+      pricePerHour: 2000000,
+      openingHour: '00:00',
+      closingHour: '23:59',
+    };
+
+    it('refuses to change the pot total once payment has started', async () => {
+      sessionRepository.findOne.mockResolvedValueOnce({
+        _id: sessionId,
+        location: locationId,
+        captain: userId,
+        paymentMode: SESSION_PAYMENT_MODE.POOL,
+        paymentTarget: 2000000,
+        paymentStatus: 'PENDING',
+        amountPaid: 1000000,
+      });
+      locationRepository.findOne.mockResolvedValue(location);
+
+      await expect(
+        service.recheduleSession(sessionId.toString(), startTime, 120, userId.toString()),
+      ).rejects.toMatchObject({ status: HttpStatus.CONFLICT });
+      expect(sessionRepository.findOneAndUpdate).not.toHaveBeenCalled();
+    });
+
+    it('refuses to flip a legacy per-person session with open bills into a pool', async () => {
+      sessionRepository.findOne.mockResolvedValueOnce({
+        _id: sessionId,
+        location: locationId,
+        captain: userId,
+        paymentAmount: 150000, // no paymentMode — pre-pooling session
+        paymentStatus: 'PENDING',
+      });
+      locationRepository.findOne.mockResolvedValue(location);
+
+      await expect(
+        service.recheduleSession(sessionId.toString(), startTime, 60, userId.toString()),
+      ).rejects.toMatchObject({ status: HttpStatus.CONFLICT });
+    });
+
+    it('keeps payment terms untouched when rescheduling a started pool to the same duration', async () => {
+      sessionRepository.findOne
+        .mockResolvedValueOnce({
+          _id: sessionId,
+          location: locationId,
+          captain: userId,
+          paymentRequired: true,
+          paymentMode: SESSION_PAYMENT_MODE.POOL,
+          paymentTarget: 2000000,
+          paymentAmount: 0,
+          paymentStatus: 'PENDING',
+          amountPaid: 1000000,
+        })
+        .mockResolvedValue(null);
+      locationRepository.findOne.mockResolvedValue(location);
+      sessionRepository.findOneAndUpdate.mockResolvedValue({ _id: sessionId });
+
+      await service.recheduleSession(sessionId.toString(), startTime, 60, userId.toString());
+
+      const [, update] = sessionRepository.findOneAndUpdate.mock.calls[0];
+      expect(update).not.toHaveProperty('paymentStatus');
+      expect(update).not.toHaveProperty('paymentTarget');
     });
   });
 });

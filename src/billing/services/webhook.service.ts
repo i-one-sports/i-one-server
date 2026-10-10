@@ -10,6 +10,9 @@ import { Types } from 'mongoose';
 import { TransactionSource, TransactionStatus } from '@app/common/schemas/transaction.schema';
 import { randomUUID } from 'crypto';
 
+// An unprocessed event is only reclaimed once its last attempt is this old.
+const WEBHOOK_REPROCESS_AFTER_MS = 2 * 60 * 1000;
+
 @Injectable()
 export class WebhookService {
   private readonly logger = new Logger(WebhookService.name);
@@ -44,8 +47,12 @@ export class WebhookService {
       (data?.transaction_reference ? `${event}_${data.transaction_reference}` : `${event}_${Date.now()}`);
 
     // Store the event BEFORE processing. The unique index on eventId means
-    // if Paystack delivers the same event twice, the second insert throws a
-    // duplicate key error and we skip processing entirely — no double-credits.
+    // only one record ever exists per reference, even under concurrent
+    // deliveries. A repeat delivery returns the existing record's status —
+    // unless the earlier attempt failed part-way (processed: false), in
+    // which case it's reprocessed. That's safe because every step behind it
+    // is idempotent (atomic PENDING→PAID claim, creditWallet's reference
+    // check, PlatformCommission's unique index).
     try {
       await this.webhookEventRepository.create({
         provider: 'paystack',
@@ -53,13 +60,18 @@ export class WebhookService {
         eventId,
         payload: body,
         processed: false,
+        processingStartedAt: new Date(),
+        attempts: 1,
       });
     } catch (err: any) {
-      if (err?.code === 11000) {
+      if (err?.code !== 11000) throw err;
+
+      const reclaimed = await this.claimForReprocessing(eventId);
+      if (!reclaimed) {
         this.logger.warn(`Duplicate webhook ignored: ${eventId}`);
         return { status: 'duplicate' };
       }
-      throw err;
+      this.logger.warn(`Reprocessing webhook ${eventId} (attempt ${reclaimed.attempts}) — earlier attempt did not finish`);
     }
 
     try {
@@ -92,10 +104,29 @@ export class WebhookService {
         { processed: true, processedAt: new Date() },
       );
     } catch (err: any) {
-      this.logger.error(`Webhook processing failed for event ${event}: ${err.message}`);
+      // Left processed: false. Rethrowing returns a non-2xx so Paystack
+      // redelivers, and the redelivery reclaims it (claimForReprocessing).
+      this.logger.error(`Webhook processing failed for event ${event} (${eventId}): ${err.message}`);
+      throw err;
     }
 
     return { status: 'success' };
+  }
+
+  // Atomically claims an unprocessed event for another attempt. The stale
+  // window stops two overlapping deliveries both reprocessing while the
+  // first one is still running.
+  private async claimForReprocessing(eventId: string) {
+    const staleBefore = new Date(Date.now() - WEBHOOK_REPROCESS_AFTER_MS);
+    return this.webhookEventRepository.findRaw().findOneAndUpdate(
+      {
+        eventId,
+        processed: false,
+        $or: [{ processingStartedAt: { $exists: false } }, { processingStartedAt: { $lt: staleBefore } }],
+      },
+      { $set: { processingStartedAt: new Date() }, $inc: { attempts: 1 } },
+      { new: true, lean: true },
+    );
   }
 
   private async handleChargeSuccess(data: any) {

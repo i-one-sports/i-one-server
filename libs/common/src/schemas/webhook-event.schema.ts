@@ -25,6 +25,16 @@ export class WebhookEvent extends AbstractDocument {
   @Prop({ type: Date })
   processedAt?: Date;
 
+  // Set when a delivery claims this event for processing. If processing
+  // threw, `processed` stays false; a later redelivery reclaims it once this
+  // is stale (see WebhookService.claimForReprocessing) instead of being
+  // dropped as a duplicate.
+  @Prop({ type: Date })
+  processingStartedAt?: Date;
+
+  @Prop({ type: Number, default: 1 })
+  attempts?: number;
+
   createdAt?: Date;
 }
 

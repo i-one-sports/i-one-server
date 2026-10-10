@@ -68,6 +68,16 @@ export enum LOCATION_STATUS {
 // OPEN covers everything from "just created" through "in progress" (the
 // existing fields already distinguish those sub-states); this enum only adds
 // the states those fields can't express: CANCELLED and REFUNDED.
+// How a paid session collects money.
+// POOL: the owner's price is the total for the pitch (paymentTarget); members
+// contribute any amount until it's covered. Default for new hourly sessions.
+// PER_PERSON: every member owes the same fixed paymentAmount — monthly
+// pricing, and every session created before pooling existed.
+export enum SESSION_PAYMENT_MODE {
+  POOL = 'POOL',
+  PER_PERSON = 'PER_PERSON',
+}
+
 export enum SESSION_STATUS {
   OPEN = 'OPEN',
   CANCELLED = 'CANCELLED',

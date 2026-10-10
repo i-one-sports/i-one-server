@@ -17,7 +17,7 @@
 14. [Captains](#captains)
 15. [Wallet & Payments](#wallet--payments) — includes refund flow
 16. [Banks](#banks)
-17. [Settings](#settings) — platform commission rate
+17. [Settings](#settings) — platform commission rate, minimum pool contribution
 18. [Location Billing](#location-billing) — owner transaction history & team payment validator
 19. [Notifications](#notifications)
 20. [Admin](#admin) — includes commission summary
@@ -140,6 +140,33 @@ Register a new user account.
 
 **Error Responses**:
 - `409` — email, phone number, or nickname already registered
+
+---
+
+### POST /user/register-owner
+Register a pitch owner together with their pitch and payout details in one call.
+
+**Auth required**: No
+
+**Request Body** (top level): `user`, `location`, `payout`, `termsAccepted`, optional `newsletterOptIn`. The full shape is `RegisterOwnerRequest` in `src/users/dto/user.dto.ts`. Pricing fields on `location`:
+
+```json
+{
+  "location": {
+    "name": "Lagos Sports Complex",
+    "address": "123 Sports Ave, Victoria Island, Lagos",
+    "openingHour": "08:00",
+    "closingHour": "22:00",
+    "tier": "paid",
+    "pricingOption": "hourly",
+    "pricePerHour": 2000000
+  }
+}
+```
+
+- `pricePerHour`: **total** price of the pitch per hour, in kobo — required when `tier` is `"paid"` and `pricingOption` is `"hourly"`. Players in a session split it between themselves (pooled payment).
+- `paymentPerPersonMonthly`: per-player monthly price, in kobo — required when `pricingOption` is `"monthly"`.
+- `paymentPerPersonHourly` is no longer accepted — sending it returns `400` (`property paymentPerPersonHourly should not exist`).
 
 ---
 
@@ -586,7 +613,7 @@ Register a new sports location. Owner only.
   "tournamentFee": 500000,
   "tier": "paid",
   "pricingOption": "hourly",
-  "paymentPerPersonHourly": 150000,
+  "pricePerHour": 2000000,
   "paymentPerPersonMonthly": 2000000,
   "openingHour": "08:00",
   "closingHour": "22:00"
@@ -596,7 +623,7 @@ Register a new sports location. Owner only.
 **Field Notes**:
 - `tier`: `"free"` | `"paid"` (required)
 - `pricingOption`: `"hourly"` | `"monthly"` — required when `tier` is `"paid"`
-- `paymentPerPersonHourly`: amount per player per session, in **kobo** — required when `pricingOption` is `"hourly"` (e.g. `150000` = ₦1,500)
+- `pricePerHour`: **total** price of the pitch per hour, in **kobo** — required when `pricingOption` is `"hourly"` (e.g. `2000000` = ₦20,000/hr). The players in a session split it between themselves however they like (pooled payment — see [Wallet & Payments](#wallet--payments)). Replaces the old per-player `paymentPerPersonHourly`, which is no longer accepted.
 - `paymentPerPersonMonthly`: amount per player per month, in **kobo** — required when `pricingOption` is `"monthly"`
 - `openingHour` / `closingHour`: operating hours in `HH:mm` 24-hour format (e.g. `"08:00"`, `"22:00"`). Sessions cannot be booked outside these hours.
 - Sessions that span midnight are rejected
@@ -994,9 +1021,11 @@ Configure a session that was started. Only the session captain can call this.
 - Returns `409` if the time slot conflicts with another session at the same location
 - Returns `400` if `startTime`/`stopTime` falls outside the location's `openingHour`–`closingHour` window
 - Returns `400` if the session spans midnight
-- `paymentRequired` and `paymentAmount` are automatically derived from the location's `tier` and `pricingOption` — no need to pass them manually
+- `paymentRequired`, `paymentMode`, `paymentTarget` and `paymentAmount` are automatically derived from the location's `tier` and `pricingOption` — no need to pass them manually
 - For `hourly` pricing, `timeDuration` must be in full-hour blocks only (`60`, `120`, `180`, ...)
-- Hourly charge per player is computed as: `paymentPerPersonHourly × (timeDuration / 60)`
+- Hourly sessions are **pooled** (`paymentMode: "POOL"`): `paymentTarget = pricePerHour × (timeDuration / 60)` is the total the whole session pays; `paymentAmount` is `0`
+- Monthly sessions stay per-player (`paymentMode: "PER_PERSON"`, `paymentAmount = paymentPerPersonMonthly`)
+- Returns `400` for a paid hourly location whose owner hasn't set `pricePerHour` yet
 
 **Success Response** `200 OK`: Updated session document.
 
@@ -1019,7 +1048,9 @@ Join an existing session as a member.
 ```
 
 **Notes**:
-- If this join fills the session (`members.length === maxNumber`) **and** `paymentRequired` is true, payment records are automatically initialized for all members who still owe payment
+- If this join fills the session (`members.length === maxNumber`) **and** `paymentRequired` is true, payment opens:
+  - **POOL** (hourly): the pot opens (`paymentStatus: "PENDING"`). No per-player payment records are created — members contribute through `POST /wallet/session/:sessionId/pay` with an `amount`. A pot that's already open or full is not reopened if the session fills again after someone leaves.
+  - **PER_PERSON** (monthly / older sessions): payment records are automatically initialized for all members who still owe payment
 - For **monthly** pricing: a member who already paid within the last 30 days at this location is **skipped** — no new payment record is created for them
 - For **hourly** pricing: every member always gets a fresh payment record for each session
 
@@ -1076,7 +1107,10 @@ Get a session with its members populated. If the session requires payment, each 
 | `PENDING` | Payment initialized but not yet completed |
 | `FAILED` | Payment attempt failed |
 | `REFUNDED` | Payment was refunded |
+| `EXPIRED` | POOL only: the member started a checkout but didn't finish it in time; nothing was charged |
 | `NOT_REQUIRED` | Session is free — no payment needed |
+
+**POOL sessions**: members don't each owe a fixed amount, so this badge means "has this member contributed". `PAID` = they have at least one confirmed contribution (top-ups don't change it). A member who hasn't contributed shows `PENDING`, which in a pool does **not** mean they owe anything — the pot can be covered by others. For amounts and progress, use the `pool` block from `GET /wallet/session/:sessionId/payment-status` or the payment stream.
 
 ---
 
@@ -1091,6 +1125,10 @@ Get the member list for a session (nickname only).
 
 ### DELETE /sessions/leave/:sessionId
 Leave a session. If you've already paid for this session (and it hasn't started yet), a Paystack refund is requested automatically before you're removed — you can't leave with an outstanding paid-and-not-refunded session. If the refund can't even be requested (Paystack call fails), the leave is blocked entirely so you don't lose your spot and your money at the same time.
+
+**POOL sessions** (hourly):
+- **Pot not yet full**: all of the leaving player's contributions are refunded (same blocking rule — if a refund can't be requested, the leave fails with `500`), and `remaining` goes back up for everyone. Any checkout they had in progress is settled first.
+- **Pot already full**: the player can leave, but gets **no refund** — their contribution stays in the pot. Show this clearly in the leave confirmation.
 
 Note: a successful leave only means the refund was *requested* — Paystack refunds are asynchronous and can take up to 10 business days to settle (see `POST /sessions/cancel/:sessionId` and the Webhooks section for how refund completion is tracked).
 
@@ -1204,6 +1242,7 @@ Reschedule a session to a new time.
 **Error Responses**:
 - `403` — caller is neither the captain nor the location owner
 - `409` — overlaps with another session at the same location
+- `409` — payment has already started for this session and the new duration would change the price (or would switch an older per-player session to pooled). Payment terms are frozen once payment opens: reschedule to the same duration, or cancel and create a new session. Rescheduling to the same duration keeps all payment state untouched.
 - `400` — new time falls outside the location's operating hours or spans midnight
 
 ---
@@ -1322,14 +1361,14 @@ Get all sets in the system.
 ## Matches
 
 ### POST /matches/matchup/:sessionId
-Generate match pairings for a session. If the session requires payment, all members must have paid before matchups can be created.
+Generate match pairings for a session. If the session requires payment, it must be fully paid first: every member has paid (PER_PERSON), or the pot is full (POOL — regardless of how many members contributed).
 
 **Auth required**: Yes (JWT cookie)
 
 **Success Response** `201 Created`: Array of created match documents.
 
 **Error Responses**:
-- `402 Payment Required` — session requires payment and not all members have paid
+- `402 Payment Required` — session requires payment and isn't fully paid yet (some members unpaid, or pot not full)
 - `400 Bad Request` — teams already matched, or odd number of sets
 
 ---
@@ -2057,13 +2096,31 @@ Get the captain for a team or set.
 
 **Currency units**: every amount in this API — request bodies, response bodies, and every money field on `Location`, `Session`, `SessionPayment`, `Tournament`, `TournamentPayment`, `Wallet`, `Transaction`, `LedgerEntry`, and `PlatformCommission` — is in **kobo** (naira × 100), matching Paystack's native unit exactly. The backend never converts to/from naira; it passes amounts straight through to Paystack unchanged. **The frontend is responsible for all naira↔kobo conversion** — divide by 100 to display, multiply by 100 before sending a naira value the user typed.
 
-### Session Payment Flow
+### Session Payment Flow (pooled — hourly sessions, `paymentMode: "POOL"`)
+
+The owner's price is the **total** for the pitch (`Session.paymentTarget`). Members chip in any amount until it's covered — one player can pay it all, or everyone can pay an equal share, or anything in between.
+
+Example: ₦20,000/hr, 1 hour, 10 players → `paymentTarget = 2000000`. `fairShare` suggests ₦2,000 each, but a player can pay ₦10,000 and the pool shows ₦10,000 remaining to everyone, live.
+
+1. The session fills up → the pot opens (`paymentStatus: "PENDING"`). No per-player bills are created.
+2. A member calls `POST /wallet/session/:sessionId/pay` with `{ "amount": <kobo> }`. The server atomically **reserves** that amount of the pot (so two players can't both pay the last ₦10k), creates a `SessionPayment` contribution row, and returns a Paystack checkout URL for `amount + commission`.
+3. The reservation holds for 15 minutes. If Paystack never confirms payment, it's released back into the pot (checked against Paystack first — a payment that did go through is confirmed, not released).
+4. `charge.success` webhook → the contribution is `PAID`, the owner's wallet is credited its `baseAmount`, commission is recorded, and everyone watching `GET /wallet/session/:sessionId/payment-stream` gets the new paid/remaining.
+5. When paid ≥ target, the session's `paymentStatus` flips to `COMPLETED` and teams are allocated. Members who paid nothing are fine.
+
+**Leaving a pool**: before the pot is full, the leaving player's contributions are refunded and `remaining` goes back up. Once the pot is full, a player can leave but gets **no refund** — their contribution stays in.
+
+**Late payments**: if a payment lands after its reservation expired and the pot has since been covered (or the session was cancelled, or the payer has left), it's confirmed and then automatically refunded in full.
+
+### Session Payment Flow (per-player — monthly sessions and sessions created before pooling, `paymentMode: "PER_PERSON"`)
 
 1. A session fills up → server automatically creates a `PENDING` payment record for every member. Each record's `amount` (what's charged to the player) is the location's base price plus the current platform commission (see `GET /settings/commission`), added on top — `baseAmount` is the location's price, unchanged; `commissionAmount` is the platform's cut.
 2. Each member calls `POST /wallet/session/:sessionId/pay` to get a Paystack checkout URL for `amount` (base + commission)
 3. Member pays via Paystack
 4. Paystack sends `charge.success` webhook → server confirms payment, credits the owner's wallet with `baseAmount` only (never the commission), and records the commission separately for revenue reporting (see `GET /admin/billing/commission-summary`)
 5. Once all members have paid, `canSessionStart()` returns `true`
+
+**Rescheduling**: once payment has opened on a session (either mode), rescheduling to a different duration returns `409` — the payment terms are frozen. Cancel and create a new session instead.
 
 ### Refund Flow
 
@@ -2185,7 +2242,7 @@ Get paginated transaction history for the authenticated owner.
 ### GET /wallet/session/:sessionId/payment-status
 Get payment status summary for all members in a session.
 
-**Auth required**: Yes (JWT cookie)
+**Auth required**: Yes (JWT cookie). Only session members, the pitch owner, or `SUPER_ADMIN` — anyone else gets `403` (`404` for an unknown session).
 
 **Path Parameters**:
 - `sessionId` — session ID
@@ -2201,6 +2258,42 @@ Get payment status summary for all members in a session.
 }
 ```
 
+For a **POOL** session, the counts are of contribution rows, `allCompleted` means the pot is full, and a `pool` block is included (same shape as the payment stream's snapshot):
+```json
+{
+  "totalPayments": 3,
+  "paidPayments": 2,
+  "pendingPayments": 1,
+  "allCompleted": false,
+  "payments": [ ...sessionPaymentDocuments ],
+  "pool": {
+    "sessionId": "507f...",
+    "target": 2000000,
+    "paid": 1200000,
+    "reserved": 200000,
+    "remaining": 800000,
+    "available": 600000,
+    "fairShare": 100000,
+    "minContribution": 50000,
+    "fullyFunded": false,
+    "contributors": [
+      { "userId": "507f...", "name": "Ada", "amount": 1000000 },
+      { "userId": "507f...", "name": "Tunde", "amount": 200000 }
+    ]
+  }
+}
+```
+
+Pool fields (all **kobo**, base amounts before commission):
+- `target` — the session total
+- `paid` — sum of confirmed contributions (derived from the payment rows)
+- `reserved` — held by checkouts in progress
+- `remaining` — `target − paid`
+- `available` — `remaining − reserved`, the most anyone can start paying right now
+- `fairShare` — suggestion only: `remaining` split across members who haven't contributed yet
+- `minContribution` — smallest allowed contribution, unless it exactly clears what's left
+- `fullyFunded` — pot is covered
+
 ---
 
 ### GET /wallet/session/:sessionId/my-payment
@@ -2212,6 +2305,8 @@ Get the authenticated user's own payment record for a session.
 - `sessionId` — session ID
 
 **Success Response** `200 OK`: Session payment document.
+
+**Note**: in a POOL session a player can have several contribution rows (top-ups, expired checkouts); this returns one of them. Use the `pool.contributors` list from `payment-status` or the payment stream for a player's total.
 
 **Error Responses**:
 - `404` — no payment record found
@@ -2225,6 +2320,32 @@ Initialize a Paystack checkout for the current user's session payment. Returns a
 
 **Path Parameters**:
 - `sessionId` — session ID
+
+**Request Body** (POOL sessions — required):
+```json
+{ "amount": 1000000 }
+```
+- `amount`: whole number of **kobo**, base (commission is added on top). Must be ≥ `minContribution` and ≤ `available`, except that a smaller amount is allowed if it exactly clears what's left. Ignored for PER_PERSON sessions (their amount is fixed).
+
+**Success Response — POOL** `201 Created`:
+```json
+{
+  "authorizationUrl": "https://checkout.paystack.com/...",
+  "reference": "SESSION_507f..._USER_507f..._uuid",
+  "amount": 1050000,
+  "baseAmount": 1000000,
+  "commissionAmount": 50000,
+  "expiresAt": "2026-10-10T12:15:00.000Z"
+}
+```
+- `amount` is what Paystack charges; `baseAmount` is what counts toward the pot. The pot share is held until `expiresAt`.
+- If the player already has a checkout in progress on this session, it's settled first (confirmed if Paystack shows it paid, otherwise released) before the new one is reserved.
+- If the pot is already full, returns `{ "alreadyPaid": true, "status": "confirmed", "pool": { ... } }`.
+
+**Error Responses — POOL**:
+- `409` — amount is more than `available` right now; body includes the current `pool` so the app can update its numbers
+- `400` — below `minContribution` (and not an exact clear), not a whole number, or payment isn't open yet (session not full)
+- `403` — caller is not a member of the session
 
 **Success Response** `201 Created`:
 ```json
@@ -2242,7 +2363,26 @@ Initialize a Paystack checkout for the current user's session payment. Returns a
 - After payment, Paystack fires `POST /webhooks/paystack` and the server confirms payment automatically
 
 **Error Responses**:
-- `404` — no pending payment found for this user in this session
+- `404` — no pending payment found for this user in this session (PER_PERSON)
+
+---
+
+### GET /wallet/session/:sessionId/payment-stream
+Server-Sent Events stream of a POOL session's live paid / remaining.
+
+**Auth required**: Yes (JWT cookie). Session members, the pitch owner, or `SUPER_ADMIN`.
+
+**Events** (each `data:` is JSON):
+- On connect: `{ "type": "pool_snapshot", "snapshot": { ...pool }, "timestamp": ... }`
+- On every change: `{ "type": "pool_update", "reason": "...", "snapshot": { ...pool }, "timestamp": ... }`. `reason` is one of `pool_opened`, `reserved`, `reservation_released`, `paid`, `refund_requested`, `member_left`, `recomputed`.
+- Every 30s: `{ "type": "heartbeat", "timestamp": ... }`
+
+`snapshot` has the same shape as `pool` in `GET /wallet/session/:sessionId/payment-status`. Every event carries the **full** state, never a delta — just render the latest snapshot. On reconnect, the first event is a fresh snapshot from the database, so nothing missed while disconnected matters.
+
+**Error Responses**:
+- `403` — not a member / owner / super admin
+- `400` — the session isn't a POOL session
+- `404` — session not found
 
 ---
 
@@ -2399,6 +2539,27 @@ Update the platform commission percentage. Takes effect for payments created *af
 
 ---
 
+### GET /settings/min-contribution
+Smallest contribution (kobo) a player can make into a POOL session. Super admin only.
+
+**Success Response** `200 OK`:
+```json
+{ "minContributionAmount": 50000 }
+```
+
+Defaults to `50000` (₦500). A contribution smaller than this is still accepted if it exactly clears what's left in the pot.
+
+### PATCH /settings/min-contribution
+**Auth required**: Yes (JWT cookie + `SUPER_ADMIN` role)
+
+**Request Body**:
+```json
+{ "amount": 50000 }
+```
+- `amount`: whole number of kobo, ≥ 0
+
+---
+
 ## Location Billing
 
 Endpoints for location owners to view session payment history grouped by team and validate per-team payment completeness.
@@ -2470,6 +2631,15 @@ Get paginated transaction history for a location, grouped by calendar date. Each
 - `paymentStatus`: `"COMPLETE"` (all team members paid) | `"PARTIAL"` (some paid) | `"UNPAID"` (none paid)
 - `date` — ISO date string (`YYYY-MM-DD`) derived from the latest payment timestamp in that group
 - Only `PAID` payments are included — pending/failed records are excluded
+- `paymentMode`: `"PER_PERSON"` | `"POOL"`
+- **POOL sessions** (hourly, total price split between players) appear as **one entry per session**, not per team, since the total is owed by the session as a whole:
+  - `teamName` is `"Whole session"`, `setId` is `null`
+  - `teamSize` is the number of session members
+  - `membersPaid` counts distinct players who contributed (a player who topped up is counted once)
+  - `totalPaid` is the sum of all paid contributions
+  - `expectedTotal` is the session's `paymentTarget`
+  - `paymentStatus` is `"COMPLETE"` once `totalPaid >= expectedTotal`, otherwise `"PARTIAL"`
+  - `paymentAmount` is `0` for these sessions
 
 ---
 
@@ -2531,13 +2701,22 @@ Validate payment completeness for every team in a single session. Shows each tea
 
 **Field Notes**:
 - `status` per team: `"COMPLETE"` | `"PARTIAL"` | `"UNPAID"`
-- `playerDetails[].status`: `"PAID"` | `"PENDING"` | `"NOT_PAID"`
+- `playerDetails[].status`: `"PAID"` | `"PENDING"` | `"NOT_PAID"` (POOL sessions may also show `"EXPIRED"` for an abandoned checkout)
 - `shortfall` — amount still outstanding (0 when complete)
 - `allTeamsPaid` — `true` only when every team in the session has status `"COMPLETE"`
+- `paymentMode`: `"PER_PERSON"` | `"POOL"`; `paymentTarget` is the session total for POOL, `null` otherwise
+
+**POOL sessions** — the total is owed by the session, not per team:
+- `grandExpected` = `paymentTarget`
+- `grandPaid` = every paid contribution on the session, including from players no longer in a team (e.g. left after the pot was full)
+- `shortfall` = `grandExpected − grandPaid`
+- `allTeamsPaid` = pot is full
+- Per team, `expectedTotal` and `shortfall` are `null`. `totalPaid` is what that team's players contributed. `status` is `"COMPLETE"` for every team once the pot is full, otherwise `"PARTIAL"` / `"UNPAID"` by whether the team's players have put anything in.
+- `playerDetails[].amountPaid` sums all of a player's paid contributions
 
 **Error Responses**:
 - `404` — session not found
-- `403` — session does not belong to this owner's location
+- `403` — session does not belong to this owner's location (checked against the location's owner, so this also applies before anyone has paid)
 
 ---
 
@@ -2679,7 +2858,7 @@ Update pricing options for a location. Owner only.
 {
   "tier": "paid",
   "pricingOption": "hourly",
-  "paymentPerPersonHourly": 150000
+  "pricePerHour": 2000000
 }
 ```
 
@@ -2702,9 +2881,9 @@ Update pricing options for a location. Owner only.
 - `tier`: `"free"` | `"paid"` (required)
 - If `tier` is `"paid"`, the owner must already have at least one active bank account on file (`POST /wallet/bank-accounts`) — switching to paid with no payout destination configured is rejected
 - If `tier` is `"paid"`, `pricingOption` is required
-- If `pricingOption` is `"hourly"`, `paymentPerPersonHourly` must be greater than `0`
+- If `pricingOption` is `"hourly"`, `pricePerHour` (total for the pitch per hour, kobo) must be greater than `0`. Existing sessions keep the price they were configured with.
 - If `pricingOption` is `"monthly"`, `paymentPerPersonMonthly` must be greater than `0`
-- Setting `tier` to `"free"` clears `pricingOption`, `paymentPerPersonHourly`, and `paymentPerPersonMonthly`
+- Setting `tier` to `"free"` clears `pricingOption`, `pricePerHour`, `paymentPerPersonHourly` (legacy), and `paymentPerPersonMonthly`
 
 **Success Response** `200 OK`:
 ```json
@@ -2779,6 +2958,16 @@ Manually credit a user's wallet. Super admin only.
 
 ---
 
+### POST /admin/billing/sessions/:sessionId/recompute-pool
+Rebuilds a POOL session's `amountPaid` / `amountReserved` counters from its payment rows (the source of truth), completes the pot if that shows it full, and broadcasts the result. Super admin only — for reconciliation if a drift warning shows up in the logs.
+
+**Success Response** `201 Created`:
+```json
+{ "sessionId": "507f...", "amountPaid": 1200000, "amountReserved": 0 }
+```
+
+---
+
 ### GET /admin/billing/commission-summary
 All-time platform revenue from commission. Super admin only.
 
@@ -2810,7 +2999,7 @@ Receive and process events from Paystack. **This endpoint is called by Paystack,
 **Handled Events**:
 | Event | Action |
 |---|---|
-| `charge.success` (session) | metadata has `sessionId`+`userId` → confirms session payment, credits owner wallet with `baseAmount`, records commission (if any) |
+| `charge.success` (session) | metadata has `sessionId`+`userId` → confirms session payment, credits owner wallet with `baseAmount`, records commission (if any). POOL contributions are matched by `reference`; a contribution that would overfund the pot (or arrives for a cancelled session / a player who left) is confirmed then refunded in full |
 | `charge.success` (tournament) | metadata has `type: "TOURNAMENT_REGISTRATION"` → credits the location owner's wallet and marks the team's registration as PAID |
 | `charge.success` (wallet funding) | metadata has `type: "WALLET_FUNDING"` + `walletId` → credits the owner's wallet and marks the pending transaction as SUCCESS |
 | `transfer.success` | Marks the withdrawal transaction as SUCCESS |
@@ -2821,9 +3010,10 @@ Receive and process events from Paystack. **This endpoint is called by Paystack,
 | `refund.failed` | Marks the payment `REFUND_FAILED` — needs manual follow-up/retry, no automatic retry |
 | `refund.needs-attention` | Marks the payment `REFUND_NEEDS_ATTENTION` — Paystack couldn't determine the player's bank account from the original transaction. **Not currently automatable**: this app doesn't collect player bank details anywhere, so completing this requires an ops person to obtain them and call the retry-refund flow manually. |
 
-**Idempotency**: Every webhook is stored in `WebhookEvent` before processing. A unique index on `eventId` means duplicate deliveries of the same event are silently ignored — no double-credits. `eventId` is `data.reference` for charge/transfer events; refund events don't carry that field, so it's derived as `` `${event}_${data.transaction_reference}` `` instead.
+**Idempotency**: Every webhook is stored in `WebhookEvent` before processing. A unique index on `eventId` means only one record ever exists per event. `eventId` is `data.reference` for charge/transfer events; refund events don't carry that field, so it's derived as `` `${event}_${data.transaction_reference}` `` instead.
 
-**Known limitation**: the dedupe record is written *before* processing, so if processing throws partway through, Paystack's retries of that same event will be treated as duplicates and silently dropped rather than retried. Not specific to refunds — applies to all webhook types.
+- Duplicate delivery of an event that was **processed** → `{ "status": "duplicate" }`, nothing re-runs.
+- If processing **throws**, the endpoint returns an error so Paystack redelivers, and the event stays `processed: false`. A redelivery more than 2 minutes after the last attempt reclaims and reprocesses it. This is safe because every step is idempotent: the atomic `PENDING → PAID` claim, the wallet credit's reference check, and the commission record's unique index.
 
 **Success Response** `201 Created`:
 ```json
@@ -2978,7 +3168,11 @@ interface Session {
   isFull: boolean;
   paymentRequired: boolean;
   paymentAmount?: number;
-  paymentStatus: 'NOT_INITIATED' | 'PENDING' | 'COMPLETED' | 'EXPIRED'; // flips PENDING -> COMPLETED once every member's SessionPayment confirms as PAID (checked after each individual confirmation, not on a timer)
+  paymentMode?: 'POOL' | 'PER_PERSON'; // POOL for hourly sessions (default going forward); PER_PERSON for monthly and pre-pooling sessions
+  paymentTarget?: number;   // POOL: total the session pays (kobo, before commission)
+  amountPaid?: number;      // POOL: confirmed contributions (kobo). Concurrency guard / cache — use the pool snapshot for display
+  amountReserved?: number;  // POOL: held by in-progress checkouts (kobo)
+  paymentStatus: 'NOT_INITIATED' | 'PENDING' | 'COMPLETED' | 'EXPIRED'; // PER_PERSON: flips PENDING -> COMPLETED once every member's SessionPayment confirms as PAID. POOL: PENDING once the session fills (pot open), COMPLETED once paid >= paymentTarget
   paymentDeadline?: Date;
   allPaymentsCompleted: boolean; // mirrors paymentStatus === 'COMPLETED'
   status: 'OPEN' | 'CANCELLED' | 'COMPLETED' | 'REFUNDED'; // lifecycle status, layered on top of finished/paymentStatus/isFull above — see POST /sessions/cancel. Absent on sessions created before this field existed until the backfill migration runs.
@@ -3002,7 +3196,8 @@ interface Location {
   owner?: string;                   // User ID
   tier: 'free' | 'paid';
   pricingOption?: 'hourly' | 'monthly';
-  paymentPerPersonHourly?: number;  // set when pricingOption === 'hourly'
+  pricePerHour?: number;            // total for the pitch per hour (kobo), set when pricingOption === 'hourly'
+  paymentPerPersonHourly?: number;  // legacy per-player hourly price — no longer set
   paymentPerPersonMonthly?: number; // set when pricingOption === 'monthly'
   openingHour?: string;             // HH:mm, e.g. "08:00"
   closingHour?: string;             // HH:mm, e.g. "22:00"
@@ -3041,7 +3236,7 @@ interface SessionPayment {
   baseAmount?: number;         // what the owner is credited (location's listed price). Absent on payments created before commission existed — treat as equal to `amount` (no commission) in that case.
   commissionAmount?: number;   // platform's cut, added on top of baseAmount. Never credited to the owner.
   commissionPercentage?: number; // commission rate snapshotted at the time this payment was created
-  status: 'PENDING' | 'PAID' | 'FAILED' | 'REFUND_PENDING' | 'REFUND_NEEDS_ATTENTION' | 'REFUND_FAILED' | 'REFUNDED';
+  status: 'PENDING' | 'PAID' | 'FAILED' | 'REFUND_PENDING' | 'REFUND_NEEDS_ATTENTION' | 'REFUND_FAILED' | 'REFUNDED' | 'EXPIRED'; // EXPIRED: POOL checkout reservation that timed out unpaid
   paymentReference: string;
   previousReferences?: string[]; // references superseded by a checkout retry — verified alongside `paymentReference` so a payment completed on an old, already-superseded checkout tab still gets caught
   transactionId?: string;
@@ -3051,6 +3246,7 @@ interface SessionPayment {
   expiresAt?: Date;
   metadata?: {
     pricingOption?: 'hourly' | 'monthly'; // used for recurring payment checks
+    paymentMode?: 'POOL';                 // set on POOL contribution rows (one row per contribution; a player may have several)
     [key: string]: any;
   };
   createdAt: string;

@@ -14,6 +14,10 @@ export enum PaymentStatus {
   REFUND_NEEDS_ATTENTION = 'REFUND_NEEDS_ATTENTION',
   REFUND_FAILED = 'REFUND_FAILED',
   REFUNDED = 'REFUNDED',
+  // POOL only: a checkout reservation that timed out without Paystack
+  // confirming payment; its reserved amount went back into the pool. A late
+  // charge.success can still claim an EXPIRED row (see confirmPoolContribution).
+  EXPIRED = 'EXPIRED',
 }
 
 @Schema({ timestamps: true, versionKey: false })
@@ -101,7 +105,11 @@ export class SessionPayment extends AbstractDocument {
 export const SessionPaymentSchema = SchemaFactory.createForClass(SessionPayment);
 
 // Indexes for fast queries
-SessionPaymentSchema.index({ sessionId: 1, userId: 1 }, { unique: true });
+// Not unique: in POOL mode each row is one contribution and a player may
+// contribute more than once. paymentReference (below) is the uniqueness /
+// idempotency key. Existing deployments have the old unique index — drop it
+// with src/helpers/migrate-pool-payments.ts.
+SessionPaymentSchema.index({ sessionId: 1, userId: 1 });
 SessionPaymentSchema.index({ sessionId: 1, status: 1 });
 SessionPaymentSchema.index({ userId: 1, status: 1, createdAt: -1 });
 SessionPaymentSchema.index({ ownerId: 1, status: 1, createdAt: -1 });

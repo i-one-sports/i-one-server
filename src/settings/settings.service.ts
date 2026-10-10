@@ -46,4 +46,22 @@ export class SettingsService {
 
     return updated;
   }
+
+  async getMinContributionAmount(): Promise<number> {
+    const settings = await this.getSettings();
+    return settings.minContributionAmount ?? 50000;
+  }
+
+  async setMinContributionAmount(amount: number) {
+    if (!Number.isInteger(amount) || amount < 0) {
+      throw new BadRequestException('Minimum contribution must be a non-negative whole number of kobo');
+    }
+
+    await this.getSettings();
+
+    const updated = await this.settingsRepository.upsert({}, { minContributionAmount: amount });
+    this.logger.log(`Minimum pool contribution updated to ${amount} kobo`);
+
+    return updated;
+  }
 }

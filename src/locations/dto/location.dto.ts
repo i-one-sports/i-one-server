@@ -60,14 +60,16 @@ export class CreateLocationDto {
   @IsNotEmpty()
   pricingOption?: LOCATION_PRICING_OPTION;
 
+  // Kobo. Total price of the pitch per hour — members split it between
+  // themselves (pooled payment).
   @ValidateIf(
     (dto: CreateLocationDto) =>
       dto.tier === LOCATION_TIER.PAID &&
       dto.pricingOption === LOCATION_PRICING_OPTION.HOURLY,
   )
   @IsNumber()
-  @Min(0)
-  paymentPerPersonHourly?: number;
+  @Min(1)
+  pricePerHour?: number;
 
   @ValidateIf(
     (dto: CreateLocationDto) =>
@@ -121,6 +123,7 @@ export class UpdateLocationPricingDto {
   @IsNotEmpty()
   pricingOption?: LOCATION_PRICING_OPTION;
 
+  // Kobo. Total price of the pitch per hour (pooled payment).
   @ValidateIf(
     (dto: UpdateLocationPricingDto) =>
       dto.tier === LOCATION_TIER.PAID &&
@@ -128,7 +131,7 @@ export class UpdateLocationPricingDto {
   )
   @IsNumber()
   @Min(1)
-  paymentPerPersonHourly?: number;
+  pricePerHour?: number;
 
   @ValidateIf(
     (dto: UpdateLocationPricingDto) =>

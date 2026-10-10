@@ -26,6 +26,13 @@ export class Settings extends AbstractDocument {
   @Prop({ type: Date, required: false })
   commissionUpdatedAt: Date;
 
+  // Kobo. Smallest contribution a player can make into a POOL session (stops
+  // ₦1 payments being eaten by Paystack fees). A contribution that exactly
+  // clears what's left in the pool is always allowed, even if smaller.
+  // Default ₦500 is a placeholder — needs Ops sign-off before launch.
+  @Prop({ type: Number, default: 50000, min: 0 })
+  minContributionAmount: number;
+
   createdAt?: Date;
   updatedAt?: Date;
 }
