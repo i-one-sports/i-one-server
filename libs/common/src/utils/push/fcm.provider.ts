@@ -41,12 +41,24 @@ export class FcmPushProvider extends BasePushProvider {
     this.app = getFcmApp(configService);
   }
 
-  protected async dispatch(message: PushMessage): Promise<void> {
-    await getMessaging(this.app).send({
+  protected async dispatch(message: PushMessage): Promise<string> {
+    return getMessaging(this.app).send({
       token: message.deviceToken,
       notification: { title: message.title, body: message.body },
       data: message.data,
     });
+  }
+
+  protected isRetryableError(error: any): boolean {
+    return [
+      'messaging/unavailable',
+      'messaging/internal-error',
+      'messaging/server-unavailable',
+      'messaging/message-rate-exceeded',
+      'messaging/device-message-rate-exceeded',
+      'app/network-error',
+      'app/network-timeout',
+    ].includes(error?.code);
   }
 
   protected isInvalidTokenError(error: any): boolean {

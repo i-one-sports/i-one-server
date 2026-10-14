@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PushData } from './push-provider.interface';
+import { PushData, PushResult } from './push-provider.interface';
 import { BasePushProvider } from './base-push.provider';
 import { FcmPushProvider } from './fcm.provider';
 import { NoopPushProvider } from './noop.provider';
@@ -60,6 +60,11 @@ export class PushNotificationService {
   // Raw deviceToken, not a userId — same separation MailerService keeps by taking a raw email.
   async send(deviceToken: string, title: string, body: string, data?: PushData): Promise<void> {
     await this.provider.send({ deviceToken, title, body, data });
+  }
+
+  // Same as send(), but returns what happened — for tracked delivery.
+  async deliver(deviceToken: string, title: string, body: string, data?: PushData): Promise<PushResult> {
+    return this.provider.deliver({ deviceToken, title, body, data });
   }
 
   onInvalidToken(callback: (deviceToken: string) => void): void {

@@ -11,6 +11,7 @@ import {
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { SessionsService } from './sessions.service';
+import { SessionReminderService } from './session-reminder.service';
 import { SessionsController } from './sessions.controller';
 import { UserRepository } from 'src/users/users.repository';
 import { LocationRepository } from 'src/locations/locations.repository';
@@ -35,6 +36,7 @@ import { NotificationsModule } from 'src/notifications/notifications.module';
   controllers: [SessionsController],
   providers: [
     SessionsService,
+    SessionReminderService,
     SessionRepository,
     UserRepository,
     LocationRepository,

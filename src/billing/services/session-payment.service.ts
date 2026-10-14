@@ -928,6 +928,49 @@ export class SessionPaymentService {
     return count > 0;
   }
 
+  // Payment state for many sessions in ONE query — for jobs that look at
+  // lots of sessions at once (start reminders) and would otherwise query
+  // per session. Same rules as areAllPaymentsCompleted / getPoolSnapshot /
+  // getSessionMemberPaymentMap, computed from the rows in memory.
+  async getPaymentSummaries(sessionIds: Types.ObjectId[]): Promise<
+    Map<string, { paidBase: number; rowCount: number; unpaidCount: number; statusByUser: Map<string, PaymentStatus> }>
+  > {
+    const summaries = new Map<
+      string,
+      { paidBase: number; rowCount: number; unpaidCount: number; statusByUser: Map<string, PaymentStatus> }
+    >();
+    if (sessionIds.length === 0) return summaries;
+
+    const rows = await this.sessionPaymentRepository
+      .findRaw()
+      .find(
+        { sessionId: { $in: sessionIds } },
+        { sessionId: 1, userId: 1, status: 1, baseAmount: 1, amount: 1, _id: 0 },
+      )
+      .lean();
+
+    for (const row of rows as any[]) {
+      const key = row.sessionId.toString();
+      let summary = summaries.get(key);
+      if (!summary) {
+        summary = { paidBase: 0, rowCount: 0, unpaidCount: 0, statusByUser: new Map() };
+        summaries.set(key, summary);
+      }
+      summary.rowCount++;
+      if (row.status === PaymentStatus.PAID) {
+        summary.paidBase += row.baseAmount ?? row.amount ?? 0;
+      } else {
+        summary.unpaidCount++;
+      }
+      const userKey = row.userId.toString();
+      if (summary.statusByUser.get(userKey) !== PaymentStatus.PAID) {
+        summary.statusByUser.set(userKey, row.status);
+      }
+    }
+
+    return summaries;
+  }
+
   async getSessionMemberPaymentMap(sessionId: string): Promise<Map<string, PaymentStatus>> {
     const payments = await this.sessionPaymentRepository
       .findRaw()

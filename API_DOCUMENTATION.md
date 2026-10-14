@@ -2773,6 +2773,29 @@ data: {"type":"heartbeat","timestamp":1234567890}
 | `SESSION_CONFIGURED` | Captain calls `POST /sessions/create/:sessionId` | Location owner |
 | `SESSION_BROADCAST` | Captain/owner calls `POST /sessions/notify/:sessionId` | All session members |
 | `ADMIN_BROADCAST` | Super admin calls `POST /notifications/broadcast` | Every user with a registered device token |
+| `SESSION_REMINDER` | Automatic, 15 and 5 minutes before a session starts | Session members; plus the captain and pitch owner when it isn't fully paid |
+
+**`SESSION_REMINDER`**: sent by a background job, so no endpoint triggers it. It goes out on this stream and as a phone push. Times in the text are Lagos time. Its `payload`:
+```json
+{
+  "sessionId": "507f...",
+  "minutesBefore": 15,
+  "role": "member",
+  "fullyPaid": false,
+  "startTime": "2026-05-03T16:00:00.000Z"
+}
+```
+- `minutesBefore`: `15` or `5`. If the server missed the 15-minute moment (e.g. it restarted), only the 5-minute one is sent. A session booked less than 15 minutes ahead gets a reminder with the real minutes left ("Kick-off in 12 min").
+- `role`: `member` | `captain` | `owner`. A captain who is also playing gets two reminders: their player one and a captain one.
+- `fullyPaid`: use it to choose the action button. `true` → "View game"; `false` → "Pay now" for members, "Manage game" (reschedule/cancel) for the captain and owner.
+- The message depends on the situation:
+  - **Fully paid or free:** members get "Kick-off in 14 min — Your game at Lekki Pitch starts at 5:00 PM — get ready!"
+  - **Pool not covered:** members get "₦8,000 still needed for your 5:00 PM game… Pay now or it can't start."
+  - **Per-player, not all paid:** players who owe get "You haven't paid…"; players who paid get "You're paid — waiting on 2 players…".
+  - **Not full yet** (payment hasn't opened): members get "…still needs 3 more players before payment opens. Invite friends to join."
+  - **Captain** (when not fully paid): "…Collect payment, reschedule or cancel." (or "Invite players, reschedule or cancel." when not full).
+  - **Pitch owner:** only notified when the session isn't fully paid.
+- A rescheduled session gets fresh reminders for its new time. Reminders for cancelled or moved sessions, and "please pay" reminders for sessions that have since been fully paid, are dropped before sending.
 
 **Notes**:
 - Reconnect automatically if the connection drops — browsers handle this natively with `EventSource`
@@ -2826,6 +2849,55 @@ Send a push notification directly to a specific FCM device token. Super admin on
 
 **Notes**:
 - Always returns `200` regardless of whether the push actually succeeded — delivery failures (e.g. an invalid/expired token) are caught internally and only logged server-side (`Notification sent successfully` / `Notification failed: ...`), never surfaced in the response. Check server logs to confirm a test actually landed.
+
+---
+
+### Notification delivery tracking (super admin)
+
+Notifications sent through the **outbox** (currently `SESSION_REMINDER`) are stored as rows that record exactly what happened. Delivery runs in the background with retries: the request that triggers a notification never waits on FCM.
+
+Each row has:
+- `status`: `PENDING` → `SENDING` → one of:
+  - `SENT`;
+  - `FAILED`;
+  - `SKIPPED` (no longer relevant or past its deadline, so deliberately not sent).
+- `deliveredVia`: `["in_app","push"]` if the phone push was accepted by FCM, `["in_app"]` if not.
+- `pushResult`: what happened, one of:
+
+  | `pushResult` | Meaning |
+  |---|---|
+  | `PUSHED` | FCM accepted the push |
+  | `NO_DEVICE` | the user has no device registered |
+  | `INVALID_TOKEN` | the device token is dead; it's cleared from the user |
+  | `PUSH_DISABLED` | Firebase isn't configured |
+  | `RETRYABLE` | temporary FCM/Redis problem (the last try if `FAILED`) |
+  | `PERMANENT` | FCM rejected it and retrying won't help |
+  | `EXPIRED` / `OBSOLETE` | skipped |
+
+- `attempts`, `lastError` (FCM's error code and message), `fcmMessageId`, `sentAt`.
+- Retries: temporary failures are retried after 30s and then 2 min, and become `FAILED` once the third attempt fails. `SENT` rows are kept 30 days, `FAILED` rows 90 days.
+- `SENT` means FCM accepted the push. FCM doesn't report whether the user saw it. The in-app stream only reaches users with the app open at that moment.
+
+#### GET /admin/notifications/summary?hours=24
+Counts for the period (default: last 24 hours).
+
+```json
+{
+  "since": "2026-10-12T18:00:00.000Z",
+  "total": 120,
+  "byStatus": { "SENT": 115, "FAILED": 2, "SKIPPED": 3 },
+  "sent": { "pushed": 98, "inAppOnlyNoDevice": 15, "inAppOnlyInvalidToken": 2 },
+  "failed": { "pushDisabled": 0, "permanent": 1, "retriesExhausted": 1 }
+}
+```
+
+#### GET /admin/notifications?status=FAILED&type=SESSION_REMINDER&userId=&page=1&limit=50
+Notification rows, newest first, with their errors. All filters are optional. `limit` max is 200.
+
+#### POST /admin/notifications/:id/retry
+Puts a `FAILED` or `SKIPPED` notification back in the queue (attempts reset). Returns `404` if the row isn't `FAILED` or `SKIPPED`.
+
+**Auth required** (all three): Yes (JWT cookie + `SUPER_ADMIN` role)
 
 ---
 
