@@ -5,6 +5,7 @@ import {
   LOCATION_PRICING_OPTION,
   LOCATION_TIER,
   SESSION_PAYMENT_MODE,
+  SESSION_STATUS,
 } from '@app/common';
 import { SessionsService } from './sessions.service';
 
@@ -19,7 +20,13 @@ describe('SessionsService', () => {
     delete: jest.Mock;
     findRaw: jest.Mock;
   };
-  let locationRepository: { find: jest.Mock; findOne: jest.Mock };
+  let locationRepository: { find: jest.Mock; findOne: jest.Mock; findRaw: jest.Mock };
+  // Raw models behind findRaw(), used by bookSlot inside the transaction.
+  let sessionModel: { findOne: jest.Mock; findOneAndUpdate: jest.Mock };
+  let locationModel: { updateOne: jest.Mock };
+  let connection: { transaction: jest.Mock };
+  let slotClash: any;
+  const tx = { id: 'tx' };
   let matchRepository: { findRaw: jest.Mock };
   let userRepository: {
     findOne: jest.Mock;
@@ -53,7 +60,14 @@ describe('SessionsService', () => {
       delete: jest.fn(),
       findRaw: jest.fn(),
     };
-    locationRepository = { find: jest.fn(), findOne: jest.fn() };
+    slotClash = null;
+    sessionModel = {
+      findOne: jest.fn(() => ({ lean: () => Promise.resolve(slotClash) })),
+      findOneAndUpdate: jest.fn().mockResolvedValue({ _id: sessionId }),
+    };
+    locationModel = { updateOne: jest.fn().mockResolvedValue({}) };
+    connection = { transaction: jest.fn(async (fn: any) => fn(tx)) };
+    locationRepository = { find: jest.fn(), findOne: jest.fn(), findRaw: jest.fn(() => locationModel) };
     matchRepository = { findRaw: jest.fn() };
     userRepository = {
       findOne: jest.fn(),
@@ -84,7 +98,9 @@ describe('SessionsService', () => {
       sessionPaymentService as any,
       notificationService as any,
       { get: jest.fn(), set: jest.fn(), delete: jest.fn() } as any,
+      connection as any,
     );
+    sessionRepository.findRaw.mockReturnValue(sessionModel);
   });
 
   describe('startSession', () => {
@@ -151,8 +167,6 @@ describe('SessionsService', () => {
         openingHour: '00:00',
         closingHour: '23:59',
       });
-      sessionRepository.findOneAndUpdate.mockResolvedValue({ _id: sessionId });
-
       await service.createSession(
         {
           setNumber: 5,
@@ -166,8 +180,8 @@ describe('SessionsService', () => {
         sessionId.toString(),
       );
 
-      expect(sessionRepository.findOneAndUpdate).toHaveBeenCalledWith(
-        { _id: sessionId.toString() },
+      expect(sessionModel.findOneAndUpdate).toHaveBeenCalledWith(
+        { _id: sessionId },
         expect.objectContaining({
           maxNumber: 10,
           paymentRequired: true,
@@ -178,6 +192,7 @@ describe('SessionsService', () => {
           paymentStatus: 'NOT_INITIATED',
           allPaymentsCompleted: false,
         }),
+        { session: tx, new: true, lean: true },
       );
     });
 
@@ -210,7 +225,7 @@ describe('SessionsService', () => {
           sessionId.toString(),
         ),
       ).rejects.toMatchObject({ status: HttpStatus.BAD_REQUEST });
-      expect(sessionRepository.findOneAndUpdate).not.toHaveBeenCalled();
+      expect(sessionModel.findOneAndUpdate).not.toHaveBeenCalled();
     });
 
     it('rejects non-captains', async () => {
@@ -484,7 +499,7 @@ describe('SessionsService', () => {
       await expect(
         service.recheduleSession(sessionId.toString(), startTime, 120, userId.toString()),
       ).rejects.toMatchObject({ status: HttpStatus.CONFLICT });
-      expect(sessionRepository.findOneAndUpdate).not.toHaveBeenCalled();
+      expect(sessionModel.findOneAndUpdate).not.toHaveBeenCalled();
     });
 
     it('refuses to flip a legacy per-person session with open bills into a pool', async () => {
@@ -517,13 +532,185 @@ describe('SessionsService', () => {
         })
         .mockResolvedValue(null);
       locationRepository.findOne.mockResolvedValue(location);
-      sessionRepository.findOneAndUpdate.mockResolvedValue({ _id: sessionId });
 
       await service.recheduleSession(sessionId.toString(), startTime, 60, userId.toString());
 
-      const [, update] = sessionRepository.findOneAndUpdate.mock.calls[0];
+      const [, update] = sessionModel.findOneAndUpdate.mock.calls[0];
       expect(update).not.toHaveProperty('paymentStatus');
       expect(update).not.toHaveProperty('paymentTarget');
+    });
+  });
+
+  describe('slot booking', () => {
+    const startTime = new Date('2026-05-03T10:00:00.000Z');
+    const freeLocation = {
+      _id: locationId,
+      owner: ownerId,
+      name: 'Lekki Pitch',
+      tier: LOCATION_TIER.FREE,
+      openingHour: '00:00',
+      closingHour: '23:59',
+    };
+    const config = {
+      setNumber: 2,
+      playersPerTeam: 2,
+      timeDuration: 60,
+      minsPerSet: 10,
+      startTime,
+      winningDecider: 'penalties' as any,
+    };
+    const configure = () => service.createSession(config, userId.toString(), sessionId.toString());
+
+    beforeEach(() => {
+      sessionRepository.findOne.mockResolvedValue({ _id: sessionId, location: locationId });
+      captainsService.isCaptain.mockResolvedValue(true);
+      locationRepository.findOne.mockResolvedValue(freeLocation);
+      (notificationService as any).send = jest.fn().mockResolvedValue(undefined);
+    });
+
+    it('bumps the pitch, checks for clashes, and saves — in that order, all in one transaction', async () => {
+      await configure();
+
+      expect(connection.transaction).toHaveBeenCalledTimes(1);
+      expect(locationModel.updateOne).toHaveBeenCalledWith(
+        { _id: locationId },
+        { $inc: { bookingVersion: 1 } },
+        { session: tx },
+      );
+      expect(sessionModel.findOne).toHaveBeenCalledWith(
+        {
+          _id: { $ne: sessionId },
+          location: locationId,
+          status: { $nin: [SESSION_STATUS.CANCELLED, SESSION_STATUS.REFUNDED] },
+          startTime: { $lt: new Date('2026-05-03T11:00:00.000Z') },
+          stopTime: { $gt: startTime },
+        },
+        { _id: 1 },
+        { session: tx },
+      );
+      expect(sessionModel.findOneAndUpdate).toHaveBeenCalledWith(
+        { _id: sessionId },
+        expect.objectContaining({ startTime, stopTime: new Date('2026-05-03T11:00:00.000Z') }),
+        { session: tx, new: true, lean: true },
+      );
+
+      const order = (m: jest.Mock) => m.mock.invocationCallOrder[0];
+      expect(order(locationModel.updateOne)).toBeLessThan(order(sessionModel.findOne));
+      expect(order(sessionModel.findOne)).toBeLessThan(order(sessionModel.findOneAndUpdate));
+    });
+
+    it('rejects a clash at the same pitch with 409 and saves nothing', async () => {
+      slotClash = { _id: new Types.ObjectId() };
+
+      await expect(configure()).rejects.toMatchObject({ status: HttpStatus.CONFLICT });
+      expect(sessionModel.findOneAndUpdate).not.toHaveBeenCalled();
+    });
+
+    it('only notifies the owner after the booking has committed', async () => {
+      let committed = false;
+      connection.transaction.mockImplementation(async (fn: any) => {
+        const result = await fn(tx);
+        committed = true;
+        return result;
+      });
+      const committedWhenSent: boolean[] = [];
+      (notificationService as any).send = jest.fn(async () => {
+        committedWhenSent.push(committed);
+      });
+
+      await configure();
+      await new Promise(process.nextTick);
+
+      expect(committedWhenSent).toEqual([true]);
+    });
+
+    it('books reschedules through the same transaction', async () => {
+      sessionRepository.findOne.mockResolvedValue({ _id: sessionId, location: locationId, captain: userId });
+
+      await service.recheduleSession(sessionId.toString(), startTime, 60, userId.toString());
+
+      expect(connection.transaction).toHaveBeenCalledTimes(1);
+      expect(locationModel.updateOne).toHaveBeenCalledWith(
+        { _id: locationId },
+        { $inc: { bookingVersion: 1 } },
+        { session: tx },
+      );
+      expect(sessionModel.findOneAndUpdate).toHaveBeenCalledWith(
+        { _id: sessionId },
+        expect.objectContaining({ startTime, timeDuration: 60 }),
+        { session: tx, new: true, lean: true },
+      );
+    });
+  });
+
+  describe('opening hours (Lagos time)', () => {
+    // Times below are Lagos wall-clock; Lagos is UTC+1.
+    const lagos = (isoLocal: string) => new Date(`${isoLocal}+01:00`);
+    const book = (location: any, startLocal: string, minutes: number) => {
+      sessionRepository.findOne.mockResolvedValue({ _id: sessionId, location: locationId });
+      captainsService.isCaptain.mockResolvedValue(true);
+      locationRepository.findOne.mockResolvedValue({ _id: locationId, owner: ownerId, tier: LOCATION_TIER.FREE, ...location });
+      (notificationService as any).send = jest.fn().mockResolvedValue(undefined);
+      return service.createSession(
+        {
+          setNumber: 2,
+          playersPerTeam: 2,
+          timeDuration: minutes,
+          minsPerSet: 10,
+          startTime: lagos(startLocal),
+          winningDecider: 'penalties' as any,
+        },
+        userId.toString(),
+        sessionId.toString(),
+      );
+    };
+    const allowed = async (location: any, start: string, minutes: number) =>
+      expect(book(location, start, minutes)).resolves.toBeDefined();
+    const rejected = async (location: any, start: string, minutes: number) =>
+      expect(book(location, start, minutes)).rejects.toMatchObject({ status: HttpStatus.BAD_REQUEST });
+
+    const daytime = { openingHour: '08:00', closingHour: '22:00' };
+    const overnight = { openingHour: '23:00', closingHour: '05:00' };
+    const allDay = { openingHour: '00:00', closingHour: '00:00' };
+
+    it('checks a daytime pitch against Lagos time, not server time', async () => {
+      await allowed(daytime, '2026-05-03T08:00:00', 60); // opens 08:00 Lagos (07:00 UTC)
+      await allowed(daytime, '2026-05-03T21:00:00', 60); // ends exactly at closing
+      await rejected(daytime, '2026-05-03T07:30:00', 60); // before opening
+      await rejected(daytime, '2026-05-03T21:30:00', 60); // runs past closing
+    });
+
+    it('allows overnight pitches, including games that cross midnight', async () => {
+      await allowed(overnight, '2026-05-03T23:00:00', 60);
+      await allowed(overnight, '2026-05-03T23:30:00', 90); // 23:30–01:00
+      await allowed(overnight, '2026-05-04T02:00:00', 120); // 02:00–04:00, previous night's window
+      await allowed(overnight, '2026-05-04T04:00:00', 60); // ends exactly at 05:00
+      await rejected(overnight, '2026-05-04T04:30:00', 60); // runs past 05:00
+      await rejected(overnight, '2026-05-04T12:00:00', 60); // closed during the day
+      await rejected(overnight, '2026-05-03T22:30:00', 60); // starts before opening
+    });
+
+    it('treats the same opening and closing time as open 24 hours', async () => {
+      await allowed(allDay, '2026-05-03T03:00:00', 60);
+      await allowed(allDay, '2026-05-03T23:30:00', 120); // across midnight
+    });
+  });
+
+  describe('getSessionsByLocationAndDate', () => {
+    it('returns the Lagos calendar day (23:00 UTC the day before → 22:59:59.999 UTC)', async () => {
+      const chain: any = { populate: () => chain, sort: () => Promise.resolve([]) };
+      const find = jest.fn(() => chain);
+      sessionRepository.findRaw.mockReturnValue({ find });
+
+      await service.getSessionsByLocationAndDate(locationId.toString(), '2026-05-04');
+
+      expect(find).toHaveBeenCalledWith({
+        location: locationId,
+        startTime: {
+          $gte: new Date('2026-05-03T23:00:00.000Z'),
+          $lte: new Date('2026-05-04T22:59:59.999Z'),
+        },
+      });
     });
   });
 });

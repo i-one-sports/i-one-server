@@ -1,7 +1,7 @@
 import { Injectable, HttpStatus } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { CustomHttpException, SESSION_PAYMENT_MODE } from '@app/common';
+import { CustomHttpException, SESSION_PAYMENT_MODE, lagosDateKey } from '@app/common';
 import { SessionPayment, PaymentStatus } from '@app/common/schemas/session-payment.schema';
 import { Session } from '@app/common/schemas/session.schema';
 import { Set } from '@app/common/schemas/sets.schema';
@@ -200,7 +200,7 @@ export class LocationBillingService {
     const byDate = new Map<string, any[]>();
     for (const row of rows) {
       const d = row.latestPaidAt ? new Date(row.latestPaidAt) : new Date();
-      const dateKey = d.toISOString().slice(0, 10);
+      const dateKey = lagosDateKey(d); // Lagos calendar day, not UTC
       if (!byDate.has(dateKey)) byDate.set(dateKey, []);
       byDate.get(dateKey).push({
         teamName: row.teamName,

@@ -16,7 +16,15 @@ import { PaymentStatus, type SessionPayment } from '@app/common/schemas/session-
 import { TransactionSource } from '@app/common/schemas/transaction.schema';
 import { Session } from '@app/common/schemas/session.schema';
 import { randomUUID } from 'crypto';
-import { LOCATION_PRICING_OPTION, SESSION_PAYMENT_MODE, SESSION_STATUS, USER_ROLE } from '@app/common';
+import {
+  LOCATION_PRICING_OPTION,
+  SESSION_PAYMENT_MODE,
+  SESSION_STATUS,
+  USER_ROLE,
+  lagosStartOfMonth,
+  lagosStartOfWeek,
+  lagosStartOfYear,
+} from '@app/common';
 import { Location } from '@app/common/schemas/location.schema';
 import { SettingsService } from '../../settings/settings.service';
 import { PlatformCommissionRepository } from '../repositories/platform-commission.repository';
@@ -1176,12 +1184,10 @@ export class SessionPaymentService {
   async getRevenueByLocation(locationId: string) {
     const now = new Date();
 
-    const weekStart = new Date(now);
-    weekStart.setDate(now.getDate() - now.getDay());
-    weekStart.setHours(0, 0, 0, 0);
-
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const yearStart = new Date(now.getFullYear(), 0, 1);
+    // Week (from Sunday), month and year boundaries in Lagos time.
+    const weekStart = lagosStartOfWeek(now);
+    const monthStart = lagosStartOfMonth(now);
+    const yearStart = lagosStartOfYear(now);
 
     // Owner-facing revenue must reflect what the owner actually receives
     // (baseAmount), not what the player was charged (amount) — the

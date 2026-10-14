@@ -55,6 +55,13 @@ export class Location extends AbstractDocument {
   @Prop({ type: Number, required: false })
   pricePerHour?: number;
 
+  // Bumped inside every booking transaction (SessionsService.bookSlot) so
+  // two concurrent bookings at this pitch write the same document and
+  // MongoDB lets only one commit — the other retries and sees the clash.
+  // Nothing reads the value itself.
+  @Prop({ type: Number, default: 0 })
+  bookingVersion?: number;
+
   @Prop({ type: Number, required: false })
   paymentPerPersonMonthly?: number;
 

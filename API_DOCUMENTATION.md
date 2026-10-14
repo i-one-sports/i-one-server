@@ -625,8 +625,7 @@ Register a new sports location. Owner only.
 - `pricingOption`: `"hourly"` | `"monthly"` — required when `tier` is `"paid"`
 - `pricePerHour`: **total** price of the pitch per hour, in **kobo** — required when `pricingOption` is `"hourly"` (e.g. `2000000` = ₦20,000/hr). The players in a session split it between themselves however they like (pooled payment — see [Wallet & Payments](#wallet--payments)). Replaces the old per-player `paymentPerPersonHourly`, which is no longer accepted.
 - `paymentPerPersonMonthly`: amount per player per month, in **kobo** — required when `pricingOption` is `"monthly"`
-- `openingHour` / `closingHour`: operating hours in `HH:mm` 24-hour format (e.g. `"08:00"`, `"22:00"`). Sessions cannot be booked outside these hours.
-- Sessions that span midnight are rejected
+- `openingHour` / `closingHour`: operating hours in `HH:mm` 24-hour format (e.g. `"08:00"`, `"22:00"`). Sessions cannot be booked outside these hours. All times are **Lagos time** (WAT, UTC+1), whatever timezone the server runs in. `closingHour` earlier than `openingHour` means open overnight (e.g. `23:00`–`05:00`, and a game from 23:30 to 01:00 is fine). The same time for both (e.g. `00:00`–`00:00`) means open 24 hours.
 
 **Success Response** `201 Created`: Full location document.
 
@@ -844,7 +843,7 @@ Get revenue earned at this location for all time periods in a single call. Only 
 **Field Notes**:
 - `total` — sum of paid session payments for the period, in **kobo** (the owner's `baseAmount`, i.e. what they actually received — commission, if any, is excluded)
 - `count` — number of individual payments in that period
-- Periods: `this_week` starts Sunday 00:00, `this_month` starts the 1st, `this_year` starts Jan 1st
+- Periods (Lagos time): `this_week` starts Sunday 00:00, `this_month` starts the 1st, `this_year` starts Jan 1st
 
 ---
 
@@ -934,7 +933,7 @@ Get all sessions at a specific location on a given date, sorted by start time as
 - `locationId` — the location ID
 
 **Query Parameters**:
-- `date` *(required)* — date in `YYYY-MM-DD` format (e.g. `2026-04-08`)
+- `date` *(required)* — date in `YYYY-MM-DD` format (e.g. `2026-04-08`). This is a **Lagos calendar day**: sessions starting 00:00–23:59 Lagos time. A session is listed under the day it starts, so a 01:00 game in an overnight window shows under the next day.
 
 **Success Response** `200 OK`:
 ```json
@@ -1018,9 +1017,8 @@ Configure a session that was started. Only the session captain can call this.
 
 **Notes**:
 - `maxNumber` is computed as `setNumber × playersPerTeam`
-- Returns `409` if the time slot conflicts with another session at the same location
-- Returns `400` if `startTime`/`stopTime` falls outside the location's `openingHour`–`closingHour` window
-- Returns `400` if the session spans midnight
+- Returns `409` if the time slot overlaps another session at the same pitch. Sessions at other pitches, and cancelled or refunded sessions, don't block the slot. Back-to-back sessions (one ends at 11:00, the next starts at 11:00) are fine. The check and the save happen as one atomic step per pitch, so if two captains book the same slot at the same moment, exactly one succeeds and the other gets this `409`.
+- Returns `400` if the session doesn't fit inside the location's `openingHour`–`closingHour` window (Lagos time). Sessions can cross midnight when the pitch is open overnight or 24 hours.
 - `paymentRequired`, `paymentMode`, `paymentTarget` and `paymentAmount` are automatically derived from the location's `tier` and `pricingOption` — no need to pass them manually
 - For `hourly` pricing, `timeDuration` must be in full-hour blocks only (`60`, `120`, `180`, ...)
 - Hourly sessions are **pooled** (`paymentMode: "POOL"`): `paymentTarget = pricePerHour × (timeDuration / 60)` is the total the whole session pays; `paymentAmount` is `0`
@@ -1241,9 +1239,9 @@ Reschedule a session to a new time.
 
 **Error Responses**:
 - `403` — caller is neither the captain nor the location owner
-- `409` — overlaps with another session at the same location
+- `409` — overlaps with another session at the same pitch (same rules as configuring a session: other pitches and cancelled/refunded sessions don't count, and the session's own current slot doesn't block it). Concurrent reschedules into the same slot are atomic: one wins, the rest get `409`.
 - `409` — payment has already started for this session and the new duration would change the price (or would switch an older per-player session to pooled). Payment terms are frozen once payment opens: reschedule to the same duration, or cancel and create a new session. Rescheduling to the same duration keeps all payment state untouched.
-- `400` — new time falls outside the location's operating hours or spans midnight
+- `400` — new time doesn't fit inside the location's operating hours (Lagos time; crossing midnight is fine for overnight or 24-hour pitches)
 
 ---
 
@@ -2629,7 +2627,7 @@ Get paginated transaction history for a location, grouped by calendar date. Each
 
 **Field Notes**:
 - `paymentStatus`: `"COMPLETE"` (all team members paid) | `"PARTIAL"` (some paid) | `"UNPAID"` (none paid)
-- `date` — ISO date string (`YYYY-MM-DD`) derived from the latest payment timestamp in that group
+- `date` — ISO date string (`YYYY-MM-DD`), the **Lagos** calendar day of the latest payment in that group
 - Only `PAID` payments are included — pending/failed records are excluded
 - `paymentMode`: `"PER_PERSON"` | `"POOL"`
 - **POOL sessions** (hourly, total price split between players) appear as **one entry per session**, not per team, since the total is owed by the session as a whole:
@@ -2917,7 +2915,7 @@ These hours are what `POST /sessions/start` and session creation check against (
 
 **Field Notes**:
 - Both fields required, format `HH:mm` (24-hour)
-- `closingHour` must be later than `openingHour` — same-day operating hours only, no overnight ranges (e.g. `22:00`–`02:00` isn't supported)
+- All times are **Lagos time** (WAT, UTC+1), whatever timezone the server runs in. `closingHour` earlier than `openingHour` means open overnight (e.g. `23:00`–`05:00`, and a game from 23:30 to 01:00 is fine). The same time for both (e.g. `00:00`–`00:00`) means open 24 hours.
 
 **Success Response** `200 OK`:
 ```json
@@ -3199,8 +3197,8 @@ interface Location {
   pricePerHour?: number;            // total for the pitch per hour (kobo), set when pricingOption === 'hourly'
   paymentPerPersonHourly?: number;  // legacy per-player hourly price — no longer set
   paymentPerPersonMonthly?: number; // set when pricingOption === 'monthly'
-  openingHour?: string;             // HH:mm, e.g. "08:00"
-  closingHour?: string;             // HH:mm, e.g. "22:00"
+  openingHour?: string;             // HH:mm Lagos time, e.g. "08:00"
+  closingHour?: string;             // HH:mm Lagos time, e.g. "22:00". Earlier than openingHour = overnight; equal = 24 hours
   createdAt: string;
   updatedAt: string;
 }

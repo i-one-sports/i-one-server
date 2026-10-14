@@ -37,3 +37,4 @@ export * from './utils/phone.number';
 export * from './utils/random'
 export * from './utils/logging.interceptor';
 export * from './utils/code.util';
+export * from './utils/lagos-time';

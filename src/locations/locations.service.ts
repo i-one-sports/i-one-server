@@ -292,11 +292,8 @@ export class LocationsService {
   async updateOpeningHours(locationId: string, ownerId: string, dto: UpdateOpeningHoursDto) {
     const location = await this.verifyOwnership(locationId, ownerId);
 
-    const [openHour, openMin] = dto.openingHour.split(':').map(Number);
-    const [closeHour, closeMin] = dto.closingHour.split(':').map(Number);
-    if (closeHour * 60 + closeMin <= openHour * 60 + openMin) {
-      throw new CustomHttpException('closingHour must be after openingHour', HttpStatus.BAD_REQUEST);
-    }
+    // closingHour earlier than openingHour is allowed — the pitch is open
+    // overnight (e.g. 23:00–05:00). Same time for both means open 24 hours.
 
     const updated = await this.locationRepository.findOneAndUpdate(
       { _id: locationId },

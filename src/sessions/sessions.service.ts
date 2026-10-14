@@ -9,12 +9,16 @@ import {
   LOCATION_TIER,
   Location,
   SESSION_PAYMENT_MODE,
+  lagosDateKey,
+  lagosMidnight,
+  lagosParts,
   SESSION_STATUS,
   Session,
   SessionI,
   User,
 } from '@app/common';
-import { UpdateQuery, Types } from 'mongoose';
+import { ClientSession, Connection, UpdateQuery, Types } from 'mongoose';
+import { InjectConnection } from '@nestjs/mongoose';
 import { createSessionRequest } from './dto/sessions.dto';
 import { CaptainsService } from 'src/captains/captains.service';
 import { CreateCaptainDto } from 'src/captains/dto/captains.dto';
@@ -41,6 +45,13 @@ export class SessionsService {
     return hours * 60 + minutes;
   }
 
+  // Opening hours are Lagos wall-clock times (never the server's timezone —
+  // UTC in production). A pitch's daily window opens at openingHour and runs
+  // to closingHour, rolling into the next day when closing is earlier than
+  // opening (23:00–05:00 is open overnight). Same opening and closing time
+  // means open 24 hours. A session must fit inside one window: the one that
+  // opened on its start day, or the one that opened the day before (a 02:00
+  // game is part of the previous night's 23:00–05:00 window).
   private validateSessionWithinOperatingHours(location: any, startTime: Date, stopTime: Date) {
     const openingMinutes = this.parseHourToMinutes(location?.openingHour);
     const closingMinutes = this.parseHourToMinutes(location?.closingHour);
@@ -49,20 +60,103 @@ export class SessionsService {
       return;
     }
 
-    if (startTime.toDateString() !== stopTime.toDateString()) {
-      throw new CustomHttpException(
-        'Session time is outside location opening and closing hours',
-        HttpStatus.BAD_REQUEST,
-      );
+    if (openingMinutes === closingMinutes) {
+      return; // open 24 hours
     }
 
-    const startMinutes = startTime.getHours() * 60 + startTime.getMinutes();
-    const stopMinutes = stopTime.getHours() * 60 + stopTime.getMinutes();
+    const windowMinutes =
+      closingMinutes > openingMinutes
+        ? closingMinutes - openingMinutes
+        : closingMinutes + 24 * 60 - openingMinutes;
 
-    if (startMinutes < openingMinutes || stopMinutes > closingMinutes) {
+    const { year, month, day } = lagosParts(startTime);
+    for (const dayOffset of [0, -1]) {
+      const windowOpen = lagosMidnight(year, month, day + dayOffset).getTime() + openingMinutes * 60000;
+      const windowClose = windowOpen + windowMinutes * 60000;
+      if (startTime.getTime() >= windowOpen && stopTime.getTime() <= windowClose) {
+        return;
+      }
+    }
+
+    throw new CustomHttpException(
+      'Session time is outside location opening and closing hours',
+      HttpStatus.BAD_REQUEST,
+    );
+  }
+
+  // Books a time slot at a pitch: "is the slot free?" + "save the time" as
+  // one all-or-nothing step. Without this, two captains booking 17:00–18:00
+  // at the same moment would both pass the overlap check and both save.
+  //
+  // Every booking at a pitch first bumps that pitch's Location.bookingVersion
+  // inside the transaction, so concurrent bookings write the same document
+  // and MongoDB lets only one commit. connection.transaction() retries the
+  // loser from the start; its overlap check then sees the winner → 409.
+  // Bookings at different pitches touch different documents and don't wait
+  // on each other. Requires a replica set (Atlas is one).
+  //
+  // Keep side effects (notifications etc.) out of here — a retried
+  // transaction would repeat them. Do them after this returns.
+  private async bookSlot(
+    session: Session,
+    startTime: Date,
+    stopTime: Date,
+    update: UpdateQuery<Session>,
+  ) {
+    try {
+      return await this.connection.transaction(async (tx) => {
+        await this.locationRepository
+          .findRaw()
+          .updateOne({ _id: session.location }, { $inc: { bookingVersion: 1 } }, { session: tx });
+
+        await this.assertSlotAvailable(session.location, session._id, startTime, stopTime, tx);
+
+        return this.sessionRepository
+          .findRaw()
+          .findOneAndUpdate({ _id: session._id }, update, { session: tx, new: true, lean: true });
+      });
+    } catch (error: any) {
+      if (/replica set|Transaction numbers/i.test(error?.message ?? '')) {
+        this.logger.error(
+          'Booking needs MongoDB transactions, which require a replica set. ' +
+            'Atlas works; a local standalone mongod must be started with --replSet.',
+        );
+      }
+      throw error;
+    }
+  }
+
+  // A pitch can only host one session at a time. Scoped to this pitch, and
+  // ignores the session being (re)configured itself and sessions that were
+  // cancelled/refunded — those no longer hold the slot. An exact time match
+  // is just an overlap, so one query covers both. Runs inside bookSlot's
+  // transaction.
+  private async assertSlotAvailable(
+    locationId: any,
+    sessionId: any,
+    startTime: Date,
+    stopTime: Date,
+    tx: ClientSession,
+  ) {
+    const clash = await this.sessionRepository
+      .findRaw()
+      .findOne(
+        {
+          _id: { $ne: new Types.ObjectId(sessionId.toString()) },
+          location: new Types.ObjectId(locationId.toString()),
+          status: { $nin: [SESSION_STATUS.CANCELLED, SESSION_STATUS.REFUNDED] },
+          startTime: { $lt: stopTime },
+          stopTime: { $gt: startTime },
+        },
+        { _id: 1 },
+        { session: tx },
+      )
+      .lean();
+
+    if (clash) {
       throw new CustomHttpException(
-        'Session time is outside location opening and closing hours',
-        HttpStatus.BAD_REQUEST,
+        'This time overlaps with another session at this pitch',
+        HttpStatus.CONFLICT,
       );
     }
   }
@@ -142,6 +236,7 @@ export class SessionsService {
     private readonly sessionPaymentService: SessionPaymentService,
     private readonly notificationService: NotificationService,
     private readonly cacheService: CacheService,
+    @InjectConnection() private readonly connection: Connection,
   ) {}
 
   async findNearbySessionMatches(lng: number, lat: number) {
@@ -343,37 +438,12 @@ export class SessionsService {
     this.validateSessionWithinOperatingHours(location, new Date(startTime), addedStopTime);
     const paymentConfig = this.buildPaymentConfig(location, timeDuration);
 
-    const existingSchedule = await this.sessionRepository.findOne({
-      startTime,
-      stopTime: addedStopTime,
-    });
-
-    if (existingSchedule !== null) {
-      throw new CustomHttpException(
-        'Session Time already exists',
-        HttpStatus.CONFLICT,
-      );
-    }
-
-    const overlappingSchedule = await this.sessionRepository.findOne({
-      location: session.location,
-      startTime: { $lt: new Date(addedStopTime) },
-      stopTime: { $gt: new Date(startTime) },
-    });
-
-    if (overlappingSchedule !== null) {
-      throw new CustomHttpException(
-        'This session overlaps with another session',
-        HttpStatus.CONFLICT,
-      );
-    }
-
     const maxNumber = playersPerTeam * setNumber;
 
-    const newSession = await this.sessionRepository.findOneAndUpdate(
-      {
-        _id: sessionId,
-      },
+    const newSession = await this.bookSlot(
+      session,
+      new Date(startTime),
+      addedStopTime,
       {
         setNumber,
         playersPerTeam,
@@ -689,10 +759,12 @@ export class SessionsService {
   }
 
   async getSessionsByLocationAndDate(locationId: string, date: string) {
-    const start = new Date(date);
-    start.setUTCHours(0, 0, 0, 0);
-    const end = new Date(date);
-    end.setUTCHours(23, 59, 59, 999);
+    // `date` is a Lagos calendar day: 00:00–24:00 Lagos time, not UTC.
+    const ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+    const key = ymd ? date : lagosDateKey(new Date(date));
+    const [y, m, d] = key.split('-').map(Number);
+    const start = lagosMidnight(y, m, d);
+    const end = new Date(lagosMidnight(y, m, d + 1).getTime() - 1);
 
     const sessions = await this.sessionRepository
       .findRaw()
@@ -854,31 +926,6 @@ export class SessionsService {
     this.validateSessionWithinOperatingHours(location, new Date(startTime), addedStopTime);
     const paymentConfig = this.buildPaymentConfig(location, timeDuration);
 
-    const existingSchedule = await this.sessionRepository.findOne({
-      startTime,
-      stopTime: addedStopTime,
-    });
-
-    if (existingSchedule) {
-      throw new CustomHttpException(
-        'Session Time already exists',
-        HttpStatus.CONFLICT,
-      );
-    }
-
-    const overlappingSchedule = await this.sessionRepository.findOne({
-      _id: { $ne: sessionId },
-      startTime: { $lt: addedStopTime },
-      stopTime: { $gt: startTime },
-    });
-
-    if (overlappingSchedule) {
-      throw new CustomHttpException(
-        'This session overlaps with another one',
-        HttpStatus.CONFLICT,
-      );
-    }
-
     // Once payment has opened (or anyone has money in the pot), the payment
     // terms are frozen: changing the price, or flipping a legacy
     // PER_PERSON session to POOL, under existing payment rows would leave
@@ -911,15 +958,12 @@ export class SessionsService {
           allPaymentsCompleted: !paymentConfig.paymentRequired,
         };
 
-    const updatedSession = await this.sessionRepository.findOneAndUpdate(
-      { _id: sessionId },
-      {
-        startTime,
-        timeDuration,
-        stopTime: addedStopTime,
-        ...paymentFields,
-      },
-    );
+    const updatedSession = await this.bookSlot(session, new Date(startTime), addedStopTime, {
+      startTime,
+      timeDuration,
+      stopTime: addedStopTime,
+      ...paymentFields,
+    });
 
     return {
       message: 'Session rescheduled successfully',
