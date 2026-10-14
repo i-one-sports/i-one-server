@@ -615,21 +615,31 @@ export class SessionPaymentService {
     await this.publishPoolUpdate(expired.sessionId.toString(), 'reservation_released');
   }
 
-  @Cron(CronExpression.EVERY_MINUTE)
+  @Cron(CronExpression.EVERY_MINUTE, { name: 'expire-pool-reservations' })
   async expireStaleReservations() {
     const stale = await this.sessionPaymentRepository.find({
       status: PaymentStatus.PENDING,
       'metadata.paymentMode': SESSION_PAYMENT_MODE.POOL,
       expiresAt: { $lt: new Date() },
     });
+    if (stale.length === 0) return;
 
+    const outcomes = { confirmed: 0, released: 0, unknown: 0, failed: 0 };
     for (const row of stale) {
       try {
-        await this.settleReservation(row);
+        outcomes[await this.settleReservation(row)]++;
       } catch (error: any) {
+        outcomes.failed++;
         this.logger.error(`Failed to settle pool reservation ${row._id}: ${error.message}`);
       }
     }
+
+    // One line per run that had work, so it's visible in logs that the job
+    // is running. "unknown" = Paystack unreachable; retried next minute.
+    this.logger.log(
+      `expire-pool-reservations: ${stale.length} expired — ${outcomes.released} released, ` +
+        `${outcomes.confirmed} confirmed as paid, ${outcomes.unknown} awaiting Paystack, ${outcomes.failed} failed`,
+    );
   }
 
   // Called by SessionsService before removing a member from a POOL session.

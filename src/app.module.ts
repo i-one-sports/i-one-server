@@ -1,4 +1,4 @@
-import { Injectable, Module } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -12,7 +12,7 @@ import { SetsModule } from './sets/sets.module';
 import { SessionsModule } from './sessions/sessions.module';
 import { MatchesModule } from './matches/matches.module';
 import { LocationsModule } from './locations/locations.module';
-import { Cron, ScheduleModule } from '@nestjs/schedule';
+import { ScheduleModule } from '@nestjs/schedule';
 import { TournamentsModule } from './tournaments/tournaments.module';
 import { StatsModule } from './stats/stats.module';
 import { CaptainsModule } from './captains/captains.module';
@@ -25,15 +25,6 @@ import { RedisModule } from './redis/redis.module';
 import { BanksModule } from './banks/banks.module';
 import { SettingsModule } from './settings/settings.module';
 import { DeepLinksModule } from './deep-links/deep-links.module';
-
-
-@Injectable()
-class RootCronService {
-  // Run every minute
-  @Cron('*/30 * * * * *')
-  handleCron() {
-  }
-}
 
 @Module({
   imports: [
@@ -75,7 +66,6 @@ class RootCronService {
   controllers: [AppController],
   providers: [
     AppService,
-    RootCronService,
     {
       provide: APP_INTERCEPTOR,
       useClass: LoggingInterceptor,
