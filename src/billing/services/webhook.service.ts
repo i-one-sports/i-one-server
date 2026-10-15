@@ -142,6 +142,7 @@ export class WebhookService {
         new Types.ObjectId(metadata.userId),
         data.reference,
         amount,
+        data.fees, // what Paystack charged us — posted to the platform wallet
       );
       if (confirmed) {
         this.logger.log(`Session payment confirmed: ${data.reference}`);
@@ -177,6 +178,20 @@ export class WebhookService {
         data.reference,
         { paystackData: data },
       );
+
+      // The owner is credited the full amount; Paystack's fee on this charge
+      // is i-One's cost, recorded on the platform wallet so the books stay
+      // complete (idempotent on the reference).
+      if (Number.isFinite(data.fees) && data.fees > 0) {
+        const platform = await this.walletService.getPlatformWallet();
+        await this.walletService.debitWallet(
+          platform._id,
+          data.fees,
+          TransactionSource.PAYSTACK_FEE,
+          `FEE_OUT_${data.reference}`,
+          { walletFunding: metadata.walletId },
+        );
+      }
 
       this.logger.log(`Wallet funded: ${metadata.walletId}, amount: ${amount}`);
       return;

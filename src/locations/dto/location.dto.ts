@@ -10,6 +10,7 @@ import {
   IsEnum,
   IsIn,
   IsNotEmpty,
+  IsInt,
   IsNumber,
   IsOptional,
   IsString,
@@ -67,7 +68,7 @@ export class CreateLocationDto {
       dto.tier === LOCATION_TIER.PAID &&
       dto.pricingOption === LOCATION_PRICING_OPTION.HOURLY,
   )
-  @IsNumber()
+  @IsInt() // whole kobo
   @Min(1)
   pricePerHour?: number;
 
@@ -76,8 +77,8 @@ export class CreateLocationDto {
       dto.tier === LOCATION_TIER.PAID &&
       dto.pricingOption === LOCATION_PRICING_OPTION.MONTHLY,
   )
-  @IsNumber()
-  @Min(0)
+  @IsInt() // whole kobo
+  @Min(1)
   paymentPerPersonMonthly?: number;
 
   @IsString()
@@ -129,7 +130,7 @@ export class UpdateLocationPricingDto {
       dto.tier === LOCATION_TIER.PAID &&
       dto.pricingOption === LOCATION_PRICING_OPTION.HOURLY,
   )
-  @IsNumber()
+  @IsInt() // whole kobo
   @Min(1)
   pricePerHour?: number;
 
@@ -138,7 +139,7 @@ export class UpdateLocationPricingDto {
       dto.tier === LOCATION_TIER.PAID &&
       dto.pricingOption === LOCATION_PRICING_OPTION.MONTHLY,
   )
-  @IsNumber()
+  @IsInt() // whole kobo
   @Min(1)
   paymentPerPersonMonthly?: number;
 }

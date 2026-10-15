@@ -1,4 +1,4 @@
-import { IsNumber, IsPositive, IsString, IsMongoId, IsOptional } from 'class-validator';
+import { IsInt, IsPositive, IsString, IsMongoId, IsOptional } from 'class-validator';
 
 export class AddBankAccountDto {
   @IsString()
@@ -12,7 +12,8 @@ export class AddBankAccountDto {
 }
 
 export class WithdrawFundsDto {
-  @IsNumber()
+  // Whole kobo (₦1 = 100)
+  @IsInt()
   @IsPositive()
   amount: number;
 

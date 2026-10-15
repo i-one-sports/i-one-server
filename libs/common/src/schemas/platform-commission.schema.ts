@@ -35,6 +35,13 @@ export class PlatformCommission extends AbstractDocument {
   @Prop({ type: String, required: false })
   paymentReference: string;
 
+  // Set when the payment was refunded and the commission handed back.
+  @Prop({ type: Date, required: false })
+  reversedAt?: Date;
+
+  @Prop({ type: Number, required: false, min: 0 })
+  reversedAmount?: number;
+
   createdAt?: Date;
 }
 

@@ -16,7 +16,7 @@ import {
   TransactionStatus,
   TransactionSource,
 } from '@app/common/schemas/transaction.schema';
-import { Wallet } from '@app/common/schemas/wallet.schema';
+import { Wallet, WALLET_KIND } from '@app/common/schemas/wallet.schema';
 import { randomUUID } from 'crypto';
 
 @Injectable()
@@ -49,6 +49,58 @@ export class WalletService {
 
     this.logger.log(`Created wallet: ${wallet._id} for user: ${userId}`);
     return wallet;
+  }
+
+  // i-One's own wallet (commission, processing-fee surplus, Paystack fees).
+  // Created on first use; the partial unique index on kind guarantees there
+  // is only ever one, even if two requests race to create it.
+  async getPlatformWallet(): Promise<Wallet> {
+    const existing = await this.walletRepository.findOne({ kind: WALLET_KIND.PLATFORM });
+    if (existing) return existing;
+
+    try {
+      const created = await this.walletRepository.create({
+        kind: WALLET_KIND.PLATFORM,
+        balance: 0,
+        status: 'ACTIVE',
+        currency: 'NGN',
+      } as any);
+      this.logger.log(`Created platform wallet: ${created._id}`);
+      return created;
+    } catch (error: any) {
+      if (error?.code !== 11000) throw error;
+      return this.walletRepository.findOne({ kind: WALLET_KIND.PLATFORM });
+    }
+  }
+
+  async findTransactionByReference(reference: string) {
+    return this.transactionRepository.findOne({ reference });
+  }
+
+  // Successful CREDIT/DEBIT totals per source for one wallet — the breakdown
+  // of the PLATFORM wallet (commission, reversals, fees collected/paid).
+  async summarizeBySource(walletId: Types.ObjectId): Promise<Record<string, { credits: number; debits: number }>> {
+    const rows = await this.transactionRepository.findRaw().aggregate([
+      { $match: { walletId: new Types.ObjectId(walletId.toString()), status: TransactionStatus.SUCCESS } },
+      { $group: { _id: { source: '$source', type: '$type' }, total: { $sum: '$amount' } } },
+    ]);
+    const summary: Record<string, { credits: number; debits: number }> = {};
+    for (const r of rows) {
+      const entry = (summary[r._id.source] ??= { credits: 0, debits: 0 });
+      if (r._id.type === TransactionType.CREDIT) entry.credits += r.total;
+      else entry.debits += r.total;
+    }
+    return summary;
+  }
+
+  // What i-One currently owes pitch owners: the sum of OWNER wallet balances
+  // (wallets created before platform accounts have no `kind` — also owners).
+  async totalOwedToOwners(): Promise<{ total: number; wallets: number }> {
+    const [row] = await this.walletRepository.findRaw().aggregate([
+      { $match: { kind: { $ne: WALLET_KIND.PLATFORM } } },
+      { $group: { _id: null, total: { $sum: '$balance' }, wallets: { $sum: 1 } } },
+    ]);
+    return { total: row?.total ?? 0, wallets: row?.wallets ?? 0 };
   }
 
   async getWalletByUserId(userId: string): Promise<Wallet> {
@@ -188,8 +240,16 @@ export class WalletService {
       await session?.commitTransaction();
       this.logger.log(`Wallet credited: ${walletId}, new balance: ${balanceAfter}`);
       return transaction;
-    } catch (error) {
+    } catch (error: any) {
       await session?.abortTransaction();
+      // Another request posted this exact reference first (the unique index
+      // on Transaction.reference stopped a second posting). Nothing was
+      // applied here — the transaction rolled back — so return the posting
+      // that won instead of failing.
+      if (error?.code === 11000) {
+        const winner = await this.transactionRepository.findOne({ reference });
+        if (winner) return winner;
+      }
       throw error;
     } finally {
       await session?.endSession();
@@ -216,7 +276,9 @@ export class WalletService {
     const wallet = await this.walletRepository.findOne({ _id: walletId });
     if (!wallet) throw new NotFoundException('Wallet not found');
 
-    if (wallet.balance < amount) {
+    // Owner wallets can't go negative. The PLATFORM wallet can: e.g. a
+    // foreign card whose Paystack fee exceeds the processing fee collected.
+    if (wallet.kind !== WALLET_KIND.PLATFORM && wallet.balance < amount) {
       throw new BadRequestException('Insufficient wallet balance');
     }
 
@@ -271,8 +333,16 @@ export class WalletService {
       await session?.commitTransaction();
       this.logger.log(`Wallet debited: ${walletId}, new balance: ${balanceAfter}`);
       return transaction;
-    } catch (error) {
+    } catch (error: any) {
       await session?.abortTransaction();
+      // Another request posted this exact reference first (the unique index
+      // on Transaction.reference stopped a second posting). Nothing was
+      // applied here — the transaction rolled back — so return the posting
+      // that won instead of failing.
+      if (error?.code === 11000) {
+        const winner = await this.transactionRepository.findOne({ reference });
+        if (winner) return winner;
+      }
       throw error;
     } finally {
       await session?.endSession();

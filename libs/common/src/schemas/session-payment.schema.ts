@@ -61,6 +61,18 @@ export class SessionPayment extends AbstractDocument {
   @Prop({ type: Number, required: false, min: 0, max: 100 })
   commissionPercentage: number;
 
+  // Kobo. Processing fee the player paid on top (covers Paystack's fee), so
+  // amount = baseAmount + commissionAmount + processingFee. Snapshotted at
+  // creation. Never refunded. Absent on payments created before the fee
+  // existed (treat as 0).
+  @Prop({ type: Number, required: false, min: 0 })
+  processingFee: number;
+
+  // Kobo. What Paystack actually charged us (data.fees on charge.success),
+  // recorded when the payment is confirmed.
+  @Prop({ type: Number, required: false, min: 0 })
+  paystackFee: number;
+
   @Prop({ type: String, enum: Object.values(PaymentStatus), default: PaymentStatus.PENDING })
   status: PaymentStatus;
 

@@ -9,6 +9,7 @@ import { WalletService } from '../services/wallet.service';
 import { SessionPaymentService } from '../services/session-payment.service';
 import { randomUUID } from 'crypto';
 import { TransactionSource } from '@app/common/schemas/transaction.schema';
+import { FundWalletDto } from '../dto/wallet.dto';
 
 @Controller('admin/billing')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -24,6 +25,13 @@ export class AdminBillingController {
     return this.sessionPaymentService.getCommissionSummary();
   }
 
+  // i-One's platform wallet (commission + processing-fee surplus) and what
+  // is owed to pitch owners — together, the money that should be held.
+  @Get('platform')
+  async platformOverview() {
+    return this.sessionPaymentService.getPlatformOverview();
+  }
+
   // Rebuilds a POOL session's paid/reserved counters from its payment rows.
   @Post('sessions/:sessionId/recompute-pool')
   async recomputePool(@Param('sessionId') sessionId: string) {
@@ -32,15 +40,14 @@ export class AdminBillingController {
 
   @Post('fund-wallet')
   async fundWallet(
-    @Body('userId') userId: string,
-    @Body('amount') amount: number,
+    @Body() dto: FundWalletDto,
     @CurrentUser() admin: User,
   ) {
-    const wallet = await this.walletService.getWalletByUserId(userId);
+    const wallet = await this.walletService.getWalletByUserId(dto.userId);
 
     const transaction = await this.walletService.creditWallet(
       wallet._id,
-      amount,
+      dto.amount,
       TransactionSource.ADMIN_FUNDING,
       `ADMIN_FUND_${randomUUID()}`,
       { fundedBy: admin._id.toString() },

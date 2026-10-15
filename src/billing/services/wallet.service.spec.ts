@@ -225,4 +225,53 @@ describe('WalletService', () => {
       ).rejects.toThrow(NotFoundException);
     });
   });
+
+  describe('platform wallet', () => {
+    it('lets only the PLATFORM wallet go below zero', async () => {
+      transactionRepository.findOne.mockResolvedValue(null);
+      walletRepository.findOne.mockResolvedValue({ _id: walletId, kind: 'PLATFORM', balance: 1000 });
+      walletRepository.updateBalance.mockResolvedValue({ _id: walletId, balance: -1500 });
+      transactionRepository.create.mockResolvedValue({ _id: new Types.ObjectId() });
+      ledgerRepository.create.mockResolvedValue({});
+
+      await expect(
+        service.debitWallet(walletId, 2500, TransactionSource.PAYSTACK_FEE, 'FEE_OUT_X'),
+      ).resolves.toBeDefined();
+      expect(ledgerRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'DEBIT', amount: 2500, balanceAfter: -1500 }),
+        { session: undefined },
+      );
+    });
+
+    it('still refuses to overdraw an owner wallet (no kind = owner)', async () => {
+      transactionRepository.findOne.mockResolvedValue(null);
+      walletRepository.findOne.mockResolvedValue({ _id: walletId, userId, balance: 1000 });
+      await expect(
+        service.debitWallet(walletId, 2500, TransactionSource.WITHDRAWAL, 'W_1'),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('creates the platform wallet once, and survives two requests racing to create it', async () => {
+      const platform = { _id: new Types.ObjectId(), kind: 'PLATFORM', balance: 0 };
+      walletRepository.findOne.mockResolvedValueOnce(null).mockResolvedValueOnce(platform);
+      walletRepository.create.mockRejectedValue(Object.assign(new Error('E11000'), { code: 11000 }));
+
+      await expect(service.getPlatformWallet()).resolves.toBe(platform);
+      expect(walletRepository.create).toHaveBeenCalledWith(expect.objectContaining({ kind: 'PLATFORM' }));
+    });
+
+    it('treats a duplicate-reference collision as already posted, returning the winning posting', async () => {
+      const winner = { _id: new Types.ObjectId(), reference: 'COMMISSION_R', status: 'SUCCESS' };
+      transactionRepository.findOne
+        .mockResolvedValueOnce(null) // not posted yet when we checked…
+        .mockResolvedValueOnce(winner); // …but another request won the race
+      walletRepository.findOne.mockResolvedValue({ _id: walletId, kind: 'PLATFORM', balance: 0 });
+      walletRepository.updateBalance.mockResolvedValue({ _id: walletId, balance: 30000 });
+      transactionRepository.create.mockRejectedValue(Object.assign(new Error('E11000 duplicate key'), { code: 11000 }));
+
+      await expect(
+        service.creditWallet(walletId, 30000, TransactionSource.PLATFORM_COMMISSION, 'COMMISSION_R'),
+      ).resolves.toBe(winner);
+    });
+  });
 });

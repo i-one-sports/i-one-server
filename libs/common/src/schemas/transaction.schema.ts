@@ -22,6 +22,11 @@ export enum TransactionSource {
   WITHDRAWAL = 'WITHDRAWAL',
   TRANSFER = 'TRANSFER',
   REFUND = 'REFUND',
+  // PLATFORM wallet movements
+  PLATFORM_COMMISSION = 'PLATFORM_COMMISSION',
+  COMMISSION_REVERSAL = 'COMMISSION_REVERSAL',
+  PROCESSING_FEE_COLLECTED = 'PROCESSING_FEE_COLLECTED',
+  PAYSTACK_FEE = 'PAYSTACK_FEE',
 }
 
 @Schema({ timestamps: true, versionKey: false })
@@ -29,7 +34,8 @@ export class Transaction extends AbstractDocument {
   @Prop({ type: SchemaTypes.ObjectId, ref: 'Wallet', required: true })
   walletId: Types.ObjectId;
 
-  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true })
+  // Owner of the wallet; absent on PLATFORM wallet transactions.
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: false })
   userId: Types.ObjectId;
 
   @Prop({ type: String, enum: Object.values(TransactionType), required: true })

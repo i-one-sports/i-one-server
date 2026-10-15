@@ -13,6 +13,7 @@ import { SessionPaymentService } from '../services/session-payment.service';
 import { WithdrawalService } from '../services/withdrawal.service';
 import { AddBankAccountDto, WithdrawFundsDto } from '../dto/withdrawal.dto';
 import { SessionCheckoutDto } from '../dto/session-payment.dto';
+import { FundMyWalletDto } from '../dto/wallet.dto';
 import { SessionPaymentEventService } from '../services/session-payment-event.service';
 import { CanViewPoolGuard } from '../guards/can-view-pool.guard';
 import { CanViewSessionPaymentsGuard } from '../guards/can-view-session-payments.guard';
@@ -61,9 +62,9 @@ export class WalletController {
   @UseGuards(IsOwnerGuard)
   async fundWallet(
     @CurrentUser() user: User,
-    @Body('amount') amount: number,
+    @Body() dto: FundMyWalletDto,
   ) {
-    return this.walletService.initializeWalletFunding(user._id.toString(), amount);
+    return this.walletService.initializeWalletFunding(user._id.toString(), dto.amount);
   }
 
   @Get('ledger')

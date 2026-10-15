@@ -2094,6 +2094,29 @@ Get the captain for a team or set.
 
 **Currency units**: every amount in this API — request bodies, response bodies, and every money field on `Location`, `Session`, `SessionPayment`, `Tournament`, `TournamentPayment`, `Wallet`, `Transaction`, `LedgerEntry`, and `PlatformCommission` — is in **kobo** (naira × 100), matching Paystack's native unit exactly. The backend never converts to/from naira; it passes amounts straight through to Paystack unchanged. **The frontend is responsible for all naira↔kobo conversion** — divide by 100 to display, multiply by 100 before sending a naira value the user typed.
 
+**Amounts sent to the API must be whole numbers of kobo** (e.g. `200000` for ₦2,000). Decimals (`2000.5`), strings (`"200000"`), zero and negatives are rejected with `400`. That applies to:
+- wallet top-up (`POST /wallet/fund`), withdrawals, and admin wallet funding;
+- pool checkout `amount`;
+- pitch prices (`pricePerHour`, `paymentPerPersonMonthly`);
+- the amount settings.
+
+Sending naira by mistake (`2000` meaning ₦2,000) is read as **₦20**.
+
+### What a player pays
+
+Every session payment is three parts, all in kobo:
+
+| Part | What it is | Goes to |
+|---|---|---|
+| `baseAmount` | the player's share of the pitch price | the pitch owner's wallet |
+| `commissionAmount` | i-One's commission, a % of the share (default **15%**, `GET/PATCH /settings/commission`) | i-One's platform wallet |
+| `processingFee` | covers the card processor's fee: **1.9% + ₦100** of the total, ₦100 waived under ₦2,500, capped at ₦2,000 (`GET/PATCH /settings/processing-fee`) | Paystack's actual fee is paid from it; the rest is i-One's |
+| **`amount`** | **what the player is charged** = base + commission + processing fee | |
+
+Example: a ₦2,000 share → ₦2,000 + ₦300 commission + ₦44.55 processing fee = **₦2,344.55**. Show the breakdown at checkout; `POST /wallet/session/:sessionId/pay` returns all four fields.
+
+**Refunds return the share and the commission, never the processing fee** (Paystack doesn't return its fee either). For the example above, a refund is ₦2,300.00.
+
 ### Session Payment Flow (pooled — hourly sessions, `paymentMode: "POOL"`)
 
 The owner's price is the **total** for the pitch (`Session.paymentTarget`). Members chip in any amount until it's covered — one player can pay it all, or everyone can pay an equal share, or anything in between.
@@ -2115,7 +2138,7 @@ Example: ₦20,000/hr, 1 hour, 10 players → `paymentTarget = 2000000`. `fairSh
 1. A session fills up → server automatically creates a `PENDING` payment record for every member. Each record's `amount` (what's charged to the player) is the location's base price plus the current platform commission (see `GET /settings/commission`), added on top — `baseAmount` is the location's price, unchanged; `commissionAmount` is the platform's cut.
 2. Each member calls `POST /wallet/session/:sessionId/pay` to get a Paystack checkout URL for `amount` (base + commission)
 3. Member pays via Paystack
-4. Paystack sends `charge.success` webhook → server confirms payment, credits the owner's wallet with `baseAmount` only (never the commission), and records the commission separately for revenue reporting (see `GET /admin/billing/commission-summary`)
+4. Paystack sends `charge.success` webhook → server confirms payment, credits the owner's wallet with `baseAmount` only, and posts i-One's side to the platform wallet: + commission, + processing fee collected, − Paystack's actual fee (`data.fees`). See `GET /admin/billing/platform`.
 5. Once all members have paid, `canSessionStart()` returns `true`
 
 **Rescheduling**: once payment has opened on a session (either mode), rescheduling to a different duration returns `409` — the payment terms are frozen. Cancel and create a new session instead.
@@ -2124,7 +2147,10 @@ Example: ₦20,000/hr, 1 hour, 10 players → `paymentTarget = 2000000`. `fairSh
 
 Refunds happen via `POST /sessions/cancel/:sessionId` (owner/captain cancels — refunds every paid member) or `DELETE /sessions/leave/:sessionId` (a single paid member leaves before the session starts). Both only *request* a refund — Paystack refunds are asynchronous:
 
-`PENDING/PAID` → refund requested → `REFUND_PENDING` → Paystack webhook confirms → `REFUNDED` (owner wallet debited `baseAmount`, session flips to `REFUNDED` once every payment on it clears) — or `REFUND_FAILED` / `REFUND_NEEDS_ATTENTION` if Paystack can't complete it (see Webhooks section). A refund never claws back the commission from the owner, since the owner was never credited it in the first place.
+`PENDING/PAID` → refund requested → `REFUND_PENDING` → Paystack webhook confirms → `REFUNDED` (owner wallet debited `baseAmount`, session flips to `REFUNDED` once every payment on it clears) — or `REFUND_FAILED` / `REFUND_NEEDS_ATTENTION` if Paystack can't complete it (see Webhooks section).
+
+- **Amount refunded:** `amount − processingFee` (the share + commission). The processing fee is never refunded.
+- **Commission:** handed back out of i-One's platform wallet when the refund completes (`COMMISSION_REVERSAL`). The owner is only debited their `baseAmount`, since they were never credited the commission.
 
 ---
 
@@ -2154,6 +2180,7 @@ Initialize a Paystack payment so the owner can top up their own wallet. Returns 
 ```json
 { "amount": 1000000 }
 ```
+- `amount`: required, whole kobo, > 0 (₦10,000 above). Anything else returns `400`.
 
 **Success Response** `200 OK`:
 ```json
@@ -2330,13 +2357,14 @@ Initialize a Paystack checkout for the current user's session payment. Returns a
 {
   "authorizationUrl": "https://checkout.paystack.com/...",
   "reference": "SESSION_507f..._USER_507f..._uuid",
-  "amount": 1050000,
+  "amount": 1182467,
   "baseAmount": 1000000,
-  "commissionAmount": 50000,
+  "commissionAmount": 150000,
+  "processingFee": 32467,
   "expiresAt": "2026-10-10T12:15:00.000Z"
 }
 ```
-- `amount` is what Paystack charges; `baseAmount` is what counts toward the pot. The pot share is held until `expiresAt`.
+- `amount` is what Paystack charges = `baseAmount` + `commissionAmount` + `processingFee` (see [What a player pays](#what-a-player-pays)); `baseAmount` is what counts toward the pot. The pot share is held until `expiresAt`.
 - If the player already has a checkout in progress on this session, it's settled first (confirmed if Paystack shows it paid, otherwise released) before the new one is reserved.
 - If the pot is already full, returns `{ "alreadyPaid": true, "status": "confirmed", "pool": { ... } }`.
 
@@ -2499,7 +2527,7 @@ List all active banks (Nigeria, NGN by default).
 
 ## Settings
 
-Platform-wide configuration. Currently just the commission rate — a singleton document, created on first read with `commissionPercentage: 0` (no commission charged until a super admin explicitly sets it).
+Platform-wide configuration — a singleton document, created on first read. Commission defaults to **15%**; the processing fee to **1.9% + ₦100** (₦100 waived under ₦2,500, capped at ₦2,000). Existing databases are moved to 15% by `npm run migrate:platform-wallets` only if no super admin has ever set the commission.
 
 ### GET /settings/commission
 Get the current platform commission percentage.
@@ -2555,6 +2583,26 @@ Defaults to `50000` (₦500). A contribution smaller than this is still accepted
 { "amount": 50000 }
 ```
 - `amount`: whole number of kobo, ≥ 0
+
+### GET /settings/processing-fee
+The processing fee players pay on top of price + commission. Super admin only.
+
+**Success Response** `200 OK` (percent, then kobo):
+```json
+{ "percent": 1.9, "flat": 10000, "flatWaivedBelow": 250000, "cap": 200000 }
+```
+
+### PATCH /settings/processing-fee
+Update any of the fields. Takes effect for payments created afterwards (each payment snapshots its fee).
+
+**Auth required**: Yes (JWT cookie + `SUPER_ADMIN` role)
+
+**Request Body** (all optional):
+```json
+{ "percent": 1.9, "flat": 10000, "flatWaivedBelow": 250000, "cap": 200000 }
+```
+- `percent`: 0–99. Set above Paystack's ≈1.5% on purpose — the difference is platform income.
+- `flat`, `flatWaivedBelow`, `cap`: whole kobo, ≥ 0.
 
 ---
 
@@ -3039,20 +3087,35 @@ Rebuilds a POOL session's `amountPaid` / `amountReserved` counters from its paym
 ---
 
 ### GET /admin/billing/commission-summary
-All-time platform revenue from commission. Super admin only.
+i-One's revenue, from the platform wallet's ledger. Super admin only.
 
 **Auth required**: Yes (JWT cookie + `SUPER_ADMIN` role)
 
-**Success Response** `200 OK`:
+**Success Response** `200 OK` (kobo):
 ```json
 {
-  "totalCommission": 4500000,
-  "count": 120
+  "platformBalance": 16249,
+  "commission": { "earned": 60000, "reversed": 30000, "net": 30000 },
+  "processingFees": { "collected": 8910, "paidToPaystack": 22661, "surplus": -13751 },
+  "auditRecords": { "commissionRecords": 2, "grossCommission": 60000, "reversedCommission": 30000 }
 }
 ```
 
 **Notes**:
-- Sums the `PlatformCommission` audit collection directly — a payment's commission stays on record even if that payment is later refunded (refunds don't reverse the commission entry).
+- `platformBalance` is all of i-One's money: `commission.net + processingFees.surplus`.
+- `commission.reversed` is commission handed back on refunds.
+- `processingFees.surplus` is fees collected minus what Paystack actually charged. It's usually positive (we charge 1.9%, Paystack ≈1.5%) and dips when foreign cards cost more. It also includes Paystack's fee on owner wallet funding, which payers aren't charged.
+- `auditRecords` sums the per-payment `PlatformCommission` records, including any from before the platform wallet existed.
+
+### GET /admin/billing/platform
+The platform wallet plus what's owed to pitch owners. Super admin only.
+
+**Success Response** `200 OK`: everything in `commission-summary`, plus:
+```json
+{ "owedToOwners": 200000, "ownerWallets": 1, "totalHeld": 216249 }
+```
+- `owedToOwners`: sum of all owner wallet balances.
+- `totalHeld = owedToOwners + platformBalance`: the money that should be held for owners and i-One combined.
 
 ---
 
@@ -3306,6 +3369,8 @@ interface SessionPayment {
   baseAmount?: number;         // what the owner is credited (location's listed price). Absent on payments created before commission existed — treat as equal to `amount` (no commission) in that case.
   commissionAmount?: number;   // platform's cut, added on top of baseAmount. Never credited to the owner.
   commissionPercentage?: number; // commission rate snapshotted at the time this payment was created
+  processingFee?: number;      // kobo, paid on top to cover Paystack's fee; never refunded. amount = baseAmount + commissionAmount + processingFee. Absent on older payments (= 0).
+  paystackFee?: number;        // kobo, what Paystack actually charged (data.fees), recorded on confirmation
   status: 'PENDING' | 'PAID' | 'FAILED' | 'REFUND_PENDING' | 'REFUND_NEEDS_ATTENTION' | 'REFUND_FAILED' | 'REFUNDED' | 'EXPIRED'; // EXPIRED: POOL checkout reservation that timed out unpaid
   paymentReference: string;
   previousReferences?: string[]; // references superseded by a checkout retry — verified alongside `paymentReference` so a payment completed on an old, already-superseded checkout tab still gets caught

@@ -19,6 +19,9 @@ describe('SessionPaymentService', () => {
   let walletService: {
     getWalletByUserId: jest.Mock;
     creditWallet: jest.Mock;
+    debitWallet: jest.Mock;
+    getPlatformWallet: jest.Mock;
+    findTransactionByReference: jest.Mock;
   };
   let paystackService: {
     initializeTransaction: jest.Mock;
@@ -28,6 +31,7 @@ describe('SessionPaymentService', () => {
   let settingsService: {
     getCommissionPercentage: jest.Mock;
     getMinContributionAmount: jest.Mock;
+    getProcessingFeeConfig: jest.Mock;
   };
   let platformCommissionRepository: {
     create: jest.Mock;
@@ -49,6 +53,7 @@ describe('SessionPaymentService', () => {
   const ownerId = new Types.ObjectId();
   const userOne = new Types.ObjectId();
   const userTwo = new Types.ObjectId();
+  const platformWalletId = new Types.ObjectId();
 
   // Mongoose query stand-in supporting `.lean()` / `.select().lean()` / await.
   const query = (value: any) => {
@@ -70,6 +75,9 @@ describe('SessionPaymentService', () => {
     walletService = {
       getWalletByUserId: jest.fn(),
       creditWallet: jest.fn(),
+      debitWallet: jest.fn().mockResolvedValue({}),
+      getPlatformWallet: jest.fn().mockResolvedValue({ _id: platformWalletId, balance: 0 }),
+      findTransactionByReference: jest.fn().mockResolvedValue(null),
     };
     paystackService = {
       initializeTransaction: jest.fn(),
@@ -81,6 +89,9 @@ describe('SessionPaymentService', () => {
       // to account for commission unless a test explicitly sets otherwise.
       getCommissionPercentage: jest.fn().mockResolvedValue(0),
       getMinContributionAmount: jest.fn().mockResolvedValue(50000),
+      // No processing fee by default so existing amount assertions keep their
+      // meaning; the fee tests set the real 1.9% + ₦100 config explicitly.
+      getProcessingFeeConfig: jest.fn().mockResolvedValue({ percent: 0, flat: 0, flatWaivedBelow: 250000, cap: 200000 }),
     };
     platformCommissionRepository = {
       create: jest.fn(),
@@ -211,6 +222,10 @@ describe('SessionPaymentService', () => {
         authorizationUrl: 'https://paystack.test/checkout',
         reference: 'SESSION_REF_NEW',
         amount: 3000,
+        // legacy row (no breakdown stored): base = amount, nothing on top
+        baseAmount: 3000,
+        commissionAmount: 0,
+        processingFee: 0,
       });
 
       // No reference known to us has succeeded yet, so a fresh one is
@@ -264,6 +279,7 @@ describe('SessionPaymentService', () => {
         userOne,
         'SESSION_REF_OLD',
         3000,
+        undefined, // Paystack's fee, when its verify response includes one
       );
       expect(paystackService.initializeTransaction).not.toHaveBeenCalled();
     });
@@ -723,15 +739,25 @@ describe('SessionPaymentService', () => {
         expect(paystackService.refundTransaction).not.toHaveBeenCalled();
       });
 
-      it('is idempotent: a repeat confirmation returns the existing record and credits nothing', async () => {
+      it('is idempotent: a repeat confirmation only re-runs postings with the same references', async () => {
         const row = poolRow({ status: PaymentStatus.PAID });
         sessionPaymentRepository.findOne.mockResolvedValue(row);
-        sessionPaymentRepository.findOneAndUpdate.mockResolvedValue(null); // neither claim matches
+        sessionPaymentRepository.findOneAndUpdate
+          .mockResolvedValueOnce(null) // not PENDING
+          .mockResolvedValueOnce(null) // not EXPIRED
+          .mockResolvedValue(row); // transactionId backfill
+        walletService.getWalletByUserId.mockResolvedValue({ _id: new Types.ObjectId() });
+        walletService.creditWallet.mockResolvedValue({ _id: new Types.ObjectId() });
 
         await expect(
           service.confirmSessionPayment(sessionId, userOne, 'POOL_REF', row.amount),
         ).resolves.toEqual(row);
-        expect(walletService.creditWallet).not.toHaveBeenCalled();
+
+        // Same references as the first confirmation → the ledger skips them
+        // as duplicates; nothing is credited twice.
+        const refs = walletService.creditWallet.mock.calls.map((c) => c[3]);
+        expect(refs).toEqual(['POOL_REF', 'COMMISSION_POOL_REF']);
+        // The pot isn't touched again.
         expect(sessionModel.findOneAndUpdate).not.toHaveBeenCalled();
       });
 
@@ -794,7 +820,7 @@ describe('SessionPaymentService', () => {
 
         await service.expireStaleReservations();
 
-        expect(confirm).toHaveBeenCalledWith(row, 'POOL_REF', row.amount);
+        expect(confirm).toHaveBeenCalledWith(row, 'POOL_REF', row.amount, undefined);
         expect(sessionModel.updateOne).not.toHaveBeenCalled();
       });
 
@@ -906,6 +932,179 @@ describe('SessionPaymentService', () => {
         service.assertCanViewSessionPayments(sessionId.toString(), { _id: userOne }),
       ).rejects.toThrow(NotFoundException);
       await expect(service.assertCanViewSessionPayments('not-an-id', { _id: userOne })).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('platform revenue (15% commission + 1.9% processing fee)', () => {
+    const feeConfig = { percent: 1.9, flat: 10000, flatWaivedBelow: 250000, cap: 200000 };
+    const walletId = new Types.ObjectId();
+    const paid = (overrides: any = {}) => ({
+      _id: new Types.ObjectId(),
+      sessionId,
+      userId: userOne,
+      ownerId,
+      amount: 234455, // ₦2,000 share + ₦300 commission + ₦44.55 fee
+      baseAmount: 200000,
+      commissionAmount: 30000,
+      commissionPercentage: 15,
+      processingFee: 4455,
+      status: PaymentStatus.PAID,
+      paymentReference: 'REF_1',
+      ...overrides,
+    });
+
+    beforeEach(() => {
+      settingsService.getCommissionPercentage.mockResolvedValue(15);
+      settingsService.getProcessingFeeConfig.mockResolvedValue(feeConfig);
+      walletService.getWalletByUserId.mockResolvedValue({ _id: walletId });
+      walletService.creditWallet.mockResolvedValue({ _id: new Types.ObjectId() });
+    });
+
+    it('prices a pool share as base + 15% commission + processing fee, and returns the breakdown', async () => {
+      sessionModel.findById.mockReturnValue(
+        query({
+          _id: sessionId, location: locationId, members: [userOne], status: SESSION_STATUS.OPEN,
+          paymentMode: SESSION_PAYMENT_MODE.POOL, paymentStatus: 'PENDING', paymentTarget: 2000000,
+        }),
+      );
+      sessionPaymentRepository.find.mockResolvedValue([]);
+      sessionModel.findOneAndUpdate.mockResolvedValue({ _id: sessionId });
+      sessionPaymentRepository.create.mockImplementation(async (doc: any) => ({ _id: new Types.ObjectId(), ...doc }));
+      paystackService.initializeTransaction.mockResolvedValue({ authorization_url: 'u', reference: 'r' });
+
+      const result = await service.initializeCheckout(sessionId.toString(), userOne.toString(), 'a@b.c', 200000);
+
+      expect(sessionPaymentRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ baseAmount: 200000, commissionAmount: 30000, processingFee: 4455, amount: 234455 }),
+      );
+      expect(paystackService.initializeTransaction).toHaveBeenCalledWith('a@b.c', 234455, expect.any(String), expect.anything());
+      expect(result).toMatchObject({ amount: 234455, baseAmount: 200000, commissionAmount: 30000, processingFee: 4455 });
+    });
+
+    it('adds the processing fee to per-person bills too', async () => {
+      sessionPaymentRepository.find.mockResolvedValue([]);
+      await service.initializeSessionPayments(sessionId, locationId, ownerId, [userOne], 200000);
+      expect(sessionPaymentRepository.insertMany.mock.calls[0][0][0]).toMatchObject({
+        baseAmount: 200000, commissionAmount: 30000, processingFee: 4455, amount: 234455,
+      });
+    });
+
+    it('on confirm: owner gets the base; platform gets commission + fee collected, minus what Paystack charged', async () => {
+      const payment = paid({ status: PaymentStatus.PENDING });
+      sessionPaymentRepository.findOneAndUpdate
+        .mockResolvedValueOnce({ ...payment, status: PaymentStatus.PAID }) // claim
+        .mockResolvedValueOnce({ ...payment, status: PaymentStatus.PAID }); // backfill
+      sessionPaymentRepository.findRaw.mockReturnValue({ countDocuments: jest.fn().mockResolvedValue(1) });
+
+      await service.confirmSessionPayment(sessionId, userOne, 'REF_1', 234455, 3517);
+
+      const credits = walletService.creditWallet.mock.calls.map((c) => [c[0], c[1], c[2], c[3]]);
+      expect(credits).toEqual([
+        [walletId, 200000, TransactionSource.SESSION_PAYMENT, 'REF_1'],
+        [platformWalletId, 30000, TransactionSource.PLATFORM_COMMISSION, 'COMMISSION_REF_1'],
+        [platformWalletId, 4455, TransactionSource.PROCESSING_FEE_COLLECTED, 'FEE_IN_REF_1'],
+      ]);
+      expect(walletService.debitWallet).toHaveBeenCalledWith(
+        platformWalletId, 3517, TransactionSource.PAYSTACK_FEE, 'FEE_OUT_REF_1', expect.anything(),
+      );
+      // Paystack's actual fee is kept on the payment
+      expect(sessionPaymentRepository.findOneAndUpdate).toHaveBeenLastCalledWith(
+        { _id: payment._id },
+        expect.objectContaining({ paystackFee: 3517 }),
+      );
+    });
+
+    it("skips the Paystack-fee posting when Paystack didn't report one", async () => {
+      sessionPaymentRepository.findOneAndUpdate.mockResolvedValue(paid());
+      sessionPaymentRepository.findRaw.mockReturnValue({ countDocuments: jest.fn().mockResolvedValue(1) });
+      await service.confirmSessionPayment(sessionId, userOne, 'REF_1', 234455);
+      expect(walletService.debitWallet).not.toHaveBeenCalled();
+    });
+
+    it('refunds price + commission but never the processing fee', async () => {
+      const payment = paid();
+      sessionPaymentRepository.findOne.mockResolvedValue(payment);
+      sessionPaymentRepository.findOneAndUpdate.mockResolvedValue({ ...payment, status: PaymentStatus.REFUND_PENDING });
+
+      await service.refundPayment(payment._id.toString(), 'Player left session');
+
+      expect(paystackService.refundTransaction).toHaveBeenCalledWith('REF_1', 230000, 'Player left session');
+    });
+
+    describe('when Paystack confirms the refund', () => {
+      const refunded = (overrides: any = {}) => paid({ status: PaymentStatus.REFUND_PENDING, ...overrides });
+      const processRefund = (payment: any) => {
+        sessionPaymentRepository.findOne.mockResolvedValue(payment);
+        sessionPaymentRepository.findOneAndUpdate.mockResolvedValue({ ...payment, status: PaymentStatus.REFUNDED });
+        sessionPaymentRepository.findRaw.mockReturnValue({ countDocuments: jest.fn().mockResolvedValue(1) });
+        platformCommissionRepository['findOneAndUpdate'] = jest.fn().mockResolvedValue({});
+        return service.handleRefundWebhookEvent('refund.processed', { transaction_reference: payment.paymentReference });
+      };
+
+      it('takes the commission back out of the platform wallet', async () => {
+        const payment = refunded();
+        walletService.findTransactionByReference.mockImplementation(async (ref: string) =>
+          ref === 'COMMISSION_REF_1' ? { reference: ref, amount: 30000 } : null,
+        );
+
+        await processRefund(payment);
+
+        expect(walletService.debitWallet).toHaveBeenCalledWith(walletId, 200000, TransactionSource.REFUND, `REFUND_${payment._id}`, expect.anything());
+        expect(walletService.debitWallet).toHaveBeenCalledWith(
+          platformWalletId, 30000, TransactionSource.COMMISSION_REVERSAL, `REFUND_COMMISSION_${payment._id}`, expect.anything(),
+        );
+        expect((platformCommissionRepository as any).findOneAndUpdate).toHaveBeenCalledWith(
+          { sessionPaymentId: payment._id, reversedAt: { $exists: false } },
+          { reversedAt: expect.any(Date), reversedAmount: 30000 },
+        );
+      });
+
+      it('finds the commission credit even if the payment was confirmed on an older reference', async () => {
+        const payment = refunded({ previousReferences: ['REF_OLD'] });
+        walletService.findTransactionByReference.mockImplementation(async (ref: string) =>
+          ref === 'COMMISSION_REF_OLD' ? { reference: ref, amount: 30000 } : null,
+        );
+        await processRefund(payment);
+        expect(walletService.debitWallet).toHaveBeenCalledWith(
+          platformWalletId, 30000, TransactionSource.COMMISSION_REVERSAL, expect.any(String), expect.anything(),
+        );
+      });
+
+      it('reverses nothing for payments confirmed before platform accounts existed', async () => {
+        await processRefund(refunded());
+        expect(walletService.debitWallet).toHaveBeenCalledTimes(1); // the owner debit only
+      });
+
+      it('stays REFUND_PENDING (and throws for redelivery) if the reversal fails', async () => {
+        const payment = refunded();
+        walletService.findTransactionByReference.mockResolvedValue({ reference: 'COMMISSION_REF_1', amount: 30000 });
+        walletService.debitWallet
+          .mockResolvedValueOnce({}) // owner debit
+          .mockRejectedValueOnce(new Error('db down')); // reversal
+
+        await expect(processRefund(payment)).rejects.toThrow('db down');
+        expect(sessionPaymentRepository.findOneAndUpdate).not.toHaveBeenCalledWith(
+          { _id: payment._id },
+          expect.objectContaining({ status: PaymentStatus.REFUNDED }),
+        );
+      });
+    });
+
+    it('reports revenue from the platform ledger, grouped by source', async () => {
+      walletService.getPlatformWallet.mockResolvedValue({ _id: platformWalletId, balance: 33083 });
+      (walletService as any).summarizeBySource = jest.fn().mockResolvedValue({
+        [TransactionSource.PLATFORM_COMMISSION]: { credits: 60000, debits: 0 },
+        [TransactionSource.COMMISSION_REVERSAL]: { credits: 0, debits: 30000 },
+        [TransactionSource.PROCESSING_FEE_COLLECTED]: { credits: 8910, debits: 0 },
+        [TransactionSource.PAYSTACK_FEE]: { credits: 0, debits: 5827 },
+      });
+      platformCommissionRepository.findRaw.mockReturnValue({ aggregate: jest.fn().mockResolvedValue([]) });
+
+      await expect(service.getCommissionSummary()).resolves.toMatchObject({
+        platformBalance: 33083,
+        commission: { earned: 60000, reversed: 30000, net: 30000 },
+        processingFees: { collected: 8910, paidToPaystack: 5827, surplus: 3083 },
+      });
     });
   });
 });

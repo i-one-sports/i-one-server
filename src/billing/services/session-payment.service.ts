@@ -30,6 +30,7 @@ import { SettingsService } from '../../settings/settings.service';
 import { PlatformCommissionRepository } from '../repositories/platform-commission.repository';
 import { SetsService } from '../../sets/sets.service';
 import { PoolSnapshot, SessionPaymentEventService } from './session-payment-event.service';
+import { grossUp } from '../utils/processing-fee';
 
 // How long a pool checkout holds its share of the pot before the expiry job
 // verifies it with Paystack and (if unpaid) releases it back to the pool.
@@ -64,6 +65,19 @@ export class SessionPaymentService {
     return payment?.metadata?.paymentMode === SESSION_PAYMENT_MODE.POOL;
   }
 
+  // What a player is charged for a share of `base` kobo: base + commission
+  // (i-One's cut, on top) + processing fee (covers Paystack's fee, on top).
+  // Rates are read from Settings now and snapshotted on the payment row.
+  private async priceShare(base: number) {
+    const commissionPercentage = await this.settingsService.getCommissionPercentage();
+    const commissionAmount = Math.round((base * commissionPercentage) / 100);
+    const { total, processingFee } = grossUp(
+      base + commissionAmount,
+      await this.settingsService.getProcessingFeeConfig(),
+    );
+    return { commissionPercentage, commissionAmount, processingFee, amount: total };
+  }
+
   // `baseAmount` is the location's listed per-person price, in kobo — what
   // the owner will be credited, unchanged by commission. The actual
   // Paystack charge (`amount` on the created record) is baseAmount plus the
@@ -91,11 +105,8 @@ export class SessionPaymentService {
     const newMemberIds = memberIds.filter((id) => !existingUserIds.has(id.toString()));
 
     if (newMemberIds.length > 0) {
-      const commissionPercentage = await this.settingsService.getCommissionPercentage();
-      // baseAmount is already kobo (an integer), so this is a plain
-      // percentage calc — round to the nearest kobo, no unit conversion needed.
-      const commissionAmount = Math.round((baseAmount * commissionPercentage) / 100);
-      const chargeAmount = baseAmount + commissionAmount;
+      const { commissionPercentage, commissionAmount, processingFee, amount: chargeAmount } =
+        await this.priceShare(baseAmount);
 
       const newPayments = newMemberIds.map((userId) => ({
         _id: new Types.ObjectId(),
@@ -107,6 +118,7 @@ export class SessionPaymentService {
         baseAmount,
         commissionAmount,
         commissionPercentage,
+        processingFee,
         status: PaymentStatus.PENDING,
         paymentReference: `SESSION_${sessionId}_USER_${userId}_${randomUUID()}`,
         expiresAt: paymentDeadline,
@@ -116,7 +128,8 @@ export class SessionPaymentService {
       await this.sessionPaymentRepository.insertMany(newPayments);
       this.logger.log(
         `Created ${newMemberIds.length} new payment records for session: ${sessionId} ` +
-        `(base: ${baseAmount}, commission: ${commissionAmount} @ ${commissionPercentage}%, charged: ${chargeAmount})`,
+        `(base: ${baseAmount}, commission: ${commissionAmount} @ ${commissionPercentage}%, ` +
+        `processing fee: ${processingFee}, charged: ${chargeAmount})`,
       );
     }
   }
@@ -175,6 +188,7 @@ export class SessionPaymentService {
             new Types.ObjectId(userId),
             ref,
             existing.amount,
+            existing.fees,
           );
           return { alreadyPaid: true, status: 'confirmed' };
         }
@@ -214,6 +228,9 @@ export class SessionPaymentService {
         authorizationUrl: result.authorization_url,
         reference: result.reference,
         amount: payment.amount,
+        baseAmount: payment.baseAmount ?? payment.amount,
+        commissionAmount: payment.commissionAmount ?? 0,
+        processingFee: payment.processingFee ?? 0,
       };
     } catch (error: any) {
       const paystackMessage =
@@ -222,11 +239,13 @@ export class SessionPaymentService {
     }
   }
 
+  // `paystackFee` is what Paystack charged us (data.fees), when known.
   async confirmSessionPayment(
     sessionId: Types.ObjectId,
     userId: Types.ObjectId,
     paystackReference: string,
     amount: number,
+    paystackFee?: number,
   ) {
     this.logger.log(`Confirming payment for session: ${sessionId}, user: ${userId}`);
 
@@ -234,7 +253,7 @@ export class SessionPaymentService {
     // several rows on one session, so (sessionId, userId) isn't unique.
     const poolPayment = await this.sessionPaymentRepository.findOne({ paymentReference: paystackReference });
     if (this.isPoolPayment(poolPayment)) {
-      return this.confirmPoolContribution(poolPayment, paystackReference, amount);
+      return this.confirmPoolContribution(poolPayment, paystackReference, amount, paystackFee);
     }
 
     // Atomic claim: PENDING → PAID in a single DB operation.
@@ -248,6 +267,19 @@ export class SessionPaymentService {
     );
 
     if (!payment) {
+      // Already PAID (a redelivered webhook, or webhook + inline confirm
+      // racing)? Re-run the ledger postings — each is idempotent on its
+      // reference — so a confirmation whose postings failed half-way is
+      // completed by the redelivery instead of being left incomplete.
+      const paid = await this.sessionPaymentRepository.findOne({
+        sessionId,
+        userId,
+        status: PaymentStatus.PAID,
+        $or: [{ paymentReference: paystackReference }, { previousReferences: paystackReference }],
+      });
+      if (paid) {
+        await this.creditOwnerForPayment(paid, paystackReference, paid.amount, paystackFee);
+      }
       this.logger.warn(
         `confirmSessionPayment: no PENDING record found — already confirmed or does not exist ` +
         `(session: ${sessionId}, user: ${userId}, ref: ${paystackReference})`,
@@ -265,7 +297,7 @@ export class SessionPaymentService {
       throw new BadRequestException(`Amount mismatch: expected ${payment.amount}, got ${amount}`);
     }
 
-    const updatedPayment = await this.creditOwnerForPayment(payment, paystackReference, amount);
+    const updatedPayment = await this.creditOwnerForPayment(payment, paystackReference, amount, paystackFee);
 
     this.logger.log(`Payment confirmed for session: ${sessionId}, user: ${userId}`);
 
@@ -274,11 +306,13 @@ export class SessionPaymentService {
     return updatedPayment;
   }
 
-  // Ledger side of a confirmed payment, shared by PER_PERSON and POOL: one
-  // immutable owner credit (idempotent on the Paystack reference inside
-  // creditWallet) plus one PlatformCommission row (unique on sessionPaymentId).
-  // Safe to re-run for the same payment.
-  private async creditOwnerForPayment(payment: any, paystackReference: string, amount: number) {
+  // Ledger side of a confirmed payment, shared by PER_PERSON and POOL:
+  //   owner wallet    + baseAmount
+  //   PLATFORM wallet + commission, + processing fee collected,
+  //                   − what Paystack actually charged (when known)
+  // plus one PlatformCommission audit row. Every posting is idempotent on
+  // its reference, so this is safe to re-run for the same payment.
+  private async creditOwnerForPayment(payment: any, paystackReference: string, amount: number, paystackFee?: number) {
     const sessionId = payment.sessionId;
     const userId = payment.userId;
 
@@ -329,10 +363,62 @@ export class SessionPaymentService {
       }
     }
 
+    await this.postPlatformEntries(payment, paystackReference, paystackFee);
+
     return this.sessionPaymentRepository.findOneAndUpdate(
       { _id: payment._id },
-      { transactionId: transaction._id },
+      {
+        transactionId: transaction._id,
+        ...(Number.isFinite(paystackFee) ? { paystackFee } : {}),
+      },
     );
+  }
+
+  // i-One's side of a confirmed payment, on the single PLATFORM wallet. The
+  // breakdown is kept by each row's source (see getCommissionSummary).
+  // Throws on failure so the webhook is redelivered; the redelivery re-runs
+  // these postings and the ones that already landed are skipped.
+  private async postPlatformEntries(payment: any, paystackReference: string, paystackFee?: number) {
+    const platform = await this.walletService.getPlatformWallet();
+    const meta = {
+      paymentId: payment._id.toString(),
+      sessionId: payment.sessionId.toString(),
+      userId: payment.userId.toString(),
+    };
+
+    const commission = payment.commissionAmount ?? 0;
+    if (commission > 0) {
+      await this.walletService.creditWallet(
+        platform._id,
+        commission,
+        TransactionSource.PLATFORM_COMMISSION,
+        `COMMISSION_${paystackReference}`,
+        meta,
+        payment.sessionId,
+      );
+    }
+
+    const feeCollected = payment.processingFee ?? 0;
+    if (feeCollected > 0) {
+      await this.walletService.creditWallet(
+        platform._id,
+        feeCollected,
+        TransactionSource.PROCESSING_FEE_COLLECTED,
+        `FEE_IN_${paystackReference}`,
+        meta,
+        payment.sessionId,
+      );
+    }
+
+    if (Number.isFinite(paystackFee) && paystackFee > 0) {
+      await this.walletService.debitWallet(
+        platform._id,
+        paystackFee,
+        TransactionSource.PAYSTACK_FEE,
+        `FEE_OUT_${paystackReference}`,
+        meta,
+      );
+    }
   }
 
   // ─── POOL payments ────────────────────────────────────────────────────
@@ -423,18 +509,18 @@ export class SessionPaymentService {
         throw new BadRequestException('Location owner not found');
       }
 
-      const commissionPercentage = await this.settingsService.getCommissionPercentage();
-      const commissionAmount = Math.round((amount * commissionPercentage) / 100);
+      const price = await this.priceShare(amount);
 
       payment = await this.sessionPaymentRepository.create({
         sessionId: session._id,
         userId: new Types.ObjectId(userId),
         locationId: new Types.ObjectId(session.location.toString()),
         ownerId: location.owner as any,
-        amount: amount + commissionAmount,
+        amount: price.amount,
         baseAmount: amount,
-        commissionAmount,
-        commissionPercentage,
+        commissionAmount: price.commissionAmount,
+        commissionPercentage: price.commissionPercentage,
+        processingFee: price.processingFee,
         status: PaymentStatus.PENDING,
         paymentReference: `SESSION_${sessionId}_USER_${userId}_${randomUUID()}`,
         expiresAt: new Date(Date.now() + POOL_RESERVATION_TTL_MS),
@@ -461,6 +547,7 @@ export class SessionPaymentService {
         amount: payment.amount,
         baseAmount: payment.baseAmount,
         commissionAmount: payment.commissionAmount,
+        processingFee: payment.processingFee,
         expiresAt: payment.expiresAt,
       };
     } catch (error: any) {
@@ -476,7 +563,7 @@ export class SessionPaymentService {
   // Called for any Paystack-confirmed charge on a POOL row (webhook, inline
   // verify, expiry job). Idempotent: if the row was already claimed, returns
   // it as-is so every caller sees the same, current status.
-  private async confirmPoolContribution(row: any, paystackReference: string, amount: number) {
+  private async confirmPoolContribution(row: any, paystackReference: string, amount: number, paystackFee?: number) {
     // PENDING → PAID: its share was still reserved.
     // EXPIRED → PAID: a late payment after the reservation was released.
     let wasReserved = true;
@@ -494,6 +581,11 @@ export class SessionPaymentService {
 
     if (!payment) {
       const current = await this.sessionPaymentRepository.findOne({ _id: row._id });
+      // Already confirmed: re-run the (idempotent) ledger postings so a
+      // confirmation that failed half-way is completed by the redelivery.
+      if (current?.status === PaymentStatus.PAID) {
+        await this.creditOwnerForPayment(current, paystackReference, current.amount, paystackFee);
+      }
       this.logger.warn(
         `Pool contribution ${row._id} already ${current?.status} — returning existing record (ref: ${paystackReference})`,
       );
@@ -508,7 +600,7 @@ export class SessionPaymentService {
       throw new BadRequestException(`Amount mismatch: expected ${payment.amount}, got ${amount}`);
     }
 
-    const updatedPayment = await this.creditOwnerForPayment(payment, paystackReference, amount);
+    const updatedPayment = await this.creditOwnerForPayment(payment, paystackReference, amount, paystackFee);
 
     const base = payment.baseAmount;
     const session = await this.sessionModel
@@ -583,7 +675,7 @@ export class SessionPaymentService {
       try {
         const tx = await this.paystackService.verifyTransaction(ref);
         if (tx?.status === 'success') {
-          await this.confirmPoolContribution(row, ref, tx.amount);
+          await this.confirmPoolContribution(row, ref, tx.amount, tx.fees);
           return 'confirmed';
         }
       } catch (error: any) {
@@ -1021,7 +1113,10 @@ export class SessionPaymentService {
       return payment;
     }
 
-    const refund = await this.paystackService.refundTransaction(payment.paymentReference, payment.amount, reason);
+    // The processing fee is never refunded (Paystack keeps its fee too): the
+    // player gets back price + commission.
+    const refundAmount = payment.amount - (payment.processingFee ?? 0);
+    const refund = await this.paystackService.refundTransaction(payment.paymentReference, refundAmount, reason);
 
     // Conditional on the status we read, so a concurrent refund of the same
     // row can't decrement the pool counter twice.
@@ -1154,10 +1249,8 @@ export class SessionPaymentService {
     // player their whole payment including commission — but the platform's
     // commission cut was never credited to the owner's wallet in the first
     // place, so there's nothing to claw back from them for that portion.
-    // (The commission itself isn't reversed here — see the note on
-    // PlatformCommission if you want refunds to also void the commission
-    // record; today it's left as a historical "commission was charged on
-    // this payment" fact even if the payment later got refunded.)
+    // The commission is handed back separately, from the PLATFORM wallet
+    // (reverseCommission below).
     const ownerDebitAmount = payment.baseAmount ?? payment.amount;
 
     const ownerWallet = await this.walletService.getWalletByUserId(payment.ownerId.toString());
@@ -1187,6 +1280,10 @@ export class SessionPaymentService {
       return;
     }
 
+    // Throws on failure: the payment stays REFUND_PENDING and the webhook is
+    // redelivered (the owner debit above is idempotent and is skipped then).
+    await this.reverseCommission(payment);
+
     await this.sessionPaymentRepository.findOneAndUpdate(
       { _id: payment._id },
       { status: PaymentStatus.REFUNDED, refundedAt: new Date() },
@@ -1195,6 +1292,42 @@ export class SessionPaymentService {
     this.logger.log(`Refund completed for payment ${payment._id}, session ${payment.sessionId}, amount: ${payment.amount}`);
 
     await this.maybeCompleteSessionRefund(payment.sessionId);
+  }
+
+  // Gives the commission on a refunded payment back out of the PLATFORM
+  // wallet. Only reverses what was actually credited there: payments
+  // confirmed before platform accounts existed have no COMMISSION_ credit,
+  // so there's nothing to reverse for them.
+  private async reverseCommission(payment: any) {
+    const refs = [payment.paymentReference, ...(payment.previousReferences ?? [])].filter(Boolean);
+    let credited: any = null;
+    for (const ref of refs) {
+      credited = await this.walletService.findTransactionByReference(`COMMISSION_${ref}`);
+      if (credited) break;
+    }
+
+    if (credited) {
+      const platform = await this.walletService.getPlatformWallet();
+      await this.walletService.debitWallet(
+        platform._id,
+        credited.amount,
+        TransactionSource.COMMISSION_REVERSAL,
+        `REFUND_COMMISSION_${payment._id}`,
+        {
+          paymentId: payment._id.toString(),
+          sessionId: payment.sessionId.toString(),
+          userId: payment.userId.toString(),
+          originalReference: credited.reference,
+        },
+      );
+    }
+
+    if ((payment.commissionAmount ?? 0) > 0) {
+      await this.platformCommissionRepository.findOneAndUpdate(
+        { sessionPaymentId: payment._id, reversedAt: { $exists: false } },
+        { reversedAt: new Date(), reversedAmount: credited?.amount ?? payment.commissionAmount },
+      );
+    }
   }
 
   // Once every paid member's refund has actually cleared, flip the session
@@ -1282,20 +1415,53 @@ export class SessionPaymentService {
   // records directly rather than deriving from SessionPayment, since a
   // payment's commission fact should stay on record even if that payment
   // later gets refunded (see the note in completeRefund).
+  // i-One's revenue, from the PLATFORM wallet's ledger rows grouped by
+  // source. `legacy` covers commission recorded before platform accounts
+  // existed (PlatformCommission audit rows only, never in the ledger).
   async getCommissionSummary() {
-    const [result] = await this.platformCommissionRepository.findRaw().aggregate([
-      {
-        $group: {
-          _id: null,
-          totalCommission: { $sum: '$commissionAmount' },
-          count: { $sum: 1 },
-        },
-      },
+    const platform = await this.walletService.getPlatformWallet();
+    const bySource = await this.walletService.summarizeBySource(platform._id);
+    const sum = (source: TransactionSource, side: 'credits' | 'debits') => bySource[source]?.[side] ?? 0;
+
+    const commissionEarned = sum(TransactionSource.PLATFORM_COMMISSION, 'credits');
+    const commissionReversed = sum(TransactionSource.COMMISSION_REVERSAL, 'debits');
+    const feesCollected = sum(TransactionSource.PROCESSING_FEE_COLLECTED, 'credits');
+    const paystackFeesPaid = sum(TransactionSource.PAYSTACK_FEE, 'debits');
+
+    const [legacy] = await this.platformCommissionRepository.findRaw().aggregate([
+      { $group: { _id: null, gross: { $sum: '$commissionAmount' }, reversed: { $sum: { $ifNull: ['$reversedAmount', 0] } }, count: { $sum: 1 } } },
     ]);
 
     return {
-      totalCommission: result?.totalCommission ?? 0,
-      count: result?.count ?? 0,
+      platformBalance: platform.balance,
+      commission: {
+        earned: commissionEarned,
+        reversed: commissionReversed,
+        net: commissionEarned - commissionReversed,
+      },
+      processingFees: {
+        collected: feesCollected,
+        paidToPaystack: paystackFeesPaid,
+        surplus: feesCollected - paystackFeesPaid,
+      },
+      auditRecords: {
+        commissionRecords: legacy?.count ?? 0,
+        grossCommission: legacy?.gross ?? 0,
+        reversedCommission: legacy?.reversed ?? 0,
+      },
+    };
+  }
+
+  // Platform wallet + what's owed to owners: together, the money that
+  // should be held for owners and i-One.
+  async getPlatformOverview() {
+    const summary = await this.getCommissionSummary();
+    const owners = await this.walletService.totalOwedToOwners();
+    return {
+      ...summary,
+      owedToOwners: owners.total,
+      ownerWallets: owners.wallets,
+      totalHeld: owners.total + summary.platformBalance,
     };
   }
 }

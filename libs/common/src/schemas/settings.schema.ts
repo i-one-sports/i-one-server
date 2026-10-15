@@ -13,11 +13,12 @@ export class Settings extends AbstractDocument {
   // addition, and it's tracked separately as platform revenue (see
   // PlatformCommission), never credited to any owner wallet.
   //
-  // Defaults to 0 (no commission charged) until a SUPER_ADMIN sets it via
-  // PATCH /settings/commission — safe default, since 0 can never overcharge
-  // a player, but it does mean commission is NOT live until explicitly
-  // configured. Don't treat 0 as "launch ready" for revenue purposes.
-  @Prop({ type: Number, default: 0, min: 0, max: 100 })
+  // 15% is the business decision (2026-10-15): with the processing fee on
+  // top, i-One nets ≥ ₦300 per ₦2,000 share on local cards. Only applies to
+  // fresh databases; an existing Settings document keeps its stored value
+  // (src/helpers/migrate-platform-wallets.ts sets 15 if it was never set).
+  // Change via PATCH /settings/commission.
+  @Prop({ type: Number, default: 15, min: 0, max: 100 })
   commissionPercentage: number;
 
   @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: false })
@@ -32,6 +33,23 @@ export class Settings extends AbstractDocument {
   // Default ₦500 is a placeholder — needs Ops sign-off before launch.
   @Prop({ type: Number, default: 50000, min: 0 })
   minContributionAmount: number;
+
+  // Processing fee charged to players on top of price + commission, so the
+  // card processor's fee never comes out of i-One's commission. Same shape
+  // as Paystack's pricing (percent + flat fee, flat waived below a
+  // threshold, capped). The percent is deliberately above Paystack's ≈1.5%;
+  // the surplus is platform income. Kobo except the percent.
+  @Prop({ type: Number, default: 1.9, min: 0, max: 100 })
+  processingFeePercent: number;
+
+  @Prop({ type: Number, default: 10000, min: 0 })
+  processingFeeFlat: number;
+
+  @Prop({ type: Number, default: 250000, min: 0 })
+  processingFeeFlatWaivedBelow: number;
+
+  @Prop({ type: Number, default: 200000, min: 0 })
+  processingFeeCap: number;
 
   createdAt?: Date;
   updatedAt?: Date;

@@ -10,6 +10,7 @@ import {
   IsEmail,
   IsNotEmpty,
   IsPhoneNumber,
+  IsInt,
   IsNumber,
   MinLength,
   IsBoolean,
@@ -215,7 +216,7 @@ export class RegisterOwnerLocationDto {
       dto.tier === LOCATION_TIER.PAID &&
       dto.pricingOption === LOCATION_PRICING_OPTION.HOURLY,
   )
-  @IsNumber()
+  @IsInt() // whole kobo
   @Min(1)
   pricePerHour?: number; // kobo, total for the pitch per hour (pooled)
 
@@ -224,7 +225,7 @@ export class RegisterOwnerLocationDto {
       dto.tier === LOCATION_TIER.PAID &&
       dto.pricingOption === LOCATION_PRICING_OPTION.MONTHLY,
   )
-  @IsNumber()
+  @IsInt() // whole kobo
   @Min(1)
   paymentPerPersonMonthly?: number;
 
