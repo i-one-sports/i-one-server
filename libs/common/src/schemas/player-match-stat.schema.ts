@@ -1,7 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { SchemaTypes, Types } from 'mongoose';
 import { AbstractDocument } from './abstract.schema';
-import { MATCH_OUTCOME } from '../types/common';
+import { MATCH_OUTCOME, PLAYER_POSITION } from '../types/common';
 
 // One row per player per counted match — the stats equivalent of a ledger
 // entry. Written once when a result counts (MatchStatsService.postMatchStats),
@@ -35,10 +35,20 @@ export class PlayerMatchStat extends AbstractDocument {
   @Prop({ type: Number, default: 0, min: 0 })
   assists: number;
 
-  // Goals the player's team let in. Stored so goalkeeper clean sheets can be
-  // derived once positions exist, without a backfill.
+  // Goals the player's team let in.
   @Prop({ type: Number, default: 0, min: 0 })
   conceded: number;
+
+  // The player's profile position when this match was counted. Frozen here
+  // so a later position change never re-rates past matches. Missing on rows
+  // written before it was recorded.
+  @Prop({ type: String, enum: Object.values(PLAYER_POSITION) })
+  position?: PLAYER_POSITION;
+
+  // Defenders only: the team conceded nothing. Decided when the row is
+  // written, from `position` above.
+  @Prop({ type: Boolean, default: false })
+  cleanSheet: boolean;
 
   // A penalty-shootout winner gets WON (shootout goals never count as goals).
   @Prop({ type: String, enum: Object.values(MATCH_OUTCOME), required: true })

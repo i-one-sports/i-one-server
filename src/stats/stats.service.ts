@@ -3,6 +3,7 @@ import { StatsRepository } from './stats.repository';
 import { StatsDto } from './dto/stats.dto';
 import { MatchStatsService } from './match-stats.service';
 import { VotesService } from 'src/votes/votes.service';
+import { RatingService } from './rating.service';
 import { Types } from 'mongoose';
 import { CustomHttpException } from '@app/common';
 
@@ -14,6 +15,7 @@ export class StatsService {
     private readonly statsRepository: StatsRepository,
     private readonly matchStats: MatchStatsService,
     private readonly votes: VotesService,
+    private readonly ratings: RatingService,
   ) {}
 
   // Summed from officiated match records. The stored Stat counters are no
@@ -28,6 +30,14 @@ export class StatsService {
       this.votes.awardsFor(userId, season),
     ]);
     return { ...totals, playerOfSessionAwards };
+  }
+
+  public async rating(userId: string) {
+    if (!Types.ObjectId.isValid(userId)) {
+      throw new CustomHttpException('Invalid user id', HttpStatus.BAD_REQUEST);
+    }
+    const [rating, playerOfSessionAwards] = await Promise.all([this.ratings.rating(userId), this.votes.awardsFor(userId)]);
+    return { ...rating, playerOfSessionAwards };
   }
 
   public async initializeStat(userId: string) {

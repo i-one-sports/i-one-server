@@ -2360,17 +2360,65 @@ Any user's stats — public profile lookup, not scoped to the caller.
   "wins": 8,
   "draws": 2,
   "losses": 4,
-  "cleanSheets": null,
+  "cleanSheets": 3,
   "playerOfSessionAwards": 2
 }
 ```
 - `season` — `null` for all-time totals.
 - A penalty-shootout win counts in `wins`; shootout goals never count in `goals`.
 - `playerOfSessionAwards` — Player of the Session wins (see **Voting**). A shared award counts for each winner. With `season`, counts awards from votes that opened in that year.
-- `cleanSheets` — `null` means **not tracked yet**: clean sheets are for goalkeepers only, and goalkeeper positions don't exist yet. Every match record already stores the goals conceded, so they'll appear without a backfill once positions are added.
+- `cleanSheets` — **defenders only**: counted matches where the player's team conceded nothing while the player's profile position was Defender (`DF`). The position is saved with each match when it's counted, so changing position later never changes past clean sheets. Matches counted before positions were saved have no clean sheets.
 
 **Error Responses**:
 - `400` — invalid user id, or `season` isn't a year
+
+---
+
+### GET /stats/:userId/rating
+The profile rating (out of 10) and how it's made. Public like stats.
+
+**Auth required**: Yes (JWT cookie)
+
+**Success Response** `200 OK`:
+```json
+{
+  "userId": "507f...",
+  "rating": 5.7,
+  "window": { "sessions": 12, "of": 20 },
+  "totals": {
+    "goals": 14, "assists": 8, "cleanSheets": 0,
+    "gamesPlayed": 20, "gamesWon": 12, "setWinPct": 60,
+    "sessionsWon": 5, "sessionWinPct": 41.7,
+    "voteSharePct": 18, "votesCounted": 9,
+    "contributionsPerSession": 1.8
+  },
+  "components": [
+    { "key": "contribution", "score": 2.1, "max": 3.5 },
+    { "key": "setWin", "score": 1.2, "max": 2 },
+    { "key": "sessionWin", "score": 0.6, "max": 1.5 },
+    { "key": "votes", "score": 1.2, "max": 2 },
+    { "key": "experience", "score": 0.6, "max": 1 }
+  ],
+  "playerOfSessionAwards": 3
+}
+```
+
+**How it's made** — over the player's **last 20 sessions** with a counted match (refereed, not disputed), the one that just finished included. Each part is how far the player is toward that part's cap, times its weight:
+
+| Part | Max | Calculation |
+|---|---|---|
+| `contribution` | 3.5 | (goals + assists + clean sheets) per session ÷ 3, capped. Clean sheets only exist for defenders, so for everyone else this is goals + assists. |
+| `setWin` | 2 | games won ÷ games played. A penalty-shootout win is a win. |
+| `sessionWin` | 1.5 | sessions where the player's team won **more games than every other team** ÷ sessions. A tie for most wins counts for nobody. |
+| `votes` | 2 | average share of Player of the Session votes ÷ 30%, capped. Every closed vote counts whatever the turnout; sessions with no vote, or nobody voting, are left out. |
+| `experience` | 1 | sessions played ÷ 20, capped. |
+
+- `rating` is the sum, rounded to one decimal; `null` until the player has a counted session. There's no minimum number of sessions — a new player can score high on a small sample.
+- `totals` and `window` are for the same 20 sessions (the all-time numbers are on `GET /stats/:userId`). Percentages are 0–100.
+- Worked out on every request, so it's always current.
+
+**Error Responses**:
+- `400` — invalid user id
 
 ---
 

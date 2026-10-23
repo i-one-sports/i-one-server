@@ -14,6 +14,7 @@ describe('MatchStatsService', () => {
   let statModel: { bulkWrite: jest.Mock; updateMany: jest.Mock; aggregate: jest.Mock };
   let matchModel: { findById: jest.Mock; updateOne: jest.Mock; updateMany: jest.Mock; find: jest.Mock };
   let setModel: { find: jest.Mock };
+  let userModel: { find: jest.Mock };
   let service: MatchStatsService;
 
   const lean = (value: any) => ({ lean: jest.fn().mockResolvedValue(value), select: jest.fn().mockReturnThis() });
@@ -52,7 +53,8 @@ describe('MatchStatsService', () => {
         ]),
       ),
     };
-    service = new MatchStatsService(statModel as any, matchModel as any, setModel as any);
+    userModel = { find: jest.fn().mockReturnValue(lean([{ _id: ada, position: 'ST' }, { _id: bayo, position: 'MF' }, { _id: chidi, position: 'DF' }, { _id: dayo, position: 'DF' }])) };
+    service = new MatchStatsService(statModel as any, matchModel as any, setModel as any, userModel as any);
   });
 
   describe('buildRows', () => {
@@ -73,6 +75,21 @@ describe('MatchStatsService', () => {
       );
       expect(rows.find((r) => r.user.toString() === chidi.toString())).toMatchObject({ result: MATCH_OUTCOME.WON, goals: 0 });
       expect(rows.find((r) => r.user.toString() === ada.toString())).toMatchObject({ result: MATCH_OUTCOME.LOST });
+    });
+
+    it('clean sheets go to defenders only, and the position is frozen on the row', async () => {
+      const rows = await service.buildRows(finished({ teamOneScore: 1, teamTwoScore: 0, goalScorers: [] }));
+      const by = (u: Types.ObjectId) => rows.find((r) => r.user.toString() === u.toString());
+
+      // teamOne (ada ST, bayo MF) kept a clean sheet; teamTwo (chidi DF, dayo DF) conceded 1.
+      expect(by(ada)).toMatchObject({ position: 'ST', conceded: 0, cleanSheet: false });
+      expect(by(bayo)).toMatchObject({ position: 'MF', conceded: 0, cleanSheet: false });
+      expect(by(chidi)).toMatchObject({ position: 'DF', conceded: 1, cleanSheet: false });
+
+      const zeroZero = await service.buildRows(finished({ teamOneScore: 0, teamTwoScore: 0, winner: null, goalScorers: [] }));
+      expect(zeroZero.filter((r) => r.cleanSheet).map((r) => r.user.toString()).sort()).toEqual(
+        [chidi.toString(), dayo.toString()].sort(),
+      );
     });
 
     it('a draw that stayed a draw is DRAWN for everyone', async () => {
@@ -116,10 +133,10 @@ describe('MatchStatsService', () => {
   });
 
   describe('totals', () => {
-    it('returns zeros and cleanSheets: null for a player with no counted matches', async () => {
+    it('returns zeros for a player with no counted matches', async () => {
       const userId = id().toString();
       await expect(service.totals(userId)).resolves.toEqual({
-        userId, season: null, totalMatches: 0, goals: 0, assists: 0, wins: 0, draws: 0, losses: 0, cleanSheets: null,
+        userId, season: null, totalMatches: 0, goals: 0, assists: 0, wins: 0, draws: 0, losses: 0, cleanSheets: 0,
       });
     });
 

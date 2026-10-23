@@ -18,6 +18,12 @@ export class StatsController {
     return this.statsService.userStats(user._id.toString(), query.season);
   }
 
+  // Profile rating (out of 10) with its breakdown. Public like stats.
+  @Get(':userId/rating')
+  async rating(@Param('userId') userId: string) {
+    return this.statsService.rating(userId);
+  }
+
   // Public profile lookup — any authenticated user can view anyone's stats.
   @Get(':userId')
   async overallUserStats(@Param('userId') userId: string, @Query() query: statsQueryDto) {

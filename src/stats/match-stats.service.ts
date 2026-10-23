@@ -7,8 +7,10 @@ import {
   MATCH_RESULT_STATUS,
   MATCH_STATUS,
   Match,
+  PLAYER_POSITION,
   PlayerMatchStat,
   Set,
+  User,
   lagosParts,
 } from '@app/common';
 
@@ -32,6 +34,7 @@ export class MatchStatsService {
     @InjectModel(PlayerMatchStat.name) private readonly statModel: Model<PlayerMatchStat>,
     @InjectModel(Match.name) private readonly matchModel: Model<Match>,
     @InjectModel(Set.name) private readonly setModel: Model<Set>,
+    @InjectModel(User.name) private readonly userModel: Model<User>,
   ) {}
 
   // Safe to call any number of times, from any server: rows are inserted
@@ -123,6 +126,14 @@ export class MatchStatsService {
       if (g.assistedBy) assists.set(g.assistedBy.toString(), (assists.get(g.assistedBy.toString()) ?? 0) + 1);
     }
 
+    // Positions as they are now, frozen into the rows (a later change never
+    // re-rates this match).
+    const users = await this.userModel
+      .find({ _id: { $in: sets.flatMap((s) => s.players ?? []) } })
+      .select('position')
+      .lean();
+    const positionOf = new Map(users.map((u: any) => [u._id.toString(), u.position]));
+
     const season = lagosParts(new Date(match.endedAt)).year;
     const outcome = (teamId: any): MATCH_OUTCOME => {
       if (!match.winner) return MATCH_OUTCOME.DRAWN;
@@ -132,10 +143,11 @@ export class MatchStatsService {
     const rows: Array<Partial<PlayerMatchStat>> = [];
     for (const side of ['teamOne', 'teamTwo'] as Side[]) {
       const teamId = match[side];
-      const conceded = side === 'teamOne' ? match.teamTwoScore : match.teamOneScore;
+      const conceded = (side === 'teamOne' ? match.teamTwoScore : match.teamOneScore) ?? 0;
       // A player listed on both teams (shouldn't happen) is counted once, on teamOne.
       for (const user of playersOf(teamId)) {
         if (rows.some((r) => r.user.toString() === user)) continue;
+        const position = positionOf.get(user);
         rows.push({
           user: new Types.ObjectId(user),
           match: match._id,
@@ -145,7 +157,9 @@ export class MatchStatsService {
           season,
           goals: goals.get(user) ?? 0,
           assists: assists.get(user) ?? 0,
-          conceded: conceded ?? 0,
+          conceded,
+          ...(position && { position }),
+          cleanSheet: position === PLAYER_POSITION.DEFENDER && conceded === 0,
           result: outcome(teamId),
           playedAt: match.endedAt,
           void: false,
@@ -155,9 +169,7 @@ export class MatchStatsService {
     return rows;
   }
 
-  // Totals for a profile, summed from non-void rows. Clean sheets need a
-  // goalkeeper, and positions (GK) don't exist yet — null means "not
-  // tracked yet", not zero.
+  // Totals for a profile, summed from non-void rows.
   async totals(userId: string, season?: number) {
     const [row] = await this.statModel.aggregate([
       {
@@ -173,6 +185,7 @@ export class MatchStatsService {
           totalMatches: { $sum: 1 },
           goals: { $sum: '$goals' },
           assists: { $sum: '$assists' },
+          cleanSheets: { $sum: { $cond: [{ $eq: ['$cleanSheet', true] }, 1, 0] } },
           wins: { $sum: { $cond: [{ $eq: ['$result', MATCH_OUTCOME.WON] }, 1, 0] } },
           draws: { $sum: { $cond: [{ $eq: ['$result', MATCH_OUTCOME.DRAWN] }, 1, 0] } },
           losses: { $sum: { $cond: [{ $eq: ['$result', MATCH_OUTCOME.LOST] }, 1, 0] } },
@@ -189,7 +202,7 @@ export class MatchStatsService {
       wins: row?.wins ?? 0,
       draws: row?.draws ?? 0,
       losses: row?.losses ?? 0,
-      cleanSheets: null,
+      cleanSheets: row?.cleanSheets ?? 0,
     };
   }
 }

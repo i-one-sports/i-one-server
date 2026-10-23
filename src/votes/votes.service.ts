@@ -122,6 +122,20 @@ export class VotesService {
     });
   }
 
+  // The share of each session's votes this player got, for the rating.
+  // Every closed vote with at least one vote cast counts, whatever the
+  // turnout; sessions with no vote (or nobody voting) are left out.
+  async voteShares(userId: string, sessionIds: Types.ObjectId[]): Promise<number[]> {
+    const polls = await this.pollModel
+      .find({ session: { $in: sessionIds }, status: SESSION_POLL_STATUS.CLOSED, 'result.votesCast': { $gt: 0 } })
+      .select('result')
+      .lean();
+    return polls.map((poll: any) => {
+      const mine = poll.result.tallies.find((t: any) => t.candidate.toString() === userId)?.votes ?? 0;
+      return mine / poll.result.votesCast;
+    });
+  }
+
   // ------------------------------------------------------------- the job
 
   @Cron(CronExpression.EVERY_MINUTE, { name: 'session-votes' })
