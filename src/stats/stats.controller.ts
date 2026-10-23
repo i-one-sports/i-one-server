@@ -5,25 +5,22 @@ import { CurrentUser, User } from '@app/common';
 import { JwtAuthGuard } from 'src/auth/guards/jwt.guard';
 
 // No PATCH /stats/update here on purpose — stats are never self-reported.
-// They're only ever written by initializeStat (on signup) and, eventually,
-// by match-end aggregation off owner/official-recorded goal-scorer data
-// (see matches.service.ts — not wired up yet, tracked separately).
+// They're summed from PlayerMatchStat rows, which are only written from
+// officiated match results (see src/stats/match-stats.service.ts).
 @Controller('stats')
 @UseGuards(JwtAuthGuard)
 export class StatsController {
   constructor(private readonly statsService: StatsService) {}
 
-  // Public profile lookup — any authenticated user can view anyone's stats.
-  @Get(':userId')
-  async overallUserStats(@Param('userId') userId: string) {
-    return this.statsService.overallUserStats(userId);
+  // Declared before ':userId' — otherwise "season" is read as a user id.
+  @Get('season')
+  async getUserStatsBySeason(@CurrentUser() user: User, @Query() query: statsQueryDto) {
+    return this.statsService.userStats(user._id.toString(), query.season);
   }
 
-  @Get('season')
-  async getUserStatsBySeason(
-    @CurrentUser() user: User,
-    @Query() query: statsQueryDto,
-  ) {
-    return this.statsService.getUserStatsBySeason(user._id.toString(), query);
+  // Public profile lookup — any authenticated user can view anyone's stats.
+  @Get(':userId')
+  async overallUserStats(@Param('userId') userId: string, @Query() query: statsQueryDto) {
+    return this.statsService.userStats(userId, query.season);
   }
 }

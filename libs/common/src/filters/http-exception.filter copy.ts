@@ -24,11 +24,14 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 
     let statusCode = HttpStatus.INTERNAL_SERVER_ERROR;
     let message = 'Internal server error';
+    let details: unknown;
 
     if (exception instanceof HttpException) {
       const response = exception.getResponse() as any;
       statusCode = exception.getStatus();
       message = response.message || response;
+      // Optional machine-readable context, e.g. the current score on a 409.
+      details = response.details;
     } else if (exception instanceof Error) {
       message = exception.message;
     }
@@ -46,6 +49,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       timestamp: new Date().toISOString(),
       path: url,
       message: displayMessage,
+      ...(details !== undefined && { details }),
     };
 
     httpAdapter.reply(ctx.getResponse(), responseBody, statusCode);

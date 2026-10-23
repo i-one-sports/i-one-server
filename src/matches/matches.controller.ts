@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Header,
   Param,
@@ -28,7 +29,9 @@ import {
   finalize
 } from 'rxjs';
 import { MatchScoreUpdateEvent, CurrentUser } from '@app/common';
-import { RecordGoalScorerDto } from './dto/match.dto';
+import { EndMatchDto, RecordGoalScorerDto, ScoreChangeDto } from './dto/match.dto';
+import { AssignRefereeDto } from 'src/referees/dto/referees.dto';
+import { MatchRefereeService } from './match-referee.service';
 
 @Controller('matches')
 @UseGuards(JwtAuthGuard)
@@ -38,6 +41,7 @@ export class MatchesController {
   constructor(
     private matchesService: MatchesService,
     private matchEventService: MatchEventService,
+    private matchRefereeService: MatchRefereeService,
   ) {
     this.logger.log('MatchesController initialized');
   }
@@ -72,33 +76,76 @@ export class MatchesController {
     @CurrentUser() user: any,
   ) {
     const userId = user?._id?.toString() || user?.id?.toString();
-    return this.matchesService.recordGoalScorer(matchId, data.playerId, data.team, userId);
+    return this.matchesService.recordGoalScorer(matchId, userId, data);
   }
 
   @Post('end/:matchId')
-  async endMatchInSession(@Param('matchId') matchId: string, @CurrentUser() user: any) {
+  async endMatchInSession(
+    @Param('matchId') matchId: string,
+    @Body() data: EndMatchDto,
+    @CurrentUser() user: any,
+  ) {
     const userId = user?._id?.toString() || user?.id?.toString();
-    return this.matchesService.endMatch(matchId, userId);
+    return this.matchesService.endMatch(matchId, userId, data.expectedScoreVersion, data.penaltyWinner);
+  }
+
+  // Assign a referee before kick-off, or hand off mid-match.
+  @Put(':matchId/referee')
+  async assignReferee(
+    @Param('matchId') matchId: string,
+    @Body() data: AssignRefereeDto,
+    @CurrentUser() user: any,
+  ) {
+    const userId = user?._id?.toString() || user?.id?.toString();
+    return this.matchRefereeService.assign(matchId, userId, data.refereeId);
+  }
+
+  @Delete(':matchId/referee')
+  async removeReferee(@Param('matchId') matchId: string, @CurrentUser() user: any) {
+    const userId = user?._id?.toString() || user?.id?.toString();
+    return this.matchRefereeService.remove(matchId, userId);
+  }
+
+  @Post(':matchId/confirm')
+  async confirmResult(@Param('matchId') matchId: string, @CurrentUser() user: any) {
+    const userId = user?._id?.toString() || user?.id?.toString();
+    return this.matchRefereeService.respondToResult(matchId, userId, true);
+  }
+
+  @Post(':matchId/dispute')
+  async disputeResult(@Param('matchId') matchId: string, @CurrentUser() user: any) {
+    const userId = user?._id?.toString() || user?.id?.toString();
+    return this.matchRefereeService.respondToResult(matchId, userId, false);
   }
 
   @Put('increment-score/:matchId')
   async incrementMatchScore(
     @Param('matchId') matchId: string,
     @Query('team') team: 'teamOne' | 'teamTwo',
+    @Body() data: ScoreChangeDto,
     @CurrentUser() user: any,
   ) {
+    this.assertTeam(team);
     const userId = user?._id?.toString() || user?.id?.toString();
-    return this.matchesService.incrementMatchScore(matchId, team, userId);
+    return this.matchesService.incrementMatchScore(matchId, team, userId, data);
   }
 
   @Put('decrement-score/:matchId')
   async decrementMatchScore(
     @Param('matchId') matchId: string,
     @Query('team') team: 'teamOne' | 'teamTwo',
+    @Body() data: ScoreChangeDto,
     @CurrentUser() user: any,
   ) {
+    this.assertTeam(team);
     const userId = user?._id?.toString() || user?.id?.toString();
-    return this.matchesService.decrementMatchScore(matchId, team, userId);
+    return this.matchesService.decrementMatchScore(matchId, team, userId, data);
+  }
+
+  private assertTeam(team: string): void {
+    if (team !== 'teamOne' && team !== 'teamTwo') {
+      throw new HttpException('team must be teamOne or teamTwo', HttpStatus.BAD_REQUEST);
+    }
   }
 
   @Sse('stream/:matchId')

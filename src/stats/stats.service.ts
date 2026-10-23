@@ -1,36 +1,28 @@
 import { Injectable, HttpStatus, Logger } from '@nestjs/common';
 import { StatsRepository } from './stats.repository';
-import { StatsDto, statsQueryDto } from './dto/stats.dto';
+import { StatsDto } from './dto/stats.dto';
+import { MatchStatsService } from './match-stats.service';
+import { Types } from 'mongoose';
 import { CustomHttpException } from '@app/common';
 
 @Injectable()
 export class StatsService {
   private readonly logger = new Logger(StatsService.name);
 
-  constructor(private readonly statsRepository: StatsRepository) {}
+  constructor(
+    private readonly statsRepository: StatsRepository,
+    private readonly matchStats: MatchStatsService,
+  ) {}
 
-  public async overallUserStats(userId: string) {
-    try {
-      return this.statsRepository.findOne({ userId });
-    } catch (error) {
-      throw new CustomHttpException(
-        `cannot get user stats ${JSON.stringify(error)}`,
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
+  // Summed from officiated match records. The stored Stat counters are no
+  // longer read: they were never written by matches, and may hold values
+  // from the old self-edit endpoint.
+  public async userStats(userId: string, season?: number) {
+    if (!Types.ObjectId.isValid(userId)) {
+      throw new CustomHttpException('Invalid user id', HttpStatus.BAD_REQUEST);
     }
+    return this.matchStats.totals(userId, season);
   }
-
-
-public async getUserStatsBySeason(userId: string,query: statsQueryDto){
-    try {
-        return this.statsRepository.findOne({userId, ...query});
-    } catch (error) {
-        throw new CustomHttpException(
-            `cannot get user stats ${JSON.stringify(error)}`,
-            HttpStatus.INTERNAL_SERVER_ERROR,
-          );
-    }
-}
 
   public async initializeStat(userId: string) {
     this.logger.log(`Initializing stats for user: ${userId}`);

@@ -1,7 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { SchemaTypes, Types } from 'mongoose';
 import { AbstractDocument } from './abstract.schema';
-import { MATCH_TYPE, SESSION_PAYMENT_MODE, SESSION_STATUS, WINNING_DECIDER } from '../types/common';
+import { MATCH_TYPE, ROTATION_FORMAT, SESSION_PAYMENT_MODE, SESSION_STATUS, WINNING_DECIDER } from '../types/common';
 
 @Schema({ timestamps: true, versionKey: false })
 export class Session extends AbstractDocument {
@@ -26,8 +26,14 @@ export class Session extends AbstractDocument {
   @Prop({ default: null })
   stopTime: Date;
 
-  @Prop({ default: WINNING_DECIDER.PENALTY })
-  winningDecider: string;
+  @Prop({ type: String, enum: Object.values(WINNING_DECIDER), default: WINNING_DECIDER.PENALTY })
+  winningDecider: WINNING_DECIDER;
+
+  // Sessions created before rotation existed read as WINNER_STAYS via this
+  // default. Safe: nothing behaved differently before, and their matches have
+  // no `waiting` queue so no new games get generated for them.
+  @Prop({ type: String, enum: Object.values(ROTATION_FORMAT), default: ROTATION_FORMAT.WINNER_STAYS })
+  rotationFormat: ROTATION_FORMAT;
 
   @Prop({ default: false })
   inProgress: boolean;

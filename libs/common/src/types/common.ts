@@ -9,8 +9,68 @@ export enum MATCH_TYPE {
   FRIENDLY = 'friendly',
 }
 
+// How a drawn game is settled. Only matters for WINNER_STAYS — round robin
+// keeps draws as draws.
 export enum WINNING_DECIDER {
   PENALTY = 'penalties',
+  // Both teams leave the pitch; the next two in the queue come on.
+  BOTH_OFF = 'both_off',
+}
+
+// Who plays next once a game ends.
+export enum ROTATION_FORMAT {
+  // Winner stays on, loser goes to the back of the queue.
+  WINNER_STAYS = 'winner_stays',
+  // Every team plays every other team in a fixed order, repeating until stopTime.
+  ROUND_ROBIN = 'round_robin',
+}
+
+export enum MATCH_STATUS {
+  SCHEDULED = 'SCHEDULED',
+  LIVE = 'LIVE',
+  FINISHED = 'FINISHED',
+}
+
+// How the referee records: on their own i-One account, or in Referee mode on
+// a captain's phone (requests then arrive with the captain's login).
+export enum REFEREE_MODE {
+  OWN_PHONE = 'OWN_PHONE',
+  CAPTAIN_DEVICE = 'CAPTAIN_DEVICE',
+}
+
+export enum REFEREE_STATUS {
+  INVITED = 'INVITED',
+  ACCEPTED = 'ACCEPTED',
+  DECLINED = 'DECLINED',
+}
+
+// Whether a finished match's result may feed stats. Only CONFIRMED counts.
+export enum MATCH_RESULT_STATUS {
+  // No referee when the match ended — score kept for rotation only.
+  UNOFFICIAL = 'UNOFFICIAL',
+  // Refereed in Referee mode on a captain's phone; the opposing side must confirm.
+  PENDING_CONFIRMATION = 'PENDING_CONFIRMATION',
+  CONFIRMED = 'CONFIRMED',
+  DISPUTED = 'DISPUTED',
+}
+
+export enum MATCH_EVENT_TYPE {
+  GOAL = 'GOAL',
+  // Cancels the most recent goal for a team (and its scorer).
+  UNDO = 'UNDO',
+}
+
+// A player's result in one match, for stats.
+export enum MATCH_OUTCOME {
+  WON = 'WON',
+  DRAWN = 'DRAWN',
+  LOST = 'LOST',
+}
+
+export enum MATCH_DECIDED_BY {
+  NORMAL_TIME = 'NORMAL_TIME',
+  PENALTIES = 'PENALTIES',
+  DRAW = 'DRAW',
 }
 
 export enum STATS {

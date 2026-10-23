@@ -745,7 +745,7 @@ Get all matches played at a specific location. Owner only.
 **Path Parameters**:
 - `locationId` — location ID
 
-**Success Response** `200 OK`: Array of match documents for that location.
+**Success Response** `200 OK`: Array of match documents for that location, each with `teamOne`, `teamTwo`, scores, `status`, `sequence`, `winner`, `isStarted` (deprecated) and `session`.
 
 ---
 
@@ -1011,11 +1011,20 @@ Configure a session that was started. Only the session captain can call this.
   "timeDuration": 120,
   "minsPerSet": 30,
   "startTime": "2025-11-10T14:00:00.000Z",
-  "winningDecider": "PENALTY"
+  "winningDecider": "penalties",
+  "rotationFormat": "winner_stays"
 }
 ```
 
 **Notes**:
+- `setNumber` is the number of **teams**. `minsPerSet` is the length of **one game**.
+- `rotationFormat` (optional, default `winner_stays`) — who plays next once a game ends:
+  - `winner_stays` — the winner stays on, the loser goes to the back of the queue.
+  - `round_robin` — every team plays every other team in a fixed order, repeating until `stopTime`.
+- `winningDecider` (required) — how a **drawn** game is settled under `winner_stays`. Ignored for `round_robin`, where draws stay draws:
+  - `penalties` — the end-match request must say who won the shootout.
+  - `both_off` — both teams leave and the next two in the queue come on. With 3 teams, the team that stayed on leaves and the team that just came on plays the waiting team. With 2 teams they play again.
+- Any other value for either field returns `400`.
 - `maxNumber` is computed as `setNumber × playersPerTeam`
 - Returns `409` if the time slot overlaps another session at the same pitch. Sessions at other pitches, and cancelled or refunded sessions, don't block the slot. Back-to-back sessions (one ends at 11:00, the next starts at 11:00) are fine. The check and the save happen as one atomic step per pitch, so if two captains book the same slot at the same moment, exactly one succeeds and the other gets this `409`.
 - Returns `400` if the session doesn't fit inside the location's `openingHour`–`closingHour` window (Lagos time). Sessions can cross midnight when the pitch is open overnight or 24 hours.
@@ -1358,21 +1367,56 @@ Get all sets in the system.
 
 ## Matches
 
+### Who can record a match
+Start, end, score changes and goal scorers are recorded by:
+- **The match's referee**, when it has one (`referee` on the match). On their own phone, that's the referee's own login. In Referee mode on a captain's phone, it's that captain's login (`deviceOwner`).
+- **Either playing team**, when it has no referee. The score is kept so rotation knows the winner, but goal scorers are rejected and the result is `UNOFFICIAL` — it never counts toward stats.
+
+The pitch owner has no recording power of their own. They can assign referees, and can be put on the referee list like anyone else. See the **Referees** section for the roster and assignment endpoints.
+
+### Recording safely on a bad network
+Pitch-side network is unreliable, so every score change is built to be retried without counting twice.
+
+**`scoreVersion`** — a number on the match that goes up by 1 on every goal and every undo, and on nothing else. Every goal, undo and end request sends `expectedScoreVersion`: the version the recorder's screen showed when they tapped. If the match has moved on since then, the server refuses with **`409`** and puts the current score in `details`:
+```json
+{
+  "statusCode": 409,
+  "message": "The score changed since your screen loaded — showing the latest score",
+  "details": { "scoreVersion": 3, "teamOneScore": 2, "teamTwoScore": 1 }
+}
+```
+This catches a duplicate whatever caused it: a retry after a lost response, a new tap after the app was refreshed on an old screen, or two phones recording the same goal (possible when a match has no referee and both teams run the scoreboard).
+
+**`eventId`** — a random id (8–64 characters, a UUID is ideal) the app creates **once per tap**. If a request arrives with an `eventId` the match has already applied, the server answers **`200`** with the current match and changes nothing — so a plain retry gets a clean success instead of a `409`.
+
+**What the app must do:**
+1. When the recorder taps, create the `eventId` and save the tap (with its `eventId` and `expectedScoreVersion`) to the phone's storage **before** sending. Keep it until the server answers `200`, `400` or `409`, and resend it on app restart.
+2. Send queued taps **one at a time, in order**. Each `200` returns the match with its new `scoreVersion`; the next tap uses that.
+3. Show queued taps on screen straight away ("Goal — Ada · sending…") so nobody taps again thinking it didn't register.
+4. Send `end` only once the queue is empty.
+5. On `409`, or after reconnecting, reload `GET /matches/details/:matchId` and show the current score and `events`. The SSE stream may have missed updates while offline.
+
+`start` and `end` are safe to repeat too: starting a live match returns it unchanged, and ending a match that already ended at the same `scoreVersion` returns the same result and the same next game.
+
+The one thing this can't catch is a recorder who sees a goal already on screen and taps again on purpose — that is a real second goal as far as the server can tell. `events` (who recorded what, when), undo, and the review step for Referee-mode results cover it.
+
 ### POST /matches/matchup/:sessionId
-Generate match pairings for a session. If the session requires payment, it must be fully paid first: every member has paid (PER_PERSON), or the pot is full (POOL — regardless of how many members contributed).
+Create **game 1** of a session. Every later game is created automatically by `POST /matches/end/:matchId`, because who plays next depends on the result (see `rotationFormat` on session create). If the session requires payment, it must be fully paid first: every member has paid (PER_PERSON), or the pot is full (POOL — regardless of how many members contributed).
+
+Any number of teams from 2 up works, including odd counts.
 
 **Auth required**: Yes (JWT cookie)
 
-**Success Response** `201 Created`: Array of created match documents.
+**Success Response** `201 Created`: An array containing the one created match (an array so older app builds keep working). The match has `sequence: 1`, `status: "SCHEDULED"` and `waiting` (the queue of team ids not playing this game, front first).
 
 **Error Responses**:
 - `402 Payment Required` — session requires payment and isn't fully paid yet (some members unpaid, or pot not full)
-- `400 Bad Request` — teams already matched, or odd number of sets
+- `400 Bad Request` — teams already matched, or fewer than 2 teams
 
 ---
 
 ### GET /matches/matchups/:sessionId
-View all matchups for a session.
+View every game of a session so far, ordered by `sequence`.
 
 **Auth required**: Yes (JWT cookie)
 
@@ -1381,14 +1425,15 @@ View all matchups for a session.
 ---
 
 ### POST /matches/start/:matchId
-Mark a match as started. Only the **owner of the location** hosting the match's session may call this.
+Start a match: `status` goes from `SCHEDULED` to `LIVE` and `startedAt` is set. If the match has a referee, they are re-checked for eligibility at kick-off. Only the person **recording this match** may call this — see *Who can record a match* above.
 
-**Auth required**: Yes (JWT cookie, location owner only)
+**Auth required**: Yes (JWT cookie, see *Who can record a match*)
 
-**Success Response** `200 OK`: Updated match document.
+**Success Response** `200 OK`: `{ "message": "Team 1 vs Team 2 is underway", "match": { ...updated match } }`. Starting a match that is already live returns it unchanged, so a retry is safe.
 
 **Error Responses**:
-- `403` — caller is not the owner of the location hosting this match
+- `400` — match has already finished, or the assigned referee is no longer eligible
+- `403` — caller isn't allowed to record this match (see *Who can record a match*)
 - `404` — match or session not found
 
 ---
@@ -1418,7 +1463,14 @@ Get full details of a match, including both teams with their players populated a
   },
   "teamOneScore": 1,
   "teamTwoScore": 4,
-  "isStarted": true,
+  "isStarted": false,
+  "status": "FINISHED",
+  "sequence": 3,
+  "waiting": ["507f..."],
+  "startedAt": "2026-10-23T18:00:00.000Z",
+  "endedAt": "2026-10-23T18:10:00.000Z",
+  "winner": "507f...",
+  "decidedBy": "NORMAL_TIME",
   "matchType": "friendly",
   "goalScorers": [
     { "player": { "_id": "507f...", "firstName": "John", "nickname": "johndoe" }, "team": "teamOne" },
@@ -1427,81 +1479,149 @@ Get full details of a match, including both teams with their players populated a
 }
 ```
 
+**Match fields**:
+- `status` — `SCHEDULED` → `LIVE` → `FINISHED`. Use this, not `isStarted`.
+- `isStarted` — **deprecated**, kept equal to `status === "LIVE"` for older app builds. Note it can't tell a finished match from one that hasn't started.
+- `sequence` — game number within the session (1, 2, 3…).
+- `waiting` — team ids not playing this game, front of the queue first. Under `winner_stays`, `teamOne` is the team that stayed on and `teamTwo` the team that came on. Missing on matches created before rotation existed.
+- `winner` — team id, or `null` for a draw that stayed a draw.
+- `decidedBy` — `NORMAL_TIME`, `PENALTIES` or `DRAW`.
+- `penaltyWinner` — `teamOne` / `teamTwo`, only when a draw was settled on penalties. Shootout goals never change the score or `goalScorers`.
+- `referee` — the current referee's roster entry id (see **Referees**), or `null`.
+- `refereeHistory` — every referee change: `{ referee, at, by }`. `referee: null` means it was removed.
+- `resultStatus` — set at full time: `UNOFFICIAL`, `PENDING_CONFIRMATION`, `CONFIRMED` or `DISPUTED`. `CONFIRMED` and `PENDING_CONFIRMATION` count toward stats; a dispute takes a result back out.
+- `reviewUntil` — `PENDING_CONFIRMATION` only: the end of the dispute window.
+- `statsPostedAt` — when players' stats were written for this match.
+- `scoreVersion` — see *Recording safely on a bad network*.
+- `events` — every score change in order: `{ eventId, type: "GOAL" | "UNDO", team, scorer?, assistedBy?, undoes?, recordedByUser, referee, at }`. `undoes` is the `eventId` of the goal an undo cancelled.
+- `confirmedBy` / `confirmedAt` — who confirmed or disputed a `PENDING_CONFIRMATION` result.
+- `goalScorers[].assistedBy` — the assisting player, if any.
+- `goalScorers[].eventId` — the `GOAL` event this came from.
+- `goalScorers[].recordedBy` / `recordedAt` — the referee roster entry that recorded the goal.
+
 **Error Responses**:
 - `404` — match not found
 
 ---
 
 ### POST /matches/goal-scorer/:matchId
-Record a goal scorer for a match. Can be called multiple times (one call per goal). Only the **owner of the location** hosting the match's session may call this.
+Record a goal **with its scorer** (one call per goal — it also adds 1 to the score, so don't call `increment-score` for the same goal). Only the match's **referee** may call this — a match with no referee never records goal scorers. See *Recording safely on a bad network* for `eventId` and `expectedScoreVersion`.
 
-**Auth required**: Yes (JWT cookie, location owner only)
+**Auth required**: Yes (JWT cookie, see *Who can record a match*)
 
 **Request Body**:
 ```json
 {
   "playerId": "507f1f77bcf86cd799439011",
-  "team": "teamOne"
+  "team": "teamOne",
+  "assistedBy": "507f1f77bcf86cd799439012",
+  "eventId": "6f1c2a9e-1b7d-4c55-9a4e-2f0b8a3c7d11",
+  "expectedScoreVersion": 2
 }
 ```
 
 **Field Notes**:
-- `playerId`: MongoDB ObjectId of the player who scored
-- `team`: `"teamOne"` or `"teamTwo"` — the team the scorer belongs to
+- `playerId` — the player who scored. Must be on `team`.
+- `team` — `"teamOne"` or `"teamTwo"`.
+- `assistedBy` (optional) — the player who assisted. Must be a teammate of the scorer, and not the scorer.
+- `eventId`, `expectedScoreVersion` — required, see *Recording safely on a bad network*.
 
-**Success Response** `200 OK`: Updated match document with full population (same structure as `GET /matches/details/:matchId`).
+The `goalScorers` entry stores `assistedBy`, `eventId`, `recordedBy` (the referee roster entry) and `recordedAt`.
+
+**Success Response** `200 OK`: Updated match document with full population (same structure as `GET /matches/details/:matchId`). Also `200`, with nothing changed, when this `eventId` was already applied.
 
 **Error Responses**:
-- `403` — caller is not the owner of the location hosting this match
-- `400` — match has not started yet
+- `400` — match is not live; the match has no referee; the player isn't on the team named; or the assist isn't from a teammate
+- `403` — caller isn't this match's referee
 - `404` — match not found
+- `409` — `expectedScoreVersion` is out of date; `details` has the current score
 
 ---
 
 ### POST /matches/end/:matchId
-Mark a match as ended. Only the **owner of the location** hosting the match's session may call this.
+End a live match, record the result, and create the next game. Only the person **recording this match** may call this — see *Who can record a match* above.
 
-**Auth required**: Yes (JWT cookie, location owner only)
+The finished match gets a `resultStatus` from whoever was refereeing at full time: no referee → `UNOFFICIAL`; referee on their own phone → `CONFIRMED`; Referee mode on a captain's phone → `PENDING_CONFIRMATION` (see `POST /matches/:matchId/confirm`). The referee carries over to the next game if still eligible (their own team isn't coming on); otherwise the next game starts with no referee.
 
-**Success Response** `200 OK`: Finalized match document.
+The next game follows the session's `rotationFormat` (see `POST /sessions/create/:sessionId`). It is created with `status: "SCHEDULED"` and the next `sequence`. No next game is created once the session's `stopTime` has passed, or for matches created before rotation existed.
+
+**Auth required**: Yes (JWT cookie, see *Who can record a match*)
+
+**Stats:** when the result counts (`CONFIRMED`, or `PENDING_CONFIRMATION`), every player's stats are written straight away — see **Stats**. For `PENDING_CONFIRMATION`, `reviewUntil` is set 24 hours after the end and the players allowed to dispute get a `MATCH_RESULT_REVIEW` push.
+
+**Request Body**:
+```json
+{ "expectedScoreVersion": 5, "penaltyWinner": "teamTwo" }
+```
+- `expectedScoreVersion` — **required**: the `scoreVersion` the recorder saw when they pressed end. If a goal landed after that, the end is refused (`409`) so they see it first.
+- `penaltyWinner` — **required** when the score is level, the session is `winner_stays` and its `winningDecider` is `penalties`. Rejected in every other case.
+
+Ending a match that already ended at the same `scoreVersion` (a retry, or two taps at once) returns `200` with the same result and the same `next` game — nothing is created twice.
+
+**Success Response** `200 OK`:
+```json
+{
+  "message": "Final Score- Team 1:2 vs Team 2:1",
+  "match": { "...": "finished match, with winner and decidedBy" },
+  "next": { "...": "the next game (SCHEDULED), or null when time is up" }
+}
+```
 
 **Error Responses**:
-- `403` — caller is not the owner of the location hosting this match
+- `400` — match is not live; draw without `penaltyWinner` when penalties are required; or `penaltyWinner` sent when it isn't allowed
+- `403` — caller isn't allowed to record this match (see *Who can record a match*)
 - `404` — match or session not found
+- `409` — the score changed since the recorder's screen loaded (`details` has the current score), the referee was handed off at the same moment, or the match already ended at a different `scoreVersion`. Nothing was changed.
 
 ---
 
 ### PUT /matches/increment-score/:matchId
-Increment the score for a team. Only the **owner of the location** hosting the match's session may call this.
+Add a goal **without a scorer**: the scoreboard for a match with no referee, or a referee who didn't see who scored. Only the person **recording this match** may call this — see *Who can record a match* above.
 
-**Auth required**: Yes (JWT cookie, location owner only)
+**Auth required**: Yes (JWT cookie, see *Who can record a match*)
 
 **Query Parameters**:
 - `team`: `"teamOne"` | `"teamTwo"`
 
+**Request Body**:
+```json
+{ "eventId": "6f1c2a9e-1b7d-4c55-9a4e-2f0b8a3c7d11", "expectedScoreVersion": 2 }
+```
+See *Recording safely on a bad network*.
+
 **Example**: `PUT /matches/increment-score/507f...?team=teamOne`
 
-**Success Response** `200 OK`: Updated match document with new scores.
+**Success Response** `200 OK`: Updated match document (full population). Also `200`, with nothing changed, when this `eventId` was already applied.
 
 **Error Responses**:
-- `403` — caller is not the owner of the location hosting this match
+- `400` — match is not live, or `team` is invalid
+- `403` — caller isn't allowed to record this match (see *Who can record a match*)
 - `404` — match or session not found
+- `409` — `expectedScoreVersion` is out of date; `details` has the current score
 
 ---
 
 ### PUT /matches/decrement-score/:matchId
-Decrement the score for a team. Only the **owner of the location** hosting the match's session may call this.
+**Undo** the most recent goal for a team. Its `goalScorers` entry (scorer and assist) is removed too, so an undone goal never reaches stats. Only the person **recording this match** may call this — see *Who can record a match* above.
 
-**Auth required**: Yes (JWT cookie, location owner only)
+**Auth required**: Yes (JWT cookie, see *Who can record a match*)
 
 **Query Parameters**:
 - `team`: `"teamOne"` | `"teamTwo"`
 
-**Success Response** `200 OK`: Updated match document.
+**Request Body**:
+```json
+{ "eventId": "0b7e…", "expectedScoreVersion": 3 }
+```
+See *Recording safely on a bad network*. Because `scoreVersion` moves on every undo, a delayed retry of the goal that was undone can't bring it back.
+
+**Success Response** `200 OK`: Updated match document (full population). Also `200`, with nothing changed, when this `eventId` was already applied.
 
 **Error Responses**:
-- `403` — caller is not the owner of the location hosting this match
+- `400` — match is not live, the team has no goal to undo, or `team` is invalid
+- `403` — caller isn't allowed to record this match (see *Who can record a match*)
 - `404` — match or session not found
+- `409` — `expectedScoreVersion` is out of date; `details` has the current score
 
 ---
 
@@ -1560,6 +1680,170 @@ Get current SSE connection statistics.
 **Auth required**: Yes (JWT cookie)
 
 **Success Response** `200 OK`: Connection stats object.
+
+---
+
+### PUT /matches/:matchId/referee
+Assign a referee to a match before kick-off, or hand off to someone else mid-match. The new referee takes over recording straight away; the old one loses it.
+
+**Auth required**: Yes (JWT cookie). Any **session captain**, the **pitch owner**, or the **current referee** handing over.
+
+**Request Body**:
+```json
+{ "refereeId": "507f..." }
+```
+- `refereeId` — a roster entry id from `GET /referees/:sessionId`.
+
+The referee must be eligible: `ACCEPTED`, on this session's list, **not a player on either team in this match**, and not refereeing another live match.
+
+**Success Response** `200 OK`: Updated match document.
+
+**Error Responses**:
+- `400` — referee not eligible (see above), or the match has finished
+- `403` — caller can't change this match's referee
+- `404` — match or referee not found
+- `409` — someone else changed the referee at the same moment. Refresh and try again.
+
+---
+
+### DELETE /matches/:matchId/referee
+Remove the referee. The match carries on **unofficiated**: either playing team can run the scoreboard, goal scorers are rejected, and the result is `UNOFFICIAL`.
+
+**Auth required**: Same as `PUT /matches/:matchId/referee`.
+
+**Success Response** `200 OK`: Updated match document.
+
+**Error Responses**: same as `PUT /matches/:matchId/referee`.
+
+---
+
+### POST /matches/:matchId/confirm
+### POST /matches/:matchId/dispute
+Review a result recorded in Referee mode on a captain's phone (`resultStatus: PENDING_CONFIRMATION`). Those requests arrive with the captain's login, so the server can't tell the referee's taps from the captain's. The result **counts toward stats straight away**; the other side can dispute it until `reviewUntil` (24 hours after the end). The players allowed to respond get a `MATCH_RESULT_REVIEW` push when the match ends.
+
+- **Confirm** → `CONFIRMED`. Stats don't change; it already counts.
+- **Dispute** → `DISPUTED`. Every player's stats from this match are taken back out (marked void) until it's reviewed.
+- Nobody responds → the result becomes `CONFIRMED` when the window closes.
+
+**Auth required**: Yes (JWT cookie). A **player on the team opposing the captain whose phone was used**. If that captain's team wasn't in the match, a player from either team. Never that captain.
+
+**Success Response** `200 OK`: Updated match document with `resultStatus` `CONFIRMED` or `DISPUTED`.
+
+**Error Responses**:
+- `400` — the result isn't waiting for review, or the review window has closed
+- `403` — caller can't confirm this result
+- `404` — match not found
+- `409` — already confirmed or disputed by someone else
+
+---
+
+## Referees
+
+A session has a **referee list** (roster). People agree once per session, then a captain, the owner or the outgoing referee assigns them to individual matches with `PUT /matches/:matchId/referee`. Someone can only referee a match their own team isn't playing in, so the role moves between people as teams rotate.
+
+Two ways to referee:
+- **`OWN_PHONE`** — an i-One user, invited by a captain, who accepts on their own phone.
+- **`CAPTAIN_DEVICE`** (Referee mode) — the captain enters the referee's name and phone number and hands over their phone. Accepted straight away. If the number belongs to an i-One account, the matches count toward that person's referee history. Results count straight away, and the other side has 24 hours to dispute them (`POST /matches/:matchId/dispute`).
+
+**Roster entry**:
+```json
+{
+  "_id": "507f...",
+  "session": "507f...",
+  "user": { "_id": "507f...", "firstName": "Tola", "lastName": "Adebayo", "nickname": "tolaref" },
+  "guestName": "Kunle",
+  "mode": "OWN_PHONE",
+  "deviceOwner": "507f...",
+  "status": "ACCEPTED",
+  "invitedBy": "507f...",
+  "respondedAt": "2026-10-23T17:55:00.000Z"
+}
+```
+- `user` — populated in `GET /referees/:sessionId`; an id elsewhere. Missing for a Referee-mode guest with no account.
+- `guestName`, `deviceOwner` — `CAPTAIN_DEVICE` only.
+- `status` — `INVITED`, `ACCEPTED` or `DECLINED`.
+- A guest's phone number is stored but **never returned**.
+
+---
+
+### POST /referees/:sessionId/invite
+Invite an i-One user to referee this session on their own phone. Sends them a `REFEREE_INVITE` push with `payload: { sessionId, refereeId }`. Someone who declined can be invited again.
+
+**Auth required**: Yes (JWT cookie, session captain)
+
+**Request Body**:
+```json
+{ "userId": "507f..." }
+```
+
+**Success Response** `201 Created`: Roster entry (`INVITED`).
+
+**Error Responses**:
+- `400` — session is closed (cancelled, completed or refunded), or this person already has an open invite or is on the list
+- `403` — caller isn't a captain of this session
+- `404` — session or user not found
+
+---
+
+### POST /referees/:refereeId/accept
+### POST /referees/:refereeId/decline
+Answer a referee invite. The "you're at the pitch" check on the invite screen is done in the app; the server doesn't verify location.
+
+**Auth required**: Yes (JWT cookie, the invited user)
+
+**Success Response** `201 Created`: Roster entry (`ACCEPTED` or `DECLINED`).
+
+**Error Responses**:
+- `400` — invite already answered, or session is closed
+- `404` — invite not found (or it isn't yours)
+
+---
+
+### POST /referees/:sessionId/device
+Start Referee mode on the captain's phone: add the referee by name and phone number. Accepted straight away, with `deviceOwner` set to the caller. Adding the same person again updates their entry instead of creating a second one.
+
+**Auth required**: Yes (JWT cookie, session captain)
+
+**Request Body**:
+```json
+{ "guestName": "Kunle Bello", "guestPhone": "+234 803 412 7788" }
+```
+- `guestPhone` — a Nigerian number. Spaces and dashes are allowed.
+
+**Success Response** `201 Created`: Roster entry (`CAPTAIN_DEVICE`, `ACCEPTED`), without the phone number.
+
+**Error Responses**:
+- `400` — invalid phone number, session closed, or this person is already refereeing this session on their own phone
+- `403` — caller isn't a captain of this session
+- `404` — session not found
+
+---
+
+### GET /referees/:sessionId
+The session's referee list, oldest first.
+
+**Auth required**: Yes (JWT cookie). Session members, captains, the pitch owner, and anyone on the list.
+
+**Success Response** `200 OK`: Array of roster entries with `user` populated.
+
+**Error Responses**:
+- `403` — caller isn't part of this session
+- `404` — session not found
+
+---
+
+### GET /referees/history/:userId
+How many sessions this person has refereed: distinct sessions with a finished match they refereed, including matches they handed off part-way through. Feeds "refereed 4 sessions" on the referee picker.
+
+**Auth required**: Yes (JWT cookie)
+
+**Success Response** `200 OK`:
+```json
+{ "userId": "507f...", "refereedSessions": 4 }
+```
+
+**Error Responses**:
+- `400` — invalid user id
 
 ---
 
@@ -2044,32 +2328,53 @@ Fields are populated according to the `event` type — e.g. `result` carries `ma
 
 ## Stats
 
+### GET /stats/season
+The signed-in user's own stats. Same response as `GET /stats/:userId`.
+
+**Auth required**: Yes (JWT cookie)
+
+**Query Parameters**:
+- `season` (optional) — a year, e.g. `2026`. Leave out for all-time totals.
+
+---
+
 ### GET /stats/:userId
-Get overall stats for any user — public profile lookup, not scoped to the caller.
+Any user's stats — public profile lookup, not scoped to the caller.
 
 **Auth required**: Yes (JWT cookie — just needs to be logged in, viewing someone else's stats is allowed)
 
 **Path Parameters**:
 - `userId` — the user whose stats to fetch
 
-**Success Response** `200 OK`: Aggregated stats document.
-
----
-
-### GET /stats/season
-Get the authenticated user's own stats for a specific season range.
-
-**Auth required**: Yes (JWT cookie)
-
 **Query Parameters**:
-- `seasonStart` (number, required) — e.g. `202401`
-- `seasonEnd` (number, required) — e.g. `202412`
+- `season` (optional) — a year, e.g. `2026` (the match's end date, Lagos time). Leave out for all-time totals.
 
-**Success Response** `200 OK`: Stats document for that period.
+**Success Response** `200 OK`:
+```json
+{
+  "userId": "507f...",
+  "season": 2026,
+  "totalMatches": 14,
+  "goals": 9,
+  "assists": 4,
+  "wins": 8,
+  "draws": 2,
+  "losses": 4,
+  "cleanSheets": null
+}
+```
+- `season` — `null` for all-time totals.
+- A penalty-shootout win counts in `wins`; shootout goals never count in `goals`.
+- `cleanSheets` — `null` means **not tracked yet**: clean sheets are for goalkeepers only, and goalkeeper positions don't exist yet. Every match record already stores the goals conceded, so they'll appear without a backfill once positions are added.
+
+**Error Responses**:
+- `400` — invalid user id, or `season` isn't a year
 
 ---
 
-**No self-edit endpoint on purpose.** There is deliberately no `PATCH /stats/update` (or equivalent) here — stats are never player-editable. They're written by `initializeStat` on signup (zeroed) and, once wired up, by match-end aggregation off owner/official-recorded goal-scorer data (see `POST /matches/goal-scorer/:matchId`) — not by a player calling an endpoint about themselves.
+**Where the numbers come from.** Stats are never self-reported and there is no endpoint to edit them. When a match result counts (see `resultStatus` under `GET /matches/details/:matchId`), one record per player is written: goals and assists from `goalScorers`, goals conceded, and won/drawn/lost. Records are never edited; the totals above are added up from them every time. A disputed result's records are marked void and drop out of the totals. A background job checks every minute for counted matches whose records weren't written (e.g. a crash mid-request) and writes them, and closes review windows that have run out.
+
+Not counted: matches with no referee (`UNOFFICIAL`), matches from before referees existed, and tournament matches. The old stored stats counters are no longer read.
 
 ---
 
@@ -2822,6 +3127,8 @@ data: {"type":"heartbeat","timestamp":1234567890}
 | `SESSION_BROADCAST` | Captain/owner calls `POST /sessions/notify/:sessionId` | All session members |
 | `ADMIN_BROADCAST` | Super admin calls `POST /notifications/broadcast` | Every user with a registered device token |
 | `SESSION_REMINDER` | Automatic, 15 and 5 minutes before a session starts | Session members; plus the captain and pitch owner when it isn't fully paid |
+| `REFEREE_INVITE` | Captain calls `POST /referees/:sessionId/invite`. `payload: { sessionId, refereeId }` | The invited user |
+| `MATCH_RESULT_REVIEW` | A Referee-mode match ends (`PENDING_CONFIRMATION`). `payload: { matchId, sessionId }`. Not delivered after `reviewUntil` | Players allowed to confirm or dispute it |
 
 **`SESSION_REMINDER`**: sent by a background job, so no endpoint triggers it. It goes out on this stream and as a phone push. Times in the text are Lagos time. Its `payload`:
 ```json
@@ -2902,7 +3209,7 @@ Send a push notification directly to a specific FCM device token. Super admin on
 
 ### Notification delivery tracking (super admin)
 
-Notifications sent through the **outbox** (currently `SESSION_REMINDER`) are stored as rows that record exactly what happened. Delivery runs in the background with retries: the request that triggers a notification never waits on FCM.
+Notifications sent through the **outbox** (currently `SESSION_REMINDER`, `REFEREE_INVITE` and `MATCH_RESULT_REVIEW`) are stored as rows that record exactly what happened. Delivery runs in the background with retries: the request that triggers a notification never waits on FCM.
 
 Each row has:
 - `status`: `PENDING` → `SENDING` → one of:
@@ -3294,7 +3601,8 @@ interface Session {
   timeDuration: number;       // total minutes
   startTime: Date;
   stopTime: Date;
-  winningDecider: 'PENALTY' | string;
+  winningDecider: 'penalties' | 'both_off';
+  rotationFormat: 'winner_stays' | 'round_robin';
   matchType: 'FRIENDLY' | string;
   inProgress: boolean;
   finished: boolean;

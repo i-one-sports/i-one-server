@@ -1,4 +1,5 @@
-import { IsDate, IsDateString, IsNotEmpty, IsNumber, IsString } from 'class-validator';
+import { IsDate, IsDateString, IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
+import { ROTATION_FORMAT, WINNING_DECIDER } from '@app/common';
 
 export class createSessionRequest {
   @IsNotEmpty()
@@ -21,9 +22,12 @@ export class createSessionRequest {
   @IsDateString()
   startTime: Date;
 
+  @IsEnum(WINNING_DECIDER)
+  winningDecider: WINNING_DECIDER;
 
- @IsString()
-  winningDecider: string;
+  @IsOptional()
+  @IsEnum(ROTATION_FORMAT)
+  rotationFormat?: ROTATION_FORMAT;
 }
 
 export class BroadcastSessionMessageDto {
