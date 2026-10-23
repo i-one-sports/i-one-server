@@ -2360,11 +2360,13 @@ Any user's stats — public profile lookup, not scoped to the caller.
   "wins": 8,
   "draws": 2,
   "losses": 4,
-  "cleanSheets": null
+  "cleanSheets": null,
+  "playerOfSessionAwards": 2
 }
 ```
 - `season` — `null` for all-time totals.
 - A penalty-shootout win counts in `wins`; shootout goals never count in `goals`.
+- `playerOfSessionAwards` — Player of the Session wins (see **Voting**). A shared award counts for each winner. With `season`, counts awards from votes that opened in that year.
 - `cleanSheets` — `null` means **not tracked yet**: clean sheets are for goalkeepers only, and goalkeeper positions don't exist yet. Every match record already stores the goals conceded, so they'll appear without a backfill once positions are added.
 
 **Error Responses**:
@@ -2375,6 +2377,91 @@ Any user's stats — public profile lookup, not scoped to the caller.
 **Where the numbers come from.** Stats are never self-reported and there is no endpoint to edit them. When a match result counts (see `resultStatus` under `GET /matches/details/:matchId`), one record per player is written: goals and assists from `goalScorers`, goals conceded, and won/drawn/lost. Records are never edited; the totals above are added up from them every time. A disputed result's records are marked void and drop out of the totals. A background job checks every minute for counted matches whose records weren't written (e.g. a crash mid-request) and writes them, and closes review windows that have run out.
 
 Not counted: matches with no referee (`UNOFFICIAL`), matches from before referees existed, and tournament matches. The old stored stats counters are no longer read.
+
+---
+
+## Voting — Player of the Session
+
+After a session, the players vote for the best player.
+
+- **Opens** when the session is over — the captain or owner ended it, or `stopTime` passed — and no match is still live. A background job checks every minute, so it opens within a minute of that.
+- **Who votes, and who can be voted for:** every player on a team that played at least one finished match in the session. Fixed when voting opens. Referees and spectators don't vote.
+- **Runs for 2 hours.** One vote each, never for yourself, and **final** — it can't be changed. There is no "skip" to send: a player who doesn't vote just doesn't count toward turnout.
+- **Anonymous:** the server stores who voted (to stop double votes), but the API never returns it — only turnout, your own vote, and after closing the totals.
+- **Result** is counted shortly after closing (within about a minute and a half): the most votes wins, **a tie shares the award**, and **no award if fewer than 40% of eligible players voted**.
+- Pushes: `SESSION_VOTE_OPEN` when it opens, `SESSION_VOTE_RESULT` when the result is in, to every eligible player.
+
+### GET /votes/:sessionId
+The vote screens: candidates, turnout, your vote, and the result once counted.
+
+**Auth required**: Yes (JWT cookie)
+
+**Success Response** `200 OK`:
+```json
+{
+  "sessionId": "507f...",
+  "status": "OPEN",
+  "opensAt": "2026-10-23T19:00:00.000Z",
+  "closesAt": "2026-10-23T21:00:00.000Z",
+  "eligibleCount": 10,
+  "votesCast": 7,
+  "myVote": "507f...",
+  "canVote": false,
+  "candidates": [
+    {
+      "user": { "_id": "507f...", "firstName": "Chidi", "lastName": "Okafor", "nickname": "chidi", "position": "ST" },
+      "goals": 2,
+      "assists": 1
+    }
+  ],
+  "result": null
+}
+```
+- `status` — `OPEN` until `closesAt`, then `CLOSED`.
+- `myVote` — the candidate you voted for, or `null`. `canVote` — you're eligible, it's open, and you haven't voted.
+- `candidates` — every eligible player, including you (the app greys you out). `goals`/`assists` are from this session's counted matches only (officiated, not disputed) — the same records as **Stats**.
+- `result` — `null` until the result is counted, even just after `closesAt`. Then:
+```json
+{
+  "outcome": "AWARDED",
+  "winners": ["507f..."],
+  "votesCast": 9,
+  "eligibleCount": 10,
+  "minTurnout": 0.4,
+  "tallies": [
+    { "candidate": "507f...", "votes": 5, "percent": 56 },
+    { "candidate": "507f...", "votes": 3, "percent": 33 },
+    { "candidate": "507f...", "votes": 1, "percent": 11 }
+  ]
+}
+```
+  - `outcome` — `AWARDED`, or `NO_AWARD` (turnout under `minTurnout`, or nobody voted). Tallies are still shown for `NO_AWARD`.
+  - `winners` — more than one on a tie.
+  - `tallies` — most votes first; `percent` is of votes cast.
+
+**Error Responses**:
+- `400` — invalid session id
+- `404` — voting for this session hasn't opened (session not over, a match still live, or no finished matches)
+
+---
+
+### POST /votes/:sessionId
+Cast your vote.
+
+**Auth required**: Yes (JWT cookie, an eligible player)
+
+**Request Body**:
+```json
+{ "candidateId": "507f..." }
+```
+
+**Success Response** `201 Created`: Same as `GET /votes/:sessionId`. Sending the **same** vote again (a retry after a lost response) also succeeds and changes nothing.
+
+**Error Responses**:
+- `400` — voting has closed, you voted for yourself, or that player didn't play in this session
+- `403` — you didn't play in this session
+- `404` — voting for this session hasn't opened
+- `409` — you've already voted for someone else; votes can't be changed
 
 ---
 
@@ -3128,6 +3215,8 @@ data: {"type":"heartbeat","timestamp":1234567890}
 | `ADMIN_BROADCAST` | Super admin calls `POST /notifications/broadcast` | Every user with a registered device token |
 | `SESSION_REMINDER` | Automatic, 15 and 5 minutes before a session starts | Session members; plus the captain and pitch owner when it isn't fully paid |
 | `REFEREE_INVITE` | Captain calls `POST /referees/:sessionId/invite`. `payload: { sessionId, refereeId }` | The invited user |
+| `SESSION_VOTE_OPEN` | Player of the Session voting opens. `payload: { sessionId }`. Not delivered after voting closes | Every player eligible to vote |
+| `SESSION_VOTE_RESULT` | Player of the Session result is counted. `payload: { sessionId }` | Every player eligible to vote |
 | `MATCH_RESULT_REVIEW` | A Referee-mode match ends (`PENDING_CONFIRMATION`). `payload: { matchId, sessionId }`. Not delivered after `reviewUntil` | Players allowed to confirm or dispute it |
 
 **`SESSION_REMINDER`**: sent by a background job, so no endpoint triggers it. It goes out on this stream and as a phone push. Times in the text are Lagos time. Its `payload`:
@@ -3209,7 +3298,7 @@ Send a push notification directly to a specific FCM device token. Super admin on
 
 ### Notification delivery tracking (super admin)
 
-Notifications sent through the **outbox** (currently `SESSION_REMINDER`, `REFEREE_INVITE` and `MATCH_RESULT_REVIEW`) are stored as rows that record exactly what happened. Delivery runs in the background with retries: the request that triggers a notification never waits on FCM.
+Notifications sent through the **outbox** (currently `SESSION_REMINDER`, `REFEREE_INVITE`, `MATCH_RESULT_REVIEW`, `SESSION_VOTE_OPEN` and `SESSION_VOTE_RESULT`) are stored as rows that record exactly what happened. Delivery runs in the background with retries: the request that triggers a notification never waits on FCM.
 
 Each row has:
 - `status`: `PENDING` → `SENDING` → one of:

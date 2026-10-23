@@ -6,6 +6,7 @@ import { StatsController } from './stats.controller';
 import { StatsService } from './stats.service';
 import { StatsRepository } from './stats.repository';
 import { MatchStatsService } from './match-stats.service';
+import { VotesModule } from 'src/votes/votes.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { MatchStatsService } from './match-stats.service';
       { name: Match.name, schema: MatchSchema },
       { name: Set.name, schema: SetSchema },
     ]),
+    VotesModule,
   ],
   controllers: [StatsController],
   providers: [StatsService, StatsRepository, MatchStatsService],

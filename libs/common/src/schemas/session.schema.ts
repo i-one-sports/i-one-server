@@ -109,6 +109,8 @@ export class Session extends AbstractDocument {
 export const SessionSchema = SchemaFactory.createForClass(Session);
 // Indexes to improve query performance for owner dashboard and session lookups
 SessionSchema.index({ startTime: 1 });
+// The per-minute Player of the Session job looks up recently ended sessions.
+SessionSchema.index({ stopTime: 1 });
 SessionSchema.index({ location: 1 });
 SessionSchema.index({ paymentRequired: 1, paymentStatus: 1 });
 SessionSchema.index({ allPaymentsCompleted: 1 });

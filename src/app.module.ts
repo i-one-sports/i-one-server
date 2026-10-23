@@ -26,6 +26,7 @@ import { BanksModule } from './banks/banks.module';
 import { SettingsModule } from './settings/settings.module';
 import { DeepLinksModule } from './deep-links/deep-links.module';
 import { RefereesModule } from './referees/referees.module';
+import { VotesModule } from './votes/votes.module';
 
 @Module({
   imports: [
@@ -64,6 +65,7 @@ import { RefereesModule } from './referees/referees.module';
     SettingsModule,
     DeepLinksModule,
     RefereesModule,
+    VotesModule,
   ],
   controllers: [AppController],
   providers: [

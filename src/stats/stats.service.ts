@@ -2,6 +2,7 @@ import { Injectable, HttpStatus, Logger } from '@nestjs/common';
 import { StatsRepository } from './stats.repository';
 import { StatsDto } from './dto/stats.dto';
 import { MatchStatsService } from './match-stats.service';
+import { VotesService } from 'src/votes/votes.service';
 import { Types } from 'mongoose';
 import { CustomHttpException } from '@app/common';
 
@@ -12,6 +13,7 @@ export class StatsService {
   constructor(
     private readonly statsRepository: StatsRepository,
     private readonly matchStats: MatchStatsService,
+    private readonly votes: VotesService,
   ) {}
 
   // Summed from officiated match records. The stored Stat counters are no
@@ -21,7 +23,11 @@ export class StatsService {
     if (!Types.ObjectId.isValid(userId)) {
       throw new CustomHttpException('Invalid user id', HttpStatus.BAD_REQUEST);
     }
-    return this.matchStats.totals(userId, season);
+    const [totals, playerOfSessionAwards] = await Promise.all([
+      this.matchStats.totals(userId, season),
+      this.votes.awardsFor(userId, season),
+    ]);
+    return { ...totals, playerOfSessionAwards };
   }
 
   public async initializeStat(userId: string) {

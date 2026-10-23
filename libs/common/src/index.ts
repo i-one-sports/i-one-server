@@ -25,6 +25,7 @@ export * from './schemas/settings.schema';
 export * from './schemas/platform-commission.schema';
 export * from './schemas/session-referee.schema';
 export * from './schemas/player-match-stat.schema';
+export * from './schemas/session-vote.schema';
 export * from './schemas/stats.schema';
 export * from './utils/phone.number';
 export * from './typings/global.interface';
