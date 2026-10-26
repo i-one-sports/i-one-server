@@ -36,7 +36,7 @@ describe('MatchesService', () => {
     notifyReviewers: jest.Mock;
   };
   let matchStats: { postMatchStats: jest.Mock };
-  let matchEventService: { emitMatchScoreUpdate: jest.Mock };
+  let matchEventService: { emitMatchScoreUpdate: jest.Mock; emitMatchEvent: jest.Mock };
   let sessionPaymentService: { areAllPaymentsCompleted: jest.Mock };
 
   const sessionId = new Types.ObjectId();
@@ -78,6 +78,7 @@ describe('MatchesService', () => {
     matchStats = { postMatchStats: jest.fn().mockResolvedValue(0) };
     matchEventService = {
       emitMatchScoreUpdate: jest.fn().mockResolvedValue(undefined),
+      emitMatchEvent: jest.fn().mockResolvedValue(undefined),
     };
     sessionPaymentService = { areAllPaymentsCompleted: jest.fn() };
 
@@ -222,6 +223,28 @@ describe('MatchesService', () => {
       expect(matchRepository.findOneAndUpdate).not.toHaveBeenCalled();
     });
 
+    it('announces a start once; a retried start says nothing', async () => {
+      matchReferee.assertCanOfficiate.mockResolvedValue(officiating({ status: MATCH_STATUS.SCHEDULED }));
+      matchRepository.findOneAndUpdate.mockResolvedValue({ _id: matchId, status: MATCH_STATUS.LIVE });
+      matchRepository.findOneAndPopulate.mockResolvedValue({
+        _id: matchId, session: sessionId, sequence: 2, referee: null, startedAt: new Date(),
+        teamOne: { _id: teamOneId, name: 'Alpha' }, teamTwo: { _id: teamTwoId, name: 'Beta' },
+      });
+      matchRepository.findOne.mockResolvedValue({ _id: matchId, status: MATCH_STATUS.LIVE });
+
+      await service.startMatch(matchId.toString(), ownerId.toString());
+      await new Promise((r) => setImmediate(r));
+      expect(matchEventService.emitMatchEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'match_started', matchId, sessionId, sequence: 2, teamOne: { id: teamOneId, name: 'Alpha' } }),
+      );
+
+      matchEventService.emitMatchEvent.mockClear();
+      matchReferee.assertCanOfficiate.mockResolvedValue(officiating({ status: MATCH_STATUS.LIVE }));
+      await service.startMatch(matchId.toString(), ownerId.toString());
+      await new Promise((r) => setImmediate(r));
+      expect(matchEventService.emitMatchEvent).not.toHaveBeenCalled();
+    });
+
     it('returns a live match as-is when start is retried', async () => {
       matchRepository.findOneAndPopulate.mockResolvedValue({ teamOne: { name: 'Alpha' }, teamTwo: { name: 'Beta' } });
       matchRepository.findOne.mockResolvedValue({ _id: matchId, status: MATCH_STATUS.LIVE });
@@ -274,6 +297,39 @@ describe('MatchesService', () => {
           teamOneScore: 2,
           teamTwoScore: 1,
         });
+      });
+
+      it('announces the result and the next game; a retried end says nothing', async () => {
+        matchReferee.assertCanOfficiate.mockResolvedValue(officiating(liveMatch({ scoreVersion: 0 })));
+        sessionRepository.findOne.mockResolvedValue(session());
+        matchRepository.findOneAndPopulate.mockImplementation(async (filter: any) =>
+          String(filter._id) === String(matchId)
+            ? { _id: matchId, session: sessionId, sequence: 1, teamOne: { _id: teamOneId, name: 'Alpha' }, teamTwo: { _id: teamTwoId, name: 'Beta' },
+                teamOneScore: 2, teamTwoScore: 1, scoreVersion: 3, winner: teamOneId, decidedBy: 'NORMAL_TIME', resultStatus: 'CONFIRMED' }
+            : { _id: filter._id, sequence: 2, referee: null, teamOne: { _id: teamOneId, name: 'Alpha' }, teamTwo: { _id: teamC, name: 'Gamma' } },
+        );
+
+        await service.endMatch(matchId.toString(), ownerId.toString(), 0);
+        await new Promise((r) => setImmediate(r));
+
+        expect(matchEventService.emitMatchEvent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: 'match_finished',
+            matchId,
+            sessionId,
+            teamOneScore: 2,
+            winner: teamOneId,
+            resultStatus: 'CONFIRMED',
+            next: expect.objectContaining({ sequence: 2, teamOne: { id: teamOneId, name: 'Alpha' }, teamTwo: { id: teamC, name: 'Gamma' } }),
+          }),
+        );
+
+        matchEventService.emitMatchEvent.mockClear();
+        matchReferee.assertCanOfficiate.mockResolvedValue(officiating(liveMatch({ status: MATCH_STATUS.FINISHED, scoreVersion: 0 })));
+        matchRepository.findOne.mockResolvedValue({ _id: new Types.ObjectId(), sequence: 2 });
+        await service.endMatch(matchId.toString(), ownerId.toString(), 0);
+        await new Promise((r) => setImmediate(r));
+        expect(matchEventService.emitMatchEvent).not.toHaveBeenCalled();
       });
 
       it('finishes the game and creates the next one: winner vs waiting team', async () => {
@@ -482,6 +538,12 @@ describe('MatchesService', () => {
       matchReferee.playersOf.mockResolvedValue({ teamOne: new Set([playerId, teammate]), teamTwo: new Set() });
       matchRepository.findOneAndUpdate.mockResolvedValue({ _id: matchId });
       matchRepository.viewMatchDetailsDeep.mockResolvedValue(details);
+    });
+
+    it('score events carry the new scoreVersion', async () => {
+      matchRepository.viewMatchDetailsDeep.mockResolvedValue({ ...details, scoreVersion: 4 });
+      await service.incrementMatchScore(matchId.toString(), 'teamOne', ownerId.toString(), change(0));
+      expect(matchEventService.emitMatchScoreUpdate).toHaveBeenCalledWith(expect.objectContaining({ scoreVersion: 4, teamOneScore: 1 }));
     });
 
     it('records a goal as one versioned, conditional update', async () => {

@@ -10,4 +10,14 @@ export class UserRepository extends AbstractRepository<User> {
   constructor(@InjectModel(User.name) UserModel: Model<User>) {
     super(UserModel);
   }
+
+  // Only the fields safe to show other players.
+  async publicProfiles(ids: any[]) {
+    return this.findRaw().find({ _id: { $in: ids } }).select('firstName lastName nickname avatar position').lean();
+  }
+
+  async positionsOf(ids: any[]): Promise<Map<string, string>> {
+    const users = await this.findRaw().find({ _id: { $in: ids } }).select('position').lean();
+    return new Map(users.map((u: any) => [u._id.toString(), u.position]));
+  }
 }

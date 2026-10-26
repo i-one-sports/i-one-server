@@ -19,6 +19,7 @@ export enum NOTIFICATION_TYPE {
   MATCH_RESULT_REVIEW = 'MATCH_RESULT_REVIEW',
   SESSION_VOTE_OPEN = 'SESSION_VOTE_OPEN',
   SESSION_VOTE_RESULT = 'SESSION_VOTE_RESULT',
+  BADGE_UNLOCKED = 'BADGE_UNLOCKED',
   // future types added here as new notifications are built
 }
 

@@ -2,29 +2,33 @@
 
 ## Table of Contents
 1. [Base URL & Authentication](#base-url--authentication)
-2. [Health Check](#health-check)
-3. [Authentication](#authentication)
-4. [Users](#users)
-5. [Email Verification](#email-verification)
-6. [Verification (KYC)](#verification-kyc)
-7. [Locations](#locations)
-8. [Owner Dashboard](#owner-dashboard) — includes `/revenue` and `/users-chart`
-9. [Sessions](#sessions)
-10. [Sets](#sets)
-11. [Matches](#matches)
-12. [Tournaments](#tournaments)
-13. [Stats](#stats)
-14. [Captains](#captains)
-15. [Wallet & Payments](#wallet--payments) — includes refund flow
-16. [Banks](#banks)
-17. [Settings](#settings) — platform commission rate, minimum pool contribution
-18. [Location Billing](#location-billing) — owner transaction history & team payment validator
-19. [Notifications](#notifications)
-20. [Admin](#admin) — includes commission summary
-21. [Webhooks](#webhooks) — includes refund.* events
-22. [Universal / App Links](#universal--app-links)
-23. [Error Handling](#error-handling)
-24. [Types & Interfaces](#types--interfaces)
+2. [Real-time Updates (SSE) — Frontend Guide](#real-time-updates-sse--frontend-guide)
+3. [Health Check](#health-check)
+4. [Authentication](#authentication)
+5. [Users](#users)
+6. [Email Verification](#email-verification)
+7. [Verification (KYC)](#verification-kyc)
+8. [Locations](#locations)
+9. [Owner Dashboard](#owner-dashboard) — includes `/revenue` and `/users-chart`
+10. [Sessions](#sessions)
+11. [Sets](#sets)
+12. [Matches](#matches) — rotation, recording safely on a bad network
+13. [Referees](#referees)
+14. [Tournaments](#tournaments)
+15. [Stats](#stats) — includes the player rating
+16. [Voting — Player of the Session](#voting--player-of-the-session)
+17. [Badges](#badges)
+18. [Captains](#captains)
+19. [Wallet & Payments](#wallet--payments) — includes refund flow
+20. [Banks](#banks)
+21. [Settings](#settings) — platform commission rate, minimum pool contribution
+22. [Location Billing](#location-billing) — owner transaction history & team payment validator
+23. [Notifications](#notifications)
+24. [Admin](#admin) — includes commission summary
+25. [Webhooks](#webhooks) — includes refund.* events
+26. [Universal / App Links](#universal--app-links)
+27. [Error Handling](#error-handling)
+28. [Types & Interfaces](#types--interfaces)
 
 ---
 
@@ -47,7 +51,157 @@
 
 ---
 
+## Real-time Updates (SSE) — Frontend Guide
+
+The app gets live updates over **Server-Sent Events (SSE)**: a long-lived HTTP `GET` the server keeps open and writes messages to. It's one-way (server → app); everything the app *does* still goes through the normal REST endpoints. This section is the how-to; each stream's own section lists its exact events.
+
+### The streams
+
+| Stream | Open it when | It carries | First message |
+|---|---|---|---|
+| `GET /notifications/stream` | The user is logged in and the app is in the foreground — **one per app**, always on | Every in-app notification for this user (`type`, `title`, `body`, `payload`) — see the table under [Notifications](#notifications) | `{"type":"connected"}` |
+| `GET /matches/stream/:matchId` | A live match screen is open | That match: score changes, start, full time (with the next game), referee changes | `{"type":"connected"}` |
+| `GET /matches/stream/session/:sessionId` | A session screen showing its games is open | The same, for every match in the session | `{"type":"connected"}` |
+| `GET /matches/stream` | Admin / owner dashboards only — **not** for player screens | The same, for every match | `{"type":"connected"}` |
+| `GET /wallet/session/:sessionId/payment-stream` | The pool payment screen is open | The whole pool snapshot on connect, then a fresh snapshot on every change | `{"type":"pool_snapshot"}` |
+| `GET /tournaments/stream/:id` | A tournament screen is open | Bracket / fixture / standings changes | `{"type":"connected"}` |
+
+All of them send `{"type":"heartbeat"}` every **30 seconds**.
+
+### Connecting
+
+- **URL**: base URL + path, e.g. `https://i-one-server-v1.onrender.com/i-one/notifications/stream`.
+- **Auth**: the same `Authentication` cookie as every other request. There's no token in the URL.
+  - **Browser / web view**: `new EventSource(url, { withCredentials: true })` sends the cookie.
+  - **Mobile**: phones have no built-in `EventSource`. Use an SSE client library for your framework that lets you **set request headers**, and send `Cookie: Authentication=<jwt>` and `Accept: text/event-stream` yourself.
+- **Errors before the stream starts** come back as a normal JSON error (see [Error Handling](#error-handling)), not as stream messages:
+  - `401` — not logged in / session expired → send the user to log in; **don't retry**.
+  - `403` / `404` — not allowed to watch this, or it doesn't exist → **don't retry**.
+  - `429` — too many open streams (10 per user on match streams, 500 viewers per match). If you see this, the app is **not closing streams it no longer needs** — fix that rather than retrying.
+
+### Reading messages
+
+Every message is one `data:` line holding JSON. The server never sends a named `event:` field, so listen to the default message handler (`onmessage`) and branch on the JSON:
+
+```ts
+function handle(stream: 'notifications' | 'match' | 'payment' | 'tournament', raw: string) {
+  const msg = JSON.parse(raw);
+
+  if (msg.type === 'heartbeat') return markAlive();          // every 30s, all streams
+  if (msg.type === 'connected') return onConnected(stream);   // resync from REST here (see below)
+  if (msg.type === 'error') return reconnectSoon();          // the server hit a problem with this stream
+
+  switch (stream) {
+    case 'notifications': return onNotification(msg);        // msg.type is the notification type
+    case 'match':         return onMatch(msg);               // msg.type: score | match_started | match_finished | referee_changed
+    case 'payment':       return onPool(msg.snapshot);       // msg.type: pool_snapshot | pool_update
+    case 'tournament':    return onTournament(msg);          // msg.event: started | result | advance | scheduled | completed
+  }
+}
+```
+
+### Keeping it alive
+
+```ts
+// Framework-neutral sketch. `openSse` is your SSE library's connect call.
+const BACKOFF_MS = [1000, 2000, 5000, 10000, 30000];
+
+function keepStreaming(url: string, stream: StreamKind) {
+  let attempt = 0;
+  let lastSeen = Date.now();
+  let conn: SseConnection | null = null;
+  let stopped = false;
+
+  const connect = () => {
+    conn = openSse(url, {
+      headers: { Cookie: `Authentication=${jwt()}`, Accept: 'text/event-stream' },
+      onOpen: () => { attempt = 0; lastSeen = Date.now(); },
+      onMessage: (raw) => { lastSeen = Date.now(); handle(stream, raw); },
+      onError: (status?: number) => {
+        conn?.close();
+        if (stopped || status === 401 || status === 403 || status === 404) return; // don't retry these
+        const wait = BACKOFF_MS[Math.min(attempt++, BACKOFF_MS.length - 1)];
+        setTimeout(connect, wait + Math.random() * 500);
+      },
+    });
+  };
+
+  // Heartbeats come every 30s. Nothing for 75s means the connection died
+  // without telling us (common on mobile networks): reconnect.
+  const watchdog = setInterval(() => {
+    if (Date.now() - lastSeen > 75_000) { conn?.close(); connect(); }
+  }, 15_000);
+
+  connect();
+  return () => { stopped = true; clearInterval(watchdog); conn?.close(); };   // call when leaving the screen
+}
+```
+
+**Rules:**
+1. **Close a stream when its screen closes**, and close all of them when the app goes to the background. Reopen on foreground. Streams left open count against the limits above.
+2. **Reconnect with backoff**: 1s, 2s, 5s, 10s, then every 30s, plus a little random delay so every phone doesn't reconnect at the same instant after a server restart. Deploys and restarts drop every connection; this is normal.
+3. **Use the heartbeat as a watchdog**: no message at all for 75 seconds means the connection is dead even if the library hasn't noticed — close it and reconnect.
+
+### Match stream events
+
+```ts
+function onMatch(msg) {
+  switch (msg.type) {
+    case 'score':           // replace the score on screen (it's the full score)
+      return setScore(msg.matchId, msg.teamOneScore, msg.teamTwoScore, msg.scoreVersion, msg.latestScorer);
+    case 'match_started':   // show the match as live
+      return setLive(msg.matchId, msg.startedAt);
+    case 'match_finished':  // show the result; if msg.next, show the next game (it's SCHEDULED)
+      showResult(msg);
+      if (msg.next) showNextGame(msg.next);
+      return;
+    case 'referee_changed': // msg.referee is the new referee's roster entry, or null (no referee)
+      return setReferee(msg.matchId, msg.referee);
+  }
+}
+```
+
+### Missed events: always resync from REST
+
+**SSE doesn't replay anything.** Whatever happened while the phone was offline, backgrounded or reconnecting is gone. So every time a stream (re)connects — when `{"type":"connected"}` arrives — reload the screen's state from REST, then apply live messages on top:
+
+| Stream | Reload with |
+|---|---|
+| `/notifications/stream` | `GET /badges/me` (show any with `seenAt: null`), and whatever the open screen shows (e.g. `GET /votes/:sessionId`) |
+| `/matches/stream/:matchId` | `GET /matches/details/:matchId` |
+| `/matches/stream/session/:sessionId` | `GET /matches/matchups/:sessionId` |
+| `/wallet/session/:sessionId/payment-stream` | Nothing — it sends the full snapshot when it connects |
+| `/tournaments/stream/:id` | `GET /tournaments/:id` |
+
+Treat REST as the truth and SSE as "something changed". Score events carry the **whole score**, so replace what's on screen — never add to it. Then a duplicated or out-of-order message can't make the screen wrong.
+
+### Notifications arrive twice — on purpose
+
+Most notifications are sent **both** on `/notifications/stream` and as a **phone push**, so the user hears about them whether or not the app is open. When the app is in the foreground you'll get both; show one. Use the notification `type` plus its `payload` ids (e.g. `BADGE_UNLOCKED` + `badge`, `SESSION_VOTE_OPEN` + `sessionId`) as the key to ignore the second copy.
+
+What to do with each notification type:
+
+| `type` | Do this |
+|---|---|
+| `REFEREE_INVITE` | Show the invite; accept or decline with `payload.refereeId` (`POST /referees/:refereeId/accept` / `decline`) |
+| `MATCH_RESULT_REVIEW` | Open the result review: `GET /matches/details/:matchId` (`payload.matchId`), then confirm or dispute before `reviewUntil` |
+| `SESSION_VOTE_OPEN` | Open the vote screen: `GET /votes/:sessionId` |
+| `SESSION_VOTE_RESULT` | Reload `GET /votes/:sessionId` — `result` is now filled in |
+| `BADGE_UNLOCKED` | Show the badge pop-up, then `POST /badges/:badgeId/seen` with `payload.badgeId` |
+| `SESSION_REMINDER`, `SESSION_BROADCAST`, `SESSION_CREATED`, `SESSION_CONFIGURED`, `ADMIN_BROADCAST`, verification types | Show as a banner / in the notification list; refresh the related screen if it's open |
+
+### Recording a match (referee / scoreboard phone)
+
+The phone that **records** the score must not rely on SSE for its own taps:
+- Each goal / undo / end request returns the updated match with its new `scoreVersion` — use **that** for the next tap (see *Recording safely on a bad network* under [Matches](#matches)).
+- Score events carry the match's new `scoreVersion` too. If one arrives that this phone didn't cause (another phone recorded — possible when a match has no referee), take its `scoreVersion` for the next tap. If a tap is answered `409` anyway, the body's `details` has the current score and version.
+- **`referee_changed`**: if this phone was recording and `msg.referee` isn't its referee entry any more (handed off or removed), switch the screen out of recording mode — the server now refuses its taps (`403`).
+
+---
+
 ## Health Check
+
+`GET /` also answers (a plain hello string, no auth) — use `/healthcheck` for monitoring.
 
 ### GET /healthcheck
 Check if the server is running.
@@ -377,6 +531,29 @@ Reset the user's password after OTP has been verified.
 **Error Responses**:
 - `401` — OTP not verified yet
 - `409` — passwords do not match
+
+---
+
+### PATCH /user/promote/:userId
+Give a user an admin role.
+
+**Auth required**: Yes (JWT cookie, `SUPER_ADMIN` only)
+
+**Request Body**:
+```json
+{ "role": "admin" }
+```
+- `role` — `admin` or `super_admin`.
+
+**Success Response** `200 OK`:
+```json
+{ "message": "User role set to admin", "user": { "...": "updated user" } }
+```
+
+**Error Responses**:
+- `400` — `role` isn't `admin` or `super_admin`
+- `403` — caller isn't a super admin
+- `404` — user not found
 
 ---
 
@@ -1637,18 +1814,38 @@ Real-time score stream for a single match.
 // On connect
 data: {"type":"connected","message":"Connection established","matchId":"...","userId":"...","timestamp":1234567890}
 
-// Score update (from increment/decrement)
-data: {"matchId":"...","sessionId":"...","teamOne":{"id":"...","name":"Team 1"},"teamTwo":{"id":"...","name":"Team 2"},"teamOneScore":3,"teamTwoScore":1}
+// Match started (POST /matches/start)
+data: {"type":"match_started","matchId":"...","sessionId":"...","sequence":2,"teamOne":{"id":"...","name":"Team A"},"teamTwo":{"id":"...","name":"Team C"},"referee":"507f..." | null,"startedAt":"2026-10-26T18:00:00.000Z"}
 
-// Score update with goal scorer (from POST /matches/goal-scorer/:matchId)
-data: {"matchId":"...","sessionId":"...","teamOne":{"id":"...","name":"Team 1"},"teamTwo":{"id":"...","name":"Team 2"},"teamOneScore":3,"teamTwoScore":1,"latestScorer":{"player":"507f...","team":"teamOne"}}
+// Score changed (a goal via increment-score, or an undo via decrement-score)
+data: {"type":"score","matchId":"...","sessionId":"...","teamOne":{"id":"...","name":"Team A"},"teamTwo":{"id":"...","name":"Team C"},"teamOneScore":3,"teamTwoScore":1,"scoreVersion":4}
+
+// Goal with a scorer (POST /matches/goal-scorer)
+data: {"type":"score", ...same as above..., "latestScorer":{"player":"507f...","team":"teamOne"}}
+
+// Full time (POST /matches/end) — with the game created to follow it
+data: {
+  "type": "match_finished", "matchId": "...", "sessionId": "...", "sequence": 2,
+  "teamOne": {"id":"...","name":"Team A"}, "teamTwo": {"id":"...","name":"Team C"},
+  "teamOneScore": 3, "teamTwoScore": 1, "scoreVersion": 4,
+  "winner": "<team id>" | null, "decidedBy": "NORMAL_TIME" | "PENALTIES" | "DRAW", "penaltyWinner": "teamTwo",
+  "resultStatus": "CONFIRMED" | "PENDING_CONFIRMATION" | "UNOFFICIAL",
+  "next": {"matchId":"...","sequence":3,"teamOne":{"id":"...","name":"Team A"},"teamTwo":{"id":"...","name":"Team B"},"referee":"507f..." | null} | null
+}
+
+// Referee assigned, handed off or removed (PUT / DELETE /matches/:matchId/referee)
+data: {"type":"referee_changed","matchId":"...","sessionId":"...","referee":"507f..." | null,"by":"<user id>"}
 
 // Heartbeat (every 30s)
 data: {"type":"heartbeat","timestamp":1234567890}
 ```
 
+- `score` events carry the **full current score** — replace what's on screen, never add to it — and the match's new `scoreVersion`.
+- `match_finished.next` is the game created to follow it (`null` when the session's time is up). Each event is sent once: retried start/end requests don't repeat them.
+- `referee` values are referee roster entry ids (see [Referees](#referees)).
+
 **Error Responses**:
-- `429` — too many connections from this user
+- `429` — this user already has 10 open match streams, or 500 people are watching this match
 
 ---
 
@@ -2513,6 +2710,82 @@ Cast your vote.
 
 ---
 
+## Badges
+
+Badges a player unlocks. Each one is **once ever** and **private** to the player until they share it.
+
+| Badge | How it's unlocked |
+|---|---|
+| `LICENCE_TO_MISS` ("007") | 7 sessions in a row with **no goal and no assist**. Only counted matches (refereed, not disputed) count; a session with no counted match doesn't extend or break the run. |
+
+**When it's checked:** once per session, when the session is over (the same moment Player of the Session voting opens), and only for players who had no goal or assist in that session. Nothing runs between sessions.
+
+**The pop-up:** on unlock the player gets a `BADGE_UNLOCKED` notification on the in-app stream (SSE) **and** as a push, with `payload: { badgeId, badge, sessions, goals, assists }`. If they missed it, `GET /badges/me` returns it with `seenAt: null`; show the pop-up, then call `POST /badges/:badgeId/seen`.
+
+**Badge object**:
+```json
+{
+  "_id": "507f...",
+  "user": "507f...",
+  "badge": "LICENCE_TO_MISS",
+  "unlockedAt": "2026-10-26T20:01:00.000Z",
+  "sessions": ["507f...", "..."],
+  "seenAt": null,
+  "shared": false
+}
+```
+- `sessions` — the 7 sessions that earned it, newest first. Only returned to the owner.
+
+---
+
+### GET /badges/me
+All of the caller's badges, private ones included, newest first.
+
+**Auth required**: Yes (JWT cookie)
+
+**Success Response** `200 OK`: Array of badge objects.
+
+---
+
+### GET /badges/user/:userId
+Another player's badges, for their profile: **shared ones only** (without `sessions` or `seenAt`). Your own `userId` returns everything, like `/badges/me`.
+
+**Auth required**: Yes (JWT cookie)
+
+**Error Responses**:
+- `400` — invalid user id
+
+---
+
+### POST /badges/:badgeId/seen
+Record that the unlock pop-up was shown.
+
+**Auth required**: Yes (JWT cookie, the badge's owner)
+
+**Success Response** `201 Created`: The badge with `seenAt` set.
+
+**Error Responses**:
+- `404` — not found, or not your badge
+
+---
+
+### PATCH /badges/:badgeId/share
+"Share am": make the badge visible on your public profile, or hide it again.
+
+**Auth required**: Yes (JWT cookie, the badge's owner)
+
+**Request Body**:
+```json
+{ "shared": true }
+```
+
+**Success Response** `200 OK`: The updated badge.
+
+**Error Responses**:
+- `404` — not found, or not your badge
+
+---
+
 ## Captains
 
 ### GET /captains/:id
@@ -3265,6 +3538,7 @@ data: {"type":"heartbeat","timestamp":1234567890}
 | `REFEREE_INVITE` | Captain calls `POST /referees/:sessionId/invite`. `payload: { sessionId, refereeId }` | The invited user |
 | `SESSION_VOTE_OPEN` | Player of the Session voting opens. `payload: { sessionId }`. Not delivered after voting closes | Every player eligible to vote |
 | `SESSION_VOTE_RESULT` | Player of the Session result is counted. `payload: { sessionId }` | Every player eligible to vote |
+| `BADGE_UNLOCKED` | A player unlocks a badge. `payload: { badgeId, badge, sessions, goals, assists }` | That player |
 | `MATCH_RESULT_REVIEW` | A Referee-mode match ends (`PENDING_CONFIRMATION`). `payload: { matchId, sessionId }`. Not delivered after `reviewUntil` | Players allowed to confirm or dispute it |
 
 **`SESSION_REMINDER`**: sent by a background job, so no endpoint triggers it. It goes out on this stream and as a phone push. Times in the text are Lagos time. Its `payload`:
@@ -3346,7 +3620,7 @@ Send a push notification directly to a specific FCM device token. Super admin on
 
 ### Notification delivery tracking (super admin)
 
-Notifications sent through the **outbox** (currently `SESSION_REMINDER`, `REFEREE_INVITE`, `MATCH_RESULT_REVIEW`, `SESSION_VOTE_OPEN` and `SESSION_VOTE_RESULT`) are stored as rows that record exactly what happened. Delivery runs in the background with retries: the request that triggers a notification never waits on FCM.
+Notifications sent through the **outbox** (currently `SESSION_REMINDER`, `REFEREE_INVITE`, `MATCH_RESULT_REVIEW`, `SESSION_VOTE_OPEN`, `SESSION_VOTE_RESULT` and `BADGE_UNLOCKED`) are stored as rows that record exactly what happened. Delivery runs in the background with retries: the request that triggers a notification never waits on FCM.
 
 Each row has:
 - `status`: `PENDING` → `SENDING` → one of:
@@ -3652,12 +3926,15 @@ All error responses follow this format:
 ```json
 {
   "statusCode": 404,
-  "message": "User not found",
-  "error": "Not Found",
   "timestamp": "2025-01-01T00:00:00.000Z",
-  "path": "/user/profile"
+  "path": "/user/profile",
+  "message": "User not found"
 }
 ```
+- `message` — always a single string (for validation errors, the first problem found).
+- Extra fields appear only when an endpoint sends them:
+  - `code` and `nextStep` — actionable guard errors (below);
+  - `details` — machine-readable context, e.g. the current score on a `409` from a score change (see *Recording safely on a bad network*).
 
 ### Common Status Codes
 

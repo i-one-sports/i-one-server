@@ -13,6 +13,7 @@ import { SetRepository } from 'src/sets/sets.repository';
 import { SessionRepository } from 'src/sessions/sessions.repository';
 import { RefereesService } from 'src/referees/referees.service';
 import { MatchStatsService } from 'src/stats/match-stats.service';
+import { MatchEventService } from './match-event.service';
 import { NotificationOutboxService } from 'src/notifications/notification-outbox.service';
 import { NOTIFICATION_TYPE } from 'src/notifications/notification.types';
 
@@ -41,6 +42,7 @@ export class MatchRefereeService {
     private readonly refereesService: RefereesService,
     private readonly matchStats: MatchStatsService,
     private readonly outbox: NotificationOutboxService,
+    private readonly matchEvents: MatchEventService,
   ) {}
 
   // Gate for start / end / score / goal scorer. With a referee, only the
@@ -269,6 +271,16 @@ export class MatchRefereeService {
     if (!updated) {
       throw new CustomHttpException('The referee or match just changed — refresh and try again', HttpStatus.CONFLICT);
     }
+    // The old referee's app should stop recording; viewers see who's in charge.
+    this.matchEvents
+      .emitMatchEvent({
+        type: 'referee_changed',
+        matchId: updated._id,
+        sessionId: updated.session,
+        referee: refereeId,
+        by: new Types.ObjectId(userId),
+      })
+      .catch(() => undefined);
     return updated;
   }
 }

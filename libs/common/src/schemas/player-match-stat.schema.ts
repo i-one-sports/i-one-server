@@ -65,3 +65,5 @@ export const PlayerMatchStatSchema = SchemaFactory.createForClass(PlayerMatchSta
 // A match can never be counted twice for the same player.
 PlayerMatchStatSchema.index({ match: 1, user: 1 }, { unique: true });
 PlayerMatchStatSchema.index({ user: 1, void: 1, season: 1 });
+// Newest-first walk of a player's history (badges, rating window).
+PlayerMatchStatSchema.index({ user: 1, void: 1, playedAt: -1 });

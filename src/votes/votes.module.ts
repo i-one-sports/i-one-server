@@ -17,8 +17,16 @@ import {
   UserSchema,
 } from '@app/common';
 import { NotificationsModule } from 'src/notifications/notifications.module';
+import { BadgesModule } from 'src/badges/badges.module';
 import { VotesController } from './votes.controller';
 import { VotesService } from './votes.service';
+import { SessionPollRepository } from './session-poll.repository';
+import { SessionVoteRepository } from './session-vote.repository';
+import { SessionRepository } from 'src/sessions/sessions.repository';
+import { MatchRepository } from 'src/matches/matches.repository';
+import { SetRepository } from 'src/sets/sets.repository';
+import { UserRepository } from 'src/users/users.repository';
+import { PlayerMatchStatRepository } from 'src/stats/player-match-stat.repository';
 
 @Module({
   imports: [
@@ -32,9 +40,19 @@ import { VotesService } from './votes.service';
       { name: User.name, schema: UserSchema },
     ]),
     NotificationsModule,
+    BadgesModule,
   ],
   controllers: [VotesController],
-  providers: [VotesService],
+  providers: [
+    VotesService,
+    SessionPollRepository,
+    SessionVoteRepository,
+    SessionRepository,
+    MatchRepository,
+    SetRepository,
+    UserRepository,
+    PlayerMatchStatRepository,
+  ],
   exports: [VotesService],
 })
 export class VotesModule {}

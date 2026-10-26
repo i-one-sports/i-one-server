@@ -25,6 +25,10 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     let statusCode = HttpStatus.INTERNAL_SERVER_ERROR;
     let message = 'Internal server error';
     let details: unknown;
+    // Actionable guard errors (e.g. EMAIL_VERIFICATION_REQUIRED → VERIFY_EMAIL)
+    // the app branches on.
+    let code: unknown;
+    let nextStep: unknown;
 
     if (exception instanceof HttpException) {
       const response = exception.getResponse() as any;
@@ -32,6 +36,8 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       message = response.message || response;
       // Optional machine-readable context, e.g. the current score on a 409.
       details = response.details;
+      code = response.code;
+      nextStep = response.nextStep;
     } else if (exception instanceof Error) {
       message = exception.message;
     }
@@ -49,6 +55,8 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       timestamp: new Date().toISOString(),
       path: url,
       message: displayMessage,
+      ...(code !== undefined && { code }),
+      ...(nextStep !== undefined && { nextStep }),
       ...(details !== undefined && { details }),
     };
 

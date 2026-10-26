@@ -27,6 +27,7 @@ import { SettingsModule } from './settings/settings.module';
 import { DeepLinksModule } from './deep-links/deep-links.module';
 import { RefereesModule } from './referees/referees.module';
 import { VotesModule } from './votes/votes.module';
+import { BadgesModule } from './badges/badges.module';
 
 @Module({
   imports: [
@@ -66,6 +67,7 @@ import { VotesModule } from './votes/votes.module';
     DeepLinksModule,
     RefereesModule,
     VotesModule,
+    BadgesModule,
   ],
   controllers: [AppController],
   providers: [

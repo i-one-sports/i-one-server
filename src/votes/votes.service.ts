@@ -1,24 +1,17 @@
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
-import {
-  CustomHttpException,
-  MATCH_STATUS,
-  Match,
-  PlayerMatchStat,
-  SESSION_POLL_OUTCOME,
-  SESSION_POLL_STATUS,
-  SESSION_STATUS,
-  Session,
-  SessionPoll,
-  SessionVote,
-  Set,
-  User,
-  lagosParts,
-} from '@app/common';
+import { Types } from 'mongoose';
+import { CustomHttpException, SESSION_POLL_OUTCOME, SESSION_POLL_STATUS, lagosParts } from '@app/common';
 import { NotificationOutboxService } from 'src/notifications/notification-outbox.service';
+import { SessionPollRepository } from './session-poll.repository';
+import { SessionVoteRepository } from './session-vote.repository';
+import { SessionRepository } from 'src/sessions/sessions.repository';
+import { MatchRepository } from 'src/matches/matches.repository';
+import { SetRepository } from 'src/sets/sets.repository';
+import { UserRepository } from 'src/users/users.repository';
+import { PlayerMatchStatRepository } from 'src/stats/player-match-stat.repository';
 import { NOTIFICATION_TYPE } from 'src/notifications/notification.types';
+import { BadgesService } from 'src/badges/badges.service';
 
 export const VOTING_WINDOW_MS = 2 * 60 * 60 * 1000;
 // Under this share of eligible players voting, nobody gets the award.
@@ -29,7 +22,6 @@ const CLOSE_GRACE_MS = 30 * 1000;
 // How far back the job looks for ended sessions that still need a poll.
 const OPEN_LOOKBACK_MS = 3 * 24 * 60 * 60 * 1000;
 
-const PUBLIC_USER_FIELDS = 'firstName lastName nickname avatar position';
 
 // Player of the Session. Voting opens once a session is over (ended by the
 // captain/owner, or past stopTime) and no match is still live; it runs for
@@ -40,14 +32,15 @@ export class VotesService {
   private readonly logger = new Logger(VotesService.name);
 
   constructor(
-    @InjectModel(SessionPoll.name) private readonly pollModel: Model<SessionPoll>,
-    @InjectModel(SessionVote.name) private readonly voteModel: Model<SessionVote>,
-    @InjectModel(Session.name) private readonly sessionModel: Model<Session>,
-    @InjectModel(Match.name) private readonly matchModel: Model<Match>,
-    @InjectModel(Set.name) private readonly setModel: Model<Set>,
-    @InjectModel(PlayerMatchStat.name) private readonly statModel: Model<PlayerMatchStat>,
-    @InjectModel(User.name) private readonly userModel: Model<User>,
+    private readonly pollRepository: SessionPollRepository,
+    private readonly voteRepository: SessionVoteRepository,
+    private readonly sessionRepository: SessionRepository,
+    private readonly matchRepository: MatchRepository,
+    private readonly setRepository: SetRepository,
+    private readonly statRepository: PlayerMatchStatRepository,
+    private readonly userRepository: UserRepository,
     private readonly outbox: NotificationOutboxService,
+    private readonly badges: BadgesService,
   ) {}
 
   // ---------------------------------------------------------------- voting
@@ -68,7 +61,7 @@ export class VotesService {
     }
 
     try {
-      await this.voteModel.create({
+      await this.voteRepository.create({
         _id: new Types.ObjectId(),
         poll: poll._id,
         voter: new Types.ObjectId(voterId),
@@ -78,7 +71,7 @@ export class VotesService {
       if (err?.code !== 11000) throw err;
       // Already voted. The same vote again is a retry after a lost response:
       // answer it like the first time. A different vote is a change: refused.
-      const existing: any = await this.voteModel.findOne({ poll: poll._id, voter: voterId }).lean();
+      const existing: any = await this.voteRepository.voteOf(poll._id, voterId);
       if (existing?.candidate.toString() !== candidateId) {
         throw new CustomHttpException("You've already voted — votes can't be changed", HttpStatus.CONFLICT);
       }
@@ -92,8 +85,8 @@ export class VotesService {
   async view(sessionId: string, userId: string) {
     const poll = await this.getPoll(sessionId);
     const [votesCast, mine, candidates] = await Promise.all([
-      this.voteModel.countDocuments({ poll: poll._id }),
-      this.voteModel.findOne({ poll: poll._id, voter: userId }).select('candidate').lean(),
+      this.voteRepository.countFor(poll._id),
+      this.voteRepository.voteOf(poll._id, userId),
       this.candidates(poll),
     ]);
     const isEligible = this.isEligible(poll, userId);
@@ -116,20 +109,14 @@ export class VotesService {
 
   // Awards for a profile ("Player of the Session ×N"), shared awards included.
   async awardsFor(userId: string, season?: number): Promise<number> {
-    return this.pollModel.countDocuments({
-      'result.winners': new Types.ObjectId(userId),
-      ...(season !== undefined && { season }),
-    });
+    return this.pollRepository.countAwards(new Types.ObjectId(userId), season);
   }
 
   // The share of each session's votes this player got, for the rating.
   // Every closed vote with at least one vote cast counts, whatever the
   // turnout; sessions with no vote (or nobody voting) are left out.
   async voteShares(userId: string, sessionIds: Types.ObjectId[]): Promise<number[]> {
-    const polls = await this.pollModel
-      .find({ session: { $in: sessionIds }, status: SESSION_POLL_STATUS.CLOSED, 'result.votesCast': { $gt: 0 } })
-      .select('result')
-      .lean();
+    const polls = await this.pollRepository.closedWithVotes(sessionIds);
     return polls.map((poll: any) => {
       const mine = poll.result.tallies.find((t: any) => t.candidate.toString() === userId)?.votes ?? 0;
       return mine / poll.result.votesCast;
@@ -141,28 +128,18 @@ export class VotesService {
   @Cron(CronExpression.EVERY_MINUTE, { name: 'session-votes' })
   async runMaintenance(now = new Date()) {
     const opened = await this.openDuePolls(now);
+    const badges = await this.checkBadges();
     const closed = await this.closeDuePolls(now);
-    if (opened || closed) this.logger.log(`Polls opened: ${opened}, closed: ${closed}`);
-    return { opened, closed };
+    if (opened || closed || badges) this.logger.log(`Polls opened: ${opened}, closed: ${closed}, badges unlocked: ${badges}`);
+    return { opened, closed, badges };
   }
 
   // Sessions that are over (ended, or past stopTime) without a poll yet.
   async openDuePolls(now: Date): Promise<number> {
-    const sessions = await this.sessionModel
-      .find({
-        status: { $nin: [SESSION_STATUS.CANCELLED, SESSION_STATUS.REFUNDED] },
-        stopTime: { $gte: new Date(now.getTime() - OPEN_LOOKBACK_MS) },
-        $or: [{ status: SESSION_STATUS.COMPLETED }, { finished: true }, { stopTime: { $lte: now } }],
-      })
-      .select('_id')
-      .lean();
+    const sessions = await this.sessionRepository.findEndedSince(now, OPEN_LOOKBACK_MS);
     if (!sessions.length) return 0;
 
-    const withPoll = new globalThis.Set(
-      (await this.pollModel.find({ session: { $in: sessions.map((s) => s._id) } }).select('session').lean()).map((p) =>
-        p.session.toString(),
-      ),
-    );
+    const withPoll = await this.pollRepository.sessionsWithPoll(sessions.map((s) => s._id));
 
     let opened = 0;
     for (const { _id } of sessions) {
@@ -179,36 +156,24 @@ export class VotesService {
   // Waits while a match is still live, so the last game's goals are in.
   // Safe to run concurrently: the unique {session} index lets one through.
   async openPoll(sessionId: Types.ObjectId, now: Date): Promise<boolean> {
-    if (await this.matchModel.exists({ session: sessionId, status: MATCH_STATUS.LIVE })) return false;
+    if (await this.matchRepository.hasLiveMatch(sessionId)) return false;
 
-    const finished = await this.matchModel
-      .find({ session: sessionId, status: MATCH_STATUS.FINISHED })
-      .select('teamOne teamTwo')
-      .lean();
-    if (!finished.length) return false;
+    const teamIds = await this.matchRepository.teamsWithFinishedMatch(sessionId);
+    if (!teamIds.length) return false;
 
-    const teamIds = [...new globalThis.Set(finished.flatMap((m: any) => [m.teamOne.toString(), m.teamTwo.toString()]))];
-    const sets = await this.setModel.find({ _id: { $in: teamIds } }).select('players').lean();
+    const sets = await this.setRepository.playersOf(teamIds);
     const eligible = [...new globalThis.Set(sets.flatMap((s: any) => (s.players ?? []).map((p: any) => p.toString())))];
     if (!eligible.length) return false;
 
     const closesAt = new Date(now.getTime() + VOTING_WINDOW_MS);
-    const res = await this.pollModel.updateOne(
-      { session: sessionId },
-      {
-        $setOnInsert: {
-          _id: new Types.ObjectId(),
-          session: sessionId,
-          eligible: eligible.map((id) => new Types.ObjectId(id)),
-          opensAt: now,
-          closesAt,
-          season: lagosParts(now).year,
-          status: SESSION_POLL_STATUS.OPEN,
-        },
-      },
-      { upsert: true },
-    );
-    if (!res.upsertedCount) return false;
+    const created = await this.pollRepository.createIfMissing(sessionId, {
+      eligible: eligible.map((id) => new Types.ObjectId(id)),
+      opensAt: now,
+      closesAt,
+      season: lagosParts(now).year,
+      status: SESSION_POLL_STATUS.OPEN,
+    });
+    if (!created) return false;
 
     await this.outbox
       .enqueueMany(
@@ -227,10 +192,25 @@ export class VotesService {
     return true;
   }
 
+  // A poll opening is the "session is over" moment, so badges are checked
+  // here — once per session, for its players only. Polls not yet checked
+  // (just opened, or a check that failed) are picked up on the next run.
+  async checkBadges(): Promise<number> {
+    const pending = await this.pollRepository.pendingBadgeChecks(50);
+    let unlocked = 0;
+    for (const poll of pending) {
+      try {
+        unlocked += await this.badges.checkSession(poll.session);
+        await this.pollRepository.markBadgesChecked(poll._id);
+      } catch (err: any) {
+        this.logger.error(`Badge check for session ${poll.session} failed; retrying next run: ${err.message}`);
+      }
+    }
+    return unlocked;
+  }
+
   async closeDuePolls(now: Date): Promise<number> {
-    const due = await this.pollModel
-      .find({ status: SESSION_POLL_STATUS.OPEN, closesAt: { $lte: new Date(now.getTime() - CLOSE_GRACE_MS) } })
-      .lean();
+    const due = await this.pollRepository.dueToClose(new Date(now.getTime() - CLOSE_GRACE_MS));
     let closed = 0;
     for (const poll of due) {
       try {
@@ -245,11 +225,7 @@ export class VotesService {
   // Counts once: the OPEN filter means a second server closing the same poll
   // changes nothing and sends no second round of pushes.
   async closePoll(poll: any, now: Date): Promise<boolean> {
-    const counts = await this.voteModel.aggregate([
-      { $match: { poll: poll._id } },
-      { $group: { _id: '$candidate', votes: { $sum: 1 } } },
-      { $sort: { votes: -1, _id: 1 } },
-    ]);
+    const counts = await this.voteRepository.tally(poll._id);
     const tallies = counts.map((c) => ({ candidate: c._id, votes: c.votes }));
     const votesCast = tallies.reduce((sum, t) => sum + t.votes, 0);
     const turnoutOk = votesCast > 0 && votesCast / poll.eligible.length >= MIN_TURNOUT;
@@ -262,11 +238,7 @@ export class VotesService {
       tallies,
     };
 
-    const res = await this.pollModel.updateOne(
-      { _id: poll._id, status: SESSION_POLL_STATUS.OPEN },
-      { $set: { status: SESSION_POLL_STATUS.CLOSED, result, closedAt: now } },
-    );
-    if (!res.modifiedCount) return false;
+    if (!(await this.pollRepository.close(poll._id, result as any, now))) return false;
 
     const body =
       result.outcome === SESSION_POLL_OUTCOME.AWARDED
@@ -295,7 +267,7 @@ export class VotesService {
     if (!Types.ObjectId.isValid(sessionId)) {
       throw new CustomHttpException('Invalid session id', HttpStatus.BAD_REQUEST);
     }
-    const poll = await this.pollModel.findOne({ session: new Types.ObjectId(sessionId) }).lean();
+    const poll = await this.pollRepository.findOne({ session: new Types.ObjectId(sessionId) });
     if (!poll) {
       throw new CustomHttpException('Voting for this session has not opened', HttpStatus.NOT_FOUND);
     }
@@ -310,11 +282,8 @@ export class VotesService {
   // (officiated matches only, disputed ones excluded — same rows as stats).
   private async candidates(poll: any) {
     const [users, totals] = await Promise.all([
-      this.userModel.find({ _id: { $in: poll.eligible } }).select(PUBLIC_USER_FIELDS).lean(),
-      this.statModel.aggregate([
-        { $match: { session: poll.session, void: false } },
-        { $group: { _id: '$user', goals: { $sum: '$goals' }, assists: { $sum: '$assists' } } },
-      ]),
+      this.userRepository.publicProfiles(poll.eligible),
+      this.statRepository.sessionTotals(poll.session),
     ]);
     const byUser = new Map(totals.map((t: any) => [t._id.toString(), t]));
     return users.map((user: any) => ({

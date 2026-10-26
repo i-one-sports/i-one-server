@@ -199,8 +199,22 @@ describe('MatchEventService - Memory Leak & Connection Tests', () => {
 
       expect(redisPubSub.publish).toHaveBeenCalledWith(
         'app:match-scores',
-        JSON.stringify(event),
+        JSON.stringify({ ...event, type: 'score' }),
       );
+    });
+
+    it('should publish lifecycle events on the same channel, unchanged', async () => {
+      const event = {
+        type: 'referee_changed' as const,
+        matchId: 'match123',
+        sessionId: 'session1',
+        referee: null,
+        by: 'user1',
+      };
+
+      await service.emitMatchEvent(event);
+
+      expect(redisPubSub.publish).toHaveBeenCalledWith('app:match-scores', JSON.stringify(event));
     });
 
     it('should emit heartbeat every 30 seconds', (done) => {

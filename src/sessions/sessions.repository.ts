@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { AbstractRepository, Session } from '@app/common';
+import { AbstractRepository, SESSION_STATUS, Session } from '@app/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 
@@ -9,6 +9,19 @@ export class SessionRepository extends AbstractRepository<Session> {
 
   constructor(@InjectModel(Session.name) SessionModel: Model<Session>) {
     super(SessionModel);
+  }
+
+  // Sessions that are over — ended by the captain/owner, or past stopTime —
+  // within the lookback, excluding cancelled/refunded ones.
+  async findEndedSince(now: Date, lookbackMs: number): Promise<Array<{ _id: Types.ObjectId }>> {
+    return this.findRaw()
+      .find({
+        status: { $nin: [SESSION_STATUS.CANCELLED, SESSION_STATUS.REFUNDED] },
+        stopTime: { $gte: new Date(now.getTime() - lookbackMs) },
+        $or: [{ status: SESSION_STATUS.COMPLETED }, { finished: true }, { stopTime: { $lte: now } }],
+      })
+      .select('_id')
+      .lean();
   }
 
   async findMatchesByLocation(locationId: string, skip = 0, limit = 5): Promise<any[]> {

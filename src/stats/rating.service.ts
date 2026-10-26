@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
-import { MATCH_OUTCOME, PlayerMatchStat } from '@app/common';
+import { Types } from 'mongoose';
+import { MATCH_OUTCOME } from '@app/common';
+import { PlayerMatchStatRepository } from './player-match-stat.repository';
 import { VotesService } from 'src/votes/votes.service';
 
 // The player rating (out of 10), from the profile designs. Every part is
@@ -57,7 +57,7 @@ export function scoreRating(i: RatingInputs) {
 @Injectable()
 export class RatingService {
   constructor(
-    @InjectModel(PlayerMatchStat.name) private readonly statModel: Model<PlayerMatchStat>,
+    private readonly statRepository: PlayerMatchStatRepository,
     private readonly votes: VotesService,
   ) {}
 
@@ -65,17 +65,12 @@ export class RatingService {
     const user = new Types.ObjectId(userId);
 
     // Last 20 sessions, newest first.
-    const recent = await this.statModel.aggregate([
-      { $match: { user, void: false } },
-      { $group: { _id: '$session', lastPlayed: { $max: '$playedAt' }, team: { $first: '$team' } } },
-      { $sort: { lastPlayed: -1 } },
-      { $limit: RATING.WINDOW_SESSIONS },
-    ]);
+    const recent = await this.statRepository.recentSessions(user, RATING.WINDOW_SESSIONS);
     const sessionIds = recent.map((s) => s._id);
     const sessions = sessionIds.length;
 
     const [rows, teamWins, shares] = await Promise.all([
-      this.statModel.find({ user, void: false, session: { $in: sessionIds } }).lean(),
+      this.statRepository.forUserInSessions(user, sessionIds),
       this.teamWinsBySession(sessionIds),
       this.votes.voteShares(userId, sessionIds),
     ]);
@@ -127,13 +122,9 @@ export class RatingService {
   }
 
   // session -> team -> games won, across every team in each session (counted
-  // matches only). One row per player per match, so count distinct matches.
+  // matches only).
   private async teamWinsBySession(sessionIds: Types.ObjectId[]) {
-    const wins = await this.statModel.aggregate([
-      { $match: { session: { $in: sessionIds }, void: false, result: MATCH_OUTCOME.WON } },
-      { $group: { _id: { session: '$session', team: '$team', match: '$match' } } },
-      { $group: { _id: { session: '$_id.session', team: '$_id.team' }, wins: { $sum: 1 } } },
-    ]);
+    const wins = await this.statRepository.teamWins(sessionIds);
     const bySession = new Map<string, Map<string, number>>();
     for (const { _id, wins: n } of wins) {
       const key = _id.session.toString();

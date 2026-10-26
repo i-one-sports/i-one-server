@@ -68,6 +68,7 @@ export enum TournamentType {
 }
 
 export interface MatchScoreUpdateEvent {
+  type?: 'score';
   matchId: string | Types.ObjectId;
   sessionId?: string | Types.ObjectId;
   locationId?: string | Types.ObjectId;
@@ -85,7 +86,58 @@ export interface MatchScoreUpdateEvent {
     player: string | Types.ObjectId;
     team: 'teamOne' | 'teamTwo';
   };
+  // The match's scoreVersion after this change, so any phone can make its
+  // next score change without reloading.
+  scoreVersion?: number;
 }
+
+type TeamRef = { id: string | Types.ObjectId; name: string };
+
+// Match lifecycle, sent on the same streams as score updates.
+export type MatchLifecycleEvent =
+  | {
+      type: 'match_started';
+      matchId: string | Types.ObjectId;
+      sessionId: string | Types.ObjectId;
+      sequence: number;
+      teamOne: TeamRef;
+      teamTwo: TeamRef;
+      referee: string | Types.ObjectId | null;
+      startedAt: Date;
+    }
+  | {
+      type: 'match_finished';
+      matchId: string | Types.ObjectId;
+      sessionId: string | Types.ObjectId;
+      sequence: number;
+      teamOne: TeamRef;
+      teamTwo: TeamRef;
+      teamOneScore: number;
+      teamTwoScore: number;
+      scoreVersion: number;
+      winner: string | Types.ObjectId | null;
+      decidedBy: string;
+      penaltyWinner?: 'teamOne' | 'teamTwo';
+      resultStatus: string;
+      // The game created to follow it; null when the session's time is up.
+      next: {
+        matchId: string | Types.ObjectId;
+        sequence: number;
+        teamOne: TeamRef;
+        teamTwo: TeamRef;
+        referee: string | Types.ObjectId | null;
+      } | null;
+    }
+  | {
+      type: 'referee_changed';
+      matchId: string | Types.ObjectId;
+      sessionId: string | Types.ObjectId;
+      // The new referee's roster entry; null = the match is now unofficiated.
+      referee: string | Types.ObjectId | null;
+      by: string | Types.ObjectId;
+    };
+
+export type MatchStreamEvent = MatchScoreUpdateEvent | MatchLifecycleEvent;
 
 // Broadcast over the same Redis pub/sub → SSE pipeline as MatchScoreUpdateEvent,
 // on its own channel — covers bracket (knockout) and fixture/standings (league) changes.

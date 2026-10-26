@@ -9,12 +9,11 @@ describe('VotesService', () => {
   const [ada, bayo, chidi, dayo, emeka] = [id(), id(), id(), id(), id()];
   const eligible = [ada, bayo, chidi, dayo, emeka];
 
-  let pollModel: any;
-  let voteModel: any;
+  let pollRepository: { findOne: jest.Mock; close: jest.Mock };
+  let voteRepository: { create: jest.Mock; voteOf: jest.Mock; countFor: jest.Mock; tally: jest.Mock };
   let outbox: { enqueueMany: jest.Mock };
   let service: VotesService;
 
-  const lean = (value: any) => ({ lean: jest.fn().mockResolvedValue(value), select: jest.fn().mockReturnThis() });
   const openPoll = (overrides: Record<string, any> = {}) => ({
     _id: id(),
     session: sessionId,
@@ -26,32 +25,33 @@ describe('VotesService', () => {
   });
 
   beforeEach(() => {
-    pollModel = { findOne: jest.fn(), updateOne: jest.fn().mockResolvedValue({ modifiedCount: 1 }) };
-    voteModel = {
+    pollRepository = { findOne: jest.fn(), close: jest.fn().mockResolvedValue(true) };
+    voteRepository = {
       create: jest.fn().mockResolvedValue({}),
-      findOne: jest.fn().mockReturnValue(lean(null)),
-      countDocuments: jest.fn().mockResolvedValue(0),
-      aggregate: jest.fn().mockResolvedValue([]),
+      voteOf: jest.fn().mockResolvedValue(null),
+      countFor: jest.fn().mockResolvedValue(0),
+      tally: jest.fn().mockResolvedValue([]),
     };
     outbox = { enqueueMany: jest.fn().mockResolvedValue(0) };
     service = new VotesService(
-      pollModel,
-      voteModel,
+      pollRepository as any,
+      voteRepository as any,
       {} as any,
       {} as any,
       {} as any,
-      { aggregate: jest.fn().mockResolvedValue([]) } as any,
-      { find: jest.fn().mockReturnValue(lean([])) } as any,
+      { sessionTotals: jest.fn().mockResolvedValue([]) } as any,
+      { publicProfiles: jest.fn().mockResolvedValue([]) } as any,
       outbox as any,
+      { checkSession: jest.fn().mockResolvedValue(0) } as any,
     );
   });
 
   describe('vote', () => {
-    beforeEach(() => pollModel.findOne.mockReturnValue(lean(openPoll())));
+    beforeEach(() => pollRepository.findOne.mockResolvedValue(openPoll()));
 
     it('accepts one vote from a player for another player', async () => {
       await service.vote(sessionId.toString(), ada.toString(), bayo.toString());
-      expect(voteModel.create).toHaveBeenCalledWith(expect.objectContaining({ voter: ada, candidate: bayo }));
+      expect(voteRepository.create).toHaveBeenCalledWith(expect.objectContaining({ voter: ada, candidate: bayo }));
     });
 
     it.each([
@@ -61,19 +61,19 @@ describe('VotesService', () => {
     ])('refuses %s', async (_label, pair, status) => {
       const [voter, candidate] = pair();
       await expect(service.vote(sessionId.toString(), voter.toString(), candidate.toString())).rejects.toMatchObject({ status });
-      expect(voteModel.create).not.toHaveBeenCalled();
+      expect(voteRepository.create).not.toHaveBeenCalled();
     });
 
     it('refuses votes after closesAt, even before the poll is counted', async () => {
-      pollModel.findOne.mockReturnValue(lean(openPoll({ closesAt: new Date(Date.now() - 1000) })));
+      pollRepository.findOne.mockResolvedValue(openPoll({ closesAt: new Date(Date.now() - 1000) }));
       await expect(service.vote(sessionId.toString(), ada.toString(), bayo.toString())).rejects.toMatchObject({
         status: HttpStatus.BAD_REQUEST,
       });
     });
 
     it('the same vote again is a harmless retry; a different one is refused', async () => {
-      voteModel.create.mockRejectedValue({ code: 11000 });
-      voteModel.findOne.mockReturnValue(lean({ candidate: bayo }));
+      voteRepository.create.mockRejectedValue({ code: 11000 });
+      voteRepository.voteOf.mockResolvedValue({ candidate: bayo });
 
       await expect(service.vote(sessionId.toString(), ada.toString(), bayo.toString())).resolves.toBeDefined();
       await expect(service.vote(sessionId.toString(), ada.toString(), chidi.toString())).rejects.toMatchObject({
@@ -84,9 +84,9 @@ describe('VotesService', () => {
 
   describe('view', () => {
     it('shows turnout and your own vote while open, never the tally', async () => {
-      pollModel.findOne.mockReturnValue(lean(openPoll({ result: { tallies: [{ candidate: bayo, votes: 3 }] } })));
-      voteModel.countDocuments.mockResolvedValue(3);
-      voteModel.findOne.mockReturnValue(lean({ candidate: bayo }));
+      pollRepository.findOne.mockResolvedValue(openPoll({ result: { tallies: [{ candidate: bayo, votes: 3 }] } }));
+      voteRepository.countFor.mockResolvedValue(3);
+      voteRepository.voteOf.mockResolvedValue({ candidate: bayo });
 
       const view = await service.view(sessionId.toString(), ada.toString());
 
@@ -98,40 +98,39 @@ describe('VotesService', () => {
     const tally = (...rows: [Types.ObjectId, number][]) => rows.map(([c, votes]) => ({ _id: c, votes }));
 
     it('awards the most-voted player, with percentages of votes cast', async () => {
-      voteModel.aggregate.mockResolvedValue(tally([chidi, 2], [ada, 1]));
+      voteRepository.tally.mockResolvedValue(tally([chidi, 2], [ada, 1]));
       const poll = openPoll();
 
       await service.closePoll(poll, new Date());
 
-      const set = pollModel.updateOne.mock.calls[0][1].$set;
-      expect(pollModel.updateOne.mock.calls[0][0]).toEqual({ _id: poll._id, status: SESSION_POLL_STATUS.OPEN });
-      expect(set.result).toMatchObject({ outcome: SESSION_POLL_OUTCOME.AWARDED, winners: [chidi], votesCast: 3 });
+      expect(pollRepository.close.mock.calls[0][0]).toBe(poll._id);
+      expect(pollRepository.close.mock.calls[0][1]).toMatchObject({ outcome: SESSION_POLL_OUTCOME.AWARDED, winners: [chidi], votesCast: 3 });
       expect(outbox.enqueueMany.mock.calls[0][0]).toHaveLength(5);
     });
 
     it('a tie shares the award', async () => {
-      voteModel.aggregate.mockResolvedValue(tally([chidi, 2], [ada, 2]));
+      voteRepository.tally.mockResolvedValue(tally([chidi, 2], [ada, 2]));
       await service.closePoll(openPoll(), new Date());
-      expect(pollModel.updateOne.mock.calls[0][1].$set.result.winners).toEqual([chidi, ada]);
+      expect(pollRepository.close.mock.calls[0][1].winners).toEqual([chidi, ada]);
     });
 
     it(`no award under ${MIN_TURNOUT * 100}% turnout`, async () => {
-      voteModel.aggregate.mockResolvedValue(tally([chidi, 1])); // 1 of 5 = 20%
+      voteRepository.tally.mockResolvedValue(tally([chidi, 1])); // 1 of 5 = 20%
       await service.closePoll(openPoll(), new Date());
-      expect(pollModel.updateOne.mock.calls[0][1].$set.result).toMatchObject({
+      expect(pollRepository.close.mock.calls[0][1]).toMatchObject({
         outcome: SESSION_POLL_OUTCOME.NO_AWARD,
         winners: [],
       });
     });
 
     it('exactly 40% is enough', async () => {
-      voteModel.aggregate.mockResolvedValue(tally([chidi, 2])); // 2 of 5
+      voteRepository.tally.mockResolvedValue(tally([chidi, 2])); // 2 of 5
       await service.closePoll(openPoll(), new Date());
-      expect(pollModel.updateOne.mock.calls[0][1].$set.result.outcome).toBe(SESSION_POLL_OUTCOME.AWARDED);
+      expect(pollRepository.close.mock.calls[0][1].outcome).toBe(SESSION_POLL_OUTCOME.AWARDED);
     });
 
     it('a second close changes nothing and sends no pushes', async () => {
-      pollModel.updateOne.mockResolvedValue({ modifiedCount: 0 });
+      pollRepository.close.mockResolvedValue(false);
       await expect(service.closePoll(openPoll(), new Date())).resolves.toBe(false);
       expect(outbox.enqueueMany).not.toHaveBeenCalled();
     });

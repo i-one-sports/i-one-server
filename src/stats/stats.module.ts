@@ -7,6 +7,10 @@ import { StatsService } from './stats.service';
 import { StatsRepository } from './stats.repository';
 import { MatchStatsService } from './match-stats.service';
 import { RatingService } from './rating.service';
+import { PlayerMatchStatRepository } from './player-match-stat.repository';
+import { MatchRepository } from 'src/matches/matches.repository';
+import { SetRepository } from 'src/sets/sets.repository';
+import { UserRepository } from 'src/users/users.repository';
 import { VotesModule } from 'src/votes/votes.module';
 
 @Module({
@@ -21,7 +25,16 @@ import { VotesModule } from 'src/votes/votes.module';
     VotesModule,
   ],
   controllers: [StatsController],
-  providers: [StatsService, StatsRepository, MatchStatsService, RatingService],
+  providers: [
+    StatsService,
+    StatsRepository,
+    MatchStatsService,
+    RatingService,
+    PlayerMatchStatRepository,
+    MatchRepository,
+    SetRepository,
+    UserRepository,
+  ],
   exports: [StatsService, StatsRepository, MatchStatsService],
 })
 export class StatsModule {}

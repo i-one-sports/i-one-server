@@ -20,6 +20,7 @@ describe('MatchRefereeService', () => {
   let refereesService: { findById: jest.Mock; entryIdsFor: jest.Mock; isCaptain: jest.Mock; isOwner: jest.Mock };
   let matchStats: { postMatchStats: jest.Mock; voidMatchStats: jest.Mock };
   let outbox: { enqueueMany: jest.Mock };
+  let matchEvents: { emitMatchEvent: jest.Mock };
   let service: MatchRefereeService;
 
   const ownPhone = (user: Types.ObjectId, overrides: Record<string, any> = {}) => ({
@@ -66,6 +67,7 @@ describe('MatchRefereeService', () => {
     };
     matchStats = { postMatchStats: jest.fn().mockResolvedValue(0), voidMatchStats: jest.fn().mockResolvedValue(undefined) };
     outbox = { enqueueMany: jest.fn().mockResolvedValue(0) };
+    matchEvents = { emitMatchEvent: jest.fn().mockResolvedValue(undefined) };
     service = new MatchRefereeService(
       matchRepository as any,
       setRepository as any,
@@ -73,6 +75,7 @@ describe('MatchRefereeService', () => {
       refereesService as any,
       matchStats as any,
       outbox as any,
+      matchEvents as any,
     );
   });
 
@@ -212,6 +215,28 @@ describe('MatchRefereeService', () => {
       await expect(
         service.assign(matchId.toString(), captain.toString(), ref._id.toString()),
       ).rejects.toMatchObject({ status: HttpStatus.CONFLICT });
+    });
+
+    it('announces the change on the match streams', async () => {
+      const ref = ownPhone(spectator);
+      loadMatch(match());
+      refereesService.findById.mockResolvedValue(ref);
+
+      await service.assign(matchId.toString(), captain.toString(), ref._id.toString());
+
+      expect(matchEvents.emitMatchEvent).toHaveBeenCalledWith({
+        type: 'referee_changed',
+        matchId,
+        sessionId: undefined,
+        referee: ref._id,
+        by: captain,
+      });
+    });
+
+    it('a refused change announces nothing', async () => {
+      loadMatch(match());
+      await expect(service.assign(matchId.toString(), teamTwoPlayer.toString(), id().toString())).rejects.toBeDefined();
+      expect(matchEvents.emitMatchEvent).not.toHaveBeenCalled();
     });
 
     it('removing the referee records a null entry in the history', async () => {

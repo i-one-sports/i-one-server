@@ -10,4 +10,9 @@ export class SetRepository extends AbstractRepository<Set> {
   constructor(@InjectModel(Set.name) SetModel: Model<Set>) {
     super(SetModel);
   }
+
+  // Just the players of these teams: [{ _id, players }].
+  async playersOf(teamIds: any[]): Promise<Array<{ _id: any; players: any[] }>> {
+    return this.findRaw().find({ _id: { $in: teamIds } }).select('players').lean();
+  }
 }

@@ -71,11 +71,17 @@ export class SessionPoll extends AbstractDocument {
 
   @Prop({ type: Date })
   closedAt?: Date;
+
+  // Set once the session's players have been checked for badges. A poll
+  // without it is retried by the votes job, so a crash can't skip a badge.
+  @Prop({ type: Date })
+  badgesCheckedAt?: Date;
 }
 export const SessionPollSchema = SchemaFactory.createForClass(SessionPoll);
 SessionPollSchema.index({ session: 1 }, { unique: true });
 SessionPollSchema.index({ status: 1, closesAt: 1 });
 SessionPollSchema.index({ 'result.winners': 1 });
+SessionPollSchema.index({ badgesCheckedAt: 1 });
 
 // One vote per player per session, final once cast. The voter is stored to
 // enforce that, but never returned by the API — votes are anonymous to

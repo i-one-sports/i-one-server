@@ -160,6 +160,8 @@ export class MatchesService {
           throw new CustomHttpException('Match has already finished', HttpStatus.BAD_REQUEST);
         }
       }
+      // Only the request that actually started it announces it.
+      if (started) this.announceStarted(started);
     }
 
     const match: MatchI = await this.matchRepository.findOneAndPopulate(
@@ -245,7 +247,68 @@ export class MatchesService {
 
     const next = await this.createNextMatch(session, match, game, result, format, userId);
     await this.afterResult(finished);
+    // Only the request that actually finished it announces it (a retry lands
+    // in alreadyEnded and stays quiet).
+    this.announceFinished(finished, next);
     return this.endResponse(finished, next);
+  }
+
+  private teamRef(team: any) {
+    return { id: team?._id ?? team, name: team?.name ?? '' };
+  }
+
+  private announceStarted(started: any): void {
+    this.matchRepository
+      .findOneAndPopulate<any>({ _id: started._id }, ['teamOne', 'teamTwo'])
+      .then((m) =>
+        this.matchEventService.emitMatchEvent({
+          type: 'match_started',
+          matchId: m._id,
+          sessionId: m.session,
+          sequence: m.sequence,
+          teamOne: this.teamRef(m.teamOne),
+          teamTwo: this.teamRef(m.teamTwo),
+          referee: m.referee ?? null,
+          startedAt: m.startedAt,
+        }),
+      )
+      .catch((err) => this.logger.error('Failed to emit match_started', err));
+  }
+
+  // Tells match and session screens the result and which game is next, so
+  // they don't have to poll for it.
+  private announceFinished(finished: any, next: any): void {
+    Promise.all([
+      this.matchRepository.findOneAndPopulate<any>({ _id: finished._id }, ['teamOne', 'teamTwo']),
+      next ? this.matchRepository.findOneAndPopulate<any>({ _id: next._id }, ['teamOne', 'teamTwo']) : null,
+    ])
+      .then(([m, n]) =>
+        this.matchEventService.emitMatchEvent({
+          type: 'match_finished',
+          matchId: m._id,
+          sessionId: m.session,
+          sequence: m.sequence,
+          teamOne: this.teamRef(m.teamOne),
+          teamTwo: this.teamRef(m.teamTwo),
+          teamOneScore: m.teamOneScore,
+          teamTwoScore: m.teamTwoScore,
+          scoreVersion: m.scoreVersion ?? 0,
+          winner: m.winner ?? null,
+          decidedBy: m.decidedBy,
+          ...(m.penaltyWinner && { penaltyWinner: m.penaltyWinner }),
+          resultStatus: m.resultStatus,
+          next: n
+            ? {
+                matchId: n._id,
+                sequence: n.sequence,
+                teamOne: this.teamRef(n.teamOne),
+                teamTwo: this.teamRef(n.teamTwo),
+                referee: n.referee ?? null,
+              }
+            : null,
+        }),
+      )
+      .catch((err) => this.logger.error('Failed to emit match_finished', err));
   }
 
   // Stats and review pushes for a finished match. Failures are logged, not
@@ -494,6 +557,7 @@ export class MatchesService {
         teamTwo: { id: (match.teamTwo as any)._id, name: (match.teamTwo as any).name },
         teamOneScore: match.teamOneScore,
         teamTwoScore: match.teamTwoScore,
+        scoreVersion: match.scoreVersion ?? 0,
         ...(latestScorer && { latestScorer }),
       })
       .catch((err) => this.logger.error('Failed to emit score update', err));

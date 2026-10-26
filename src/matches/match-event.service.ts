@@ -1,4 +1,4 @@
-import { MatchScoreUpdateEvent } from '@app/common';
+import { MatchLifecycleEvent, MatchScoreUpdateEvent, MatchStreamEvent } from '@app/common';
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Subject, interval, Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
@@ -18,11 +18,11 @@ const CHANNEL = 'app:match-scores';
 @Injectable()
 export class MatchEventService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MatchEventService.name);
-  private matchscore$ = new Subject<MatchScoreUpdateEvent>();
+  private matchscore$ = new Subject<MatchStreamEvent>();
 
   private readonly messageHandler = (message: string) => {
     try {
-      const event: MatchScoreUpdateEvent = JSON.parse(message);
+      const event: MatchStreamEvent = JSON.parse(message);
       this.matchscore$.next(event);
     } catch (err) {
       this.logger.error('Failed to parse match score event from Redis', err);
@@ -58,6 +58,16 @@ export class MatchEventService implements OnModuleInit, OnModuleDestroy {
    */
   async emitMatchScoreUpdate(event: MatchScoreUpdateEvent): Promise<void> {
     this.logger.log(`Emitting match score update for match ${event.matchId}`);
+    await this.redisPubSub.publish(CHANNEL, JSON.stringify({ ...event, type: 'score' }));
+  }
+
+  /**
+   * Emit a match lifecycle event (started / finished / referee changed) on the
+   * same channel, so the match and session streams carry it with no extra
+   * subscription. Every event has matchId + sessionId for their filters.
+   */
+  async emitMatchEvent(event: MatchLifecycleEvent): Promise<void> {
+    this.logger.log(`Emitting ${event.type} for match ${event.matchId}`);
     await this.redisPubSub.publish(CHANNEL, JSON.stringify(event));
   }
 
