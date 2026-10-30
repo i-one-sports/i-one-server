@@ -1304,6 +1304,8 @@ Join an existing session as a member.
 ```
 
 **Notes**:
+- **Players racing for the last spot are safe.** A player is only added if there's still room, checked in the same database write. If several tap Join at once, exactly enough get in and the rest get `400 Session is full`. Only the join that takes the last spot sets `isFull` and starts what happens next (below), so it runs once.
+- If this join fills a **free** session (`paymentRequired: false`), its teams are created straight away. See [Sets](#sets).
 - If this join fills the session (`members.length === maxNumber`) **and** `paymentRequired` is true, payment opens:
   - **POOL** (hourly): the pot opens (`paymentStatus: "PENDING"`). No per-player payment records are created — members contribute through `POST /wallet/session/:sessionId/pay` with an `amount`. A pot that's already open or full is not reopened if the session fills again after someone leaves.
   - **PER_PERSON** (monthly / older sessions): payment records are automatically initialized for all members who still owe payment
@@ -1311,7 +1313,7 @@ Join an existing session as a member.
 - For **hourly** pricing: every member always gets a fresh payment record for each session
 
 **Error Responses**:
-- `400` — session is already full
+- `400` — session is already full (including when another player took the last spot at the same moment)
 - `409` — user is already in this session
 
 ---
@@ -1539,7 +1541,11 @@ Send a free-text push notification to every member of a session (e.g. "pitch clo
 
 ## Sets
 
-Sets (teams) for a paid session are normally created **automatically** — the moment every member's payment is confirmed, the server allocates players into balanced teams on its own (fire-and-forget, so it never blocks or delays anyone's payment confirmation). In practice this lands well under a second after the last payment, but it's not instant, and — much more rarely — it can fail outright (e.g. an unexpected error) with nothing server-side to retry it automatically. `POST /sets/create/:sessionId` below is both the internal mechanism for that and the **manual fallback** the client should call if auto-allocation doesn't show up in time.
+Sets (teams) are normally created **automatically**:
+- **free session** (`paymentRequired: false`): the moment the session fills (the join that takes the last spot);
+- **paid session**: the moment every member's payment is confirmed (pool: the pot is full).
+
+Either way the server allocates players into balanced teams on its own (fire-and-forget, so it never blocks or delays the join or the payment confirmation). In practice this lands well under a second later, but it's not instant, and — much more rarely — it can fail outright (e.g. an unexpected error) with nothing server-side to retry it automatically. `POST /sets/create/:sessionId` below is both the internal mechanism for that and the **manual fallback** the client should call if auto-allocation doesn't show up in time.
 
 **Recommended polling pattern** for the moment every member has paid:
 1. Once the session shows `allPaymentsCompleted: true` (or `paymentStatus: "COMPLETED"`) but `GET /sets/:sessionId` still returns `[]`, show a brief "Finalizing teams..." state.

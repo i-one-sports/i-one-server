@@ -28,6 +28,7 @@ import { PaymentStatus } from '@app/common/schemas/session-payment.schema';
 import { NotificationService } from 'src/notifications/notification.service';
 import { NOTIFICATION_CHANNEL, NOTIFICATION_TYPE } from 'src/notifications/notification.types';
 import { CacheService } from 'src/cache/cache.service';
+import { SetsService } from 'src/sets/sets.service';
 
 @Injectable()
 export class SessionsService {
@@ -238,6 +239,7 @@ export class SessionsService {
     private readonly notificationService: NotificationService,
     private readonly cacheService: CacheService,
     @InjectConnection() private readonly connection: Connection,
+    private readonly setsService: SetsService,
   ) {}
 
   async findNearbySessionMatches(lng: number, lat: number) {
@@ -592,23 +594,47 @@ export class SessionsService {
       throw new CustomHttpException('Session is full', HttpStatus.BAD_REQUEST);
     }
 
-    const willBeFull = session.members.length + 1 >= session.maxNumber;
-
-    const updatedSession = await this.sessionRepository.findOneAndUpdate(
-      { _id: sessionId },
+    // Add the player only if there's still room and they aren't in yet —
+    // checked inside the update, so two players racing for the last spot
+    // can't both get in (the earlier read above is just for clear errors).
+    const joined: Session | null = await this.sessionRepository.findOneAndUpdate(
       {
-        $push: { members: userId },
-        $set: { isFull: willBeFull },
+        _id: sessionId,
+        isFull: { $ne: true },
+        members: { $ne: userId },
+        $expr: { $lt: [{ $size: '$members' }, '$maxNumber'] },
       },
+      { $push: { members: userId } },
     );
+    if (!joined) {
+      const now: Session | null = await this.sessionRepository.findOne({ _id: sessionId });
+      if (now?.members.some((id) => String(id) === String(userId))) {
+        throw new CustomHttpException('User already in this session', HttpStatus.CONFLICT);
+      }
+      throw new CustomHttpException('Session is full', HttpStatus.BAD_REQUEST);
+    }
 
     await this.userRepository.findOneAndUpdate(
       { _id: userId },
       { currentSession: sessionId },
     );
 
-    if (willBeFull && updatedSession.paymentRequired) {
-      await this.onSessionFull(updatedSession);
+    // Only the join that took the last spot flips isFull, so "session full"
+    // (open payment / make teams) runs exactly once.
+    let updatedSession = joined;
+    if (joined.members.length >= joined.maxNumber) {
+      const filled: Session | null = await this.sessionRepository.findOneAndUpdate(
+        { _id: sessionId, isFull: { $ne: true } },
+        { $set: { isFull: true } },
+      );
+      if (filled) {
+        updatedSession = filled;
+        if (filled.paymentRequired) {
+          await this.onSessionFull(filled);
+        } else {
+          this.allocateTeams(sessionId);
+        }
+      }
     }
 
     return {
@@ -998,6 +1024,21 @@ export class SessionsService {
     }
   }
 
+  // Free sessions have no payment to wait for, so their teams are made the
+  // moment they fill (paid sessions get theirs when the last payment lands,
+  // in SessionPaymentService). Fire-and-forget like the paid path: a failure
+  // must never fail the join, and POST /sets/create/:sessionId is the manual
+  // fallback. createSet refuses if teams already exist, so a repeat is harmless.
+  private allocateTeams(sessionId: string): void {
+    this.setsService
+      .createSet(sessionId)
+      .catch((error: unknown) =>
+        this.logger.error(
+          `Auto set-allocation failed for free session ${sessionId}: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      );
+  }
+
   async onSessionFull(session: Session) {
     const isPool = session.paymentMode === SESSION_PAYMENT_MODE.POOL;
     if (isPool ? !(session.paymentTarget > 0) : !(session.paymentAmount > 0)) return;
@@ -1008,10 +1049,13 @@ export class SessionsService {
     }
 
     if (location.tier !== LOCATION_TIER.PAID) {
+      // The pitch went free after this session was booked: nothing to pay,
+      // so it gets its teams straight away like any free session.
       await this.sessionRepository.findOneAndUpdate(
         { _id: session._id },
         { paymentRequired: false, paymentStatus: 'COMPLETED', allPaymentsCompleted: true },
       );
+      this.allocateTeams(session._id.toString());
       return;
     }
 

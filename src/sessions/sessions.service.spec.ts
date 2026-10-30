@@ -6,8 +6,10 @@ import {
   LOCATION_TIER,
   SESSION_PAYMENT_MODE,
   SESSION_STATUS,
+  Session,
 } from '@app/common';
 import { SessionsService } from './sessions.service';
+import { SetsService } from 'src/sets/sets.service';
 
 describe('SessionsService', () => {
   let service: SessionsService;
@@ -44,6 +46,7 @@ describe('SessionsService', () => {
     refundPayment: jest.Mock;
   };
   let notificationService: { emit: jest.Mock };
+  let setsService: { createSet: jest.Mock };
 
   const userId = new Types.ObjectId();
   const locationId = new Types.ObjectId();
@@ -88,6 +91,7 @@ describe('SessionsService', () => {
       refundPayment: jest.fn(),
     };
     notificationService = { emit: jest.fn().mockResolvedValue(undefined) };
+    setsService = { createSet: jest.fn().mockResolvedValue([]) };
 
     service = new SessionsService(
       sessionRepository as any,
@@ -99,6 +103,7 @@ describe('SessionsService', () => {
       notificationService as any,
       { get: jest.fn(), set: jest.fn(), delete: jest.fn() } as any,
       connection as any,
+      setsService as unknown as SetsService,
     );
     sessionRepository.findRaw.mockReturnValue(sessionModel);
   });
@@ -292,6 +297,8 @@ describe('SessionsService', () => {
       });
       sessionRepository.findOneAndUpdate.mockResolvedValue({
         _id: sessionId,
+        members: [existingMember, userId],
+        maxNumber: 4,
         isFull: false,
       });
 
@@ -299,16 +306,32 @@ describe('SessionsService', () => {
         service.joinSession(userId.toString(), sessionId.toString()),
       ).resolves.toMatchObject({ message: 'User successfully joined session' });
 
+      // Joins only if there's still room — checked inside the update.
+      expect(sessionRepository.findOneAndUpdate).toHaveBeenCalledTimes(1);
       expect(sessionRepository.findOneAndUpdate).toHaveBeenCalledWith(
-        { _id: sessionId.toString() },
         {
-          $push: { members: userId.toString() },
-          $set: { isFull: false },
+          _id: sessionId.toString(),
+          isFull: { $ne: true },
+          members: { $ne: userId.toString() },
+          $expr: { $lt: [{ $size: '$members' }, '$maxNumber'] },
         },
+        { $push: { members: userId.toString() } },
       );
       expect(
         sessionPaymentService.initializeSessionPayments,
       ).not.toHaveBeenCalled();
+    });
+
+    it('a racing joiner who lost the last spot gets "Session is full"', async () => {
+      sessionRepository.findOne
+        .mockResolvedValueOnce({ _id: sessionId, members: [new Types.ObjectId()], maxNumber: 2, isFull: false })
+        .mockResolvedValueOnce({ _id: sessionId, members: [new Types.ObjectId(), new Types.ObjectId()], maxNumber: 2, isFull: true });
+      sessionRepository.findOneAndUpdate.mockResolvedValue(null);
+
+      await expect(service.joinSession(userId.toString(), sessionId.toString())).rejects.toMatchObject({
+        status: HttpStatus.BAD_REQUEST,
+      });
+      expect(setsService.createSet).not.toHaveBeenCalled();
     });
 
     it('rejects duplicate session members', async () => {
@@ -333,17 +356,19 @@ describe('SessionsService', () => {
         maxNumber: 2,
         isFull: false,
       });
+      const full = {
+        _id: sessionId,
+        location: locationId,
+        members: [existingMember, userId],
+        maxNumber: 2,
+        isFull: true,
+        paymentRequired: true,
+        paymentMode: SESSION_PAYMENT_MODE.PER_PERSON,
+        paymentAmount: 5000,
+      };
       sessionRepository.findOneAndUpdate
-        .mockResolvedValueOnce({
-          _id: sessionId,
-          location: locationId,
-          members: [existingMember, userId],
-          maxNumber: 2,
-          isFull: true,
-          paymentRequired: true,
-          paymentMode: SESSION_PAYMENT_MODE.PER_PERSON,
-          paymentAmount: 5000,
-        })
+        .mockResolvedValueOnce({ ...full, isFull: false }) // joined, taking the last spot
+        .mockResolvedValueOnce(full) // this join flips isFull
         .mockResolvedValueOnce({ _id: sessionId });
       locationRepository.findOne.mockResolvedValue({
         _id: locationId,
@@ -366,10 +391,76 @@ describe('SessionsService', () => {
         expect.any(Date),
         LOCATION_PRICING_OPTION.MONTHLY,
       );
+      // Paid: teams wait for the last payment (SessionPaymentService).
+      expect(setsService.createSet).not.toHaveBeenCalled();
+    });
+
+    it('a free session makes its teams the moment it fills', async () => {
+      const existingMember = new Types.ObjectId();
+      sessionRepository.findOne.mockResolvedValue({
+        _id: sessionId, location: locationId, members: [existingMember], maxNumber: 2, isFull: false,
+      });
+      sessionRepository.findOneAndUpdate
+        .mockResolvedValueOnce({ _id: sessionId, members: [existingMember, userId], maxNumber: 2, isFull: false, paymentRequired: false })
+        .mockResolvedValueOnce({ _id: sessionId, members: [existingMember, userId], maxNumber: 2, isFull: true, paymentRequired: false });
+
+      await service.joinSession(userId.toString(), sessionId.toString());
+
+      expect(setsService.createSet).toHaveBeenCalledTimes(1);
+      expect(setsService.createSet).toHaveBeenCalledWith(sessionId.toString());
+      expect(sessionPaymentService.initializeSessionPayments).not.toHaveBeenCalled();
+    });
+
+    it('a free session that is not full yet makes no teams', async () => {
+      sessionRepository.findOne.mockResolvedValue({
+        _id: sessionId, members: [new Types.ObjectId()], maxNumber: 4, isFull: false,
+      });
+      sessionRepository.findOneAndUpdate.mockResolvedValue({
+        _id: sessionId, members: [new Types.ObjectId(), userId], maxNumber: 4, isFull: false, paymentRequired: false,
+      });
+
+      await service.joinSession(userId.toString(), sessionId.toString());
+
+      expect(setsService.createSet).not.toHaveBeenCalled();
+    });
+
+    it('a failed team allocation never fails the join', async () => {
+      const existingMember = new Types.ObjectId();
+      sessionRepository.findOne.mockResolvedValue({
+        _id: sessionId, members: [existingMember], maxNumber: 2, isFull: false,
+      });
+      sessionRepository.findOneAndUpdate
+        .mockResolvedValueOnce({ _id: sessionId, members: [existingMember, userId], maxNumber: 2, isFull: false, paymentRequired: false })
+        .mockResolvedValueOnce({ _id: sessionId, members: [existingMember, userId], maxNumber: 2, isFull: true, paymentRequired: false });
+      setsService.createSet.mockRejectedValue(new Error('db blip'));
+
+      await expect(service.joinSession(userId.toString(), sessionId.toString())).resolves.toMatchObject({
+        message: 'User successfully joined session',
+      });
     });
   });
 
   describe('onSessionFull', () => {
+    it('a session whose pitch went free gets its teams straight away', async () => {
+      locationRepository.findOne.mockResolvedValue({ _id: locationId, owner: ownerId, tier: LOCATION_TIER.FREE });
+      sessionRepository.findOneAndUpdate.mockResolvedValue({ _id: sessionId });
+
+      await service.onSessionFull({
+        _id: sessionId,
+        location: locationId,
+        members: [userId],
+        paymentRequired: true,
+        paymentMode: SESSION_PAYMENT_MODE.POOL,
+        paymentTarget: 2000000,
+      } as unknown as Session);
+
+      expect(sessionRepository.findOneAndUpdate).toHaveBeenCalledWith(
+        { _id: sessionId },
+        { paymentRequired: false, paymentStatus: 'COMPLETED', allPaymentsCompleted: true },
+      );
+      expect(setsService.createSet).toHaveBeenCalledWith(sessionId.toString());
+    });
+
     it('marks monthly sessions complete when every member already has active recurring payment', async () => {
       const memberOne = new Types.ObjectId();
       const memberTwo = new Types.ObjectId();

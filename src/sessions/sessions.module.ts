@@ -1,3 +1,4 @@
+import { SetsModule } from 'src/sets/sets.module';
 import {
   Location,
   LocationSchema,
@@ -32,6 +33,7 @@ import { NotificationsModule } from 'src/notifications/notifications.module';
     CaptainsModule,
     BillingModule,
     NotificationsModule,
+    SetsModule,
   ],
   controllers: [SessionsController],
   providers: [
