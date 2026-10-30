@@ -3,32 +3,33 @@
 ## Table of Contents
 1. [Base URL & Authentication](#base-url--authentication)
 2. [Real-time Updates (SSE) — Frontend Guide](#real-time-updates-sse--frontend-guide)
-3. [Health Check](#health-check)
-4. [Authentication](#authentication)
-5. [Users](#users)
-6. [Email Verification](#email-verification)
-7. [Verification (KYC)](#verification-kyc)
-8. [Locations](#locations)
-9. [Owner Dashboard](#owner-dashboard) — includes `/revenue` and `/users-chart`
-10. [Sessions](#sessions)
-11. [Sets](#sets)
-12. [Matches](#matches) — rotation, recording safely on a bad network
-13. [Referees](#referees)
-14. [Tournaments](#tournaments)
-15. [Stats](#stats) — includes the player rating
-16. [Voting — Player of the Session](#voting--player-of-the-session)
-17. [Badges](#badges)
-18. [Captains](#captains)
-19. [Wallet & Payments](#wallet--payments) — includes refund flow
-20. [Banks](#banks)
-21. [Settings](#settings) — platform commission rate, minimum pool contribution
-22. [Location Billing](#location-billing) — owner transaction history & team payment validator
-23. [Notifications](#notifications)
-24. [Admin](#admin) — includes commission summary
-25. [Webhooks](#webhooks) — includes refund.* events
-26. [Universal / App Links](#universal--app-links)
-27. [Error Handling](#error-handling)
-28. [Types & Interfaces](#types--interfaces)
+3. [Paying — Frontend Guide](#paying--frontend-guide)
+4. [Health Check](#health-check)
+5. [Authentication](#authentication)
+6. [Users](#users)
+7. [Email Verification](#email-verification)
+8. [Verification (KYC)](#verification-kyc)
+9. [Locations](#locations)
+10. [Owner Dashboard](#owner-dashboard) — includes `/revenue` and `/users-chart`
+11. [Sessions](#sessions)
+12. [Sets](#sets)
+13. [Matches](#matches) — rotation, recording safely on a bad network
+14. [Referees](#referees)
+15. [Tournaments](#tournaments)
+16. [Stats](#stats) — includes the player rating
+17. [Voting — Player of the Session](#voting--player-of-the-session)
+18. [Badges](#badges)
+19. [Captains](#captains)
+20. [Wallet & Payments](#wallet--payments) — includes refund flow
+21. [Banks](#banks)
+22. [Settings](#settings) — platform commission rate, minimum pool contribution
+23. [Location Billing](#location-billing) — owner transaction history & team payment validator
+24. [Notifications](#notifications)
+25. [Admin](#admin) — includes commission summary
+26. [Webhooks](#webhooks) — includes refund.* events
+27. [Universal / App Links](#universal--app-links)
+28. [Error Handling](#error-handling)
+29. [Types & Interfaces](#types--interfaces)
 
 ---
 
@@ -196,6 +197,77 @@ The phone that **records** the score must not rely on SSE for its own taps:
 - Each goal / undo / end request returns the updated match with its new `scoreVersion` — use **that** for the next tap (see *Recording safely on a bad network* under [Matches](#matches)).
 - Score events carry the match's new `scoreVersion` too. If one arrives that this phone didn't cause (another phone recorded — possible when a match has no referee), take its `scoreVersion` for the next tap. If a tap is answered `409` anyway, the body's `details` has the current score and version.
 - **`referee_changed`**: if this phone was recording and `msg.referee` isn't its referee entry any more (handed off or removed), switch the screen out of recording mode — the server now refuses its taps (`403`).
+
+---
+
+## Paying — Frontend Guide
+
+How the pay screens should talk to the server. The rule behind all of it: **a player has at most one open checkout per session**, so the server stops a double charge as long as the app reuses what it's given and never builds its own second checkout.
+
+### Paying
+1. The player taps **Pay** → `POST /wallet/session/:sessionId/pay`. For a pool session, send `{ "amount": <kobo> }`.
+2. Open the returned `authorizationUrl` (Paystack's page).
+3. When the player comes back from Paystack, **don't treat that as paid.** Payment is only confirmed by Paystack's webhook to the server. Show "confirming…" and wait for the server:
+   - **pool session:** the payment stream (`GET /wallet/session/:sessionId/payment-stream`) sends a fresh snapshot when the money lands;
+   - **fixed share:** reload `GET /wallet/session/:sessionId/my-payment` every few seconds until its `status` is `PAID` (stop after about a minute and show "we'll update this when Paystack confirms").
+
+### Tapping again, retries and reopening the app
+- **A repeat tap returns the same page.** If the player taps Pay again, the network retries, or they reopen the app, `POST /pay` gives back the **same** `authorizationUrl` and `reference`. Open that one. Never start a second checkout yourself.
+- **On `409` with `code: "CHECKOUT_IN_PROGRESS"`**, the first tap is still waiting on Paystack. Keep the spinner up and **retry after about a second**. Stop after about 5 tries and show "couldn't start the payment — try again".
+
+### Changing the amount (pool sessions)
+While a checkout is open, `POST /pay` returns **that** checkout even if you send a different `amount`. To change the amount:
+1. `DELETE /wallet/session/:sessionId/checkout` (cancel);
+2. on `{ "cancelled": true }`, call `POST /pay` again with the new amount.
+
+If the player pays the cancelled page later anyway (an old tab, another phone), that money is **refunded automatically** and doesn't count, so they can't end up paying both.
+
+### What each response means for the screen
+
+**`POST /wallet/session/:sessionId/pay`**
+| Response | Show |
+|---|---|
+| `201` with `authorizationUrl` | Open the page. Pool: show the held amount, and `expiresAt` as "held for 15 min". |
+| `201` with `alreadyPaid: true` | "Paid ✓". Pool: the pot is full (includes `pool`). Don't open anything. |
+| `409` with `code: "CHECKOUT_IN_PROGRESS"` | Spinner; retry after ~1s (above). |
+| `409` with `details.pool` (pool) | That much isn't available right now (others are paying). Update the numbers from `details.pool` and let them pick a smaller amount. |
+| `400` | Show `message`: below the minimum contribution (pool: `details.pool` has what's left), not a whole number, or payment isn't open yet (session not full). |
+| `403` | They aren't a member of this session. |
+| `404` (fixed share) | Nothing to pay for this player in this session. Reload the session. |
+
+**`DELETE /wallet/session/:sessionId/checkout`**
+| Response | Show |
+|---|---|
+| `200` `{ "cancelled": true }` | The old checkout is gone (pool: the hold is released). Let them enter a new amount. |
+| `200` `{ "cancelled": false, "alreadyPaid": true }` | Their old page **was** paid. Show "Paid ✓" and don't start a new checkout. |
+| `404` | Nothing was open. Just call `POST /pay`. |
+| `409` with `code: "CHECKOUT_IN_PROGRESS"` | Still being prepared; retry after ~1s. |
+| `503` | Paystack couldn't be reached to confirm the old page wasn't paid. Nothing changed; ask them to try again shortly. |
+
+### In code (sketch)
+```ts
+type PayResult = { authorizationUrl?: string; reference?: string; alreadyPaid?: boolean; expiresAt?: string };
+
+async function startPayment(sessionId: string, amount?: number): Promise<PayResult> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const res = await api.post(`/wallet/session/${sessionId}/pay`, amount ? { amount } : {});
+    if (res.status === 409 && res.body.code === 'CHECKOUT_IN_PROGRESS') {
+      await sleep(1000); // the first tap is still talking to Paystack
+      continue;
+    }
+    if (res.ok) return res.body; // same page on every repeat: open res.body.authorizationUrl
+    throw new PaymentError(res.status, res.body.message);
+  }
+  throw new PaymentError(409, "Couldn't start the payment — try again");
+}
+
+async function changePoolAmount(sessionId: string, newAmount: number): Promise<PayResult> {
+  const cancel = await api.delete(`/wallet/session/${sessionId}/checkout`);
+  if (cancel.ok && cancel.body.alreadyPaid) return cancel.body;                  // the old page was paid
+  if (!cancel.ok && cancel.status !== 404) throw new PaymentError(cancel.status, cancel.body.message);
+  return startPayment(sessionId, newAmount);
+}
+```
 
 ---
 
@@ -3089,9 +3161,9 @@ Initialize a Paystack checkout for the current user's session payment. Returns a
 - If the pot is already full, returns `{ "alreadyPaid": true, "status": "confirmed", "pool": { ... } }`.
 
 **Error Responses — POOL**:
-- `409` — amount is more than `available` right now; body includes the current `pool` so the app can update its numbers
+- `409` — amount is more than `available` right now; `details.pool` has the current pool so the app can update its numbers
 - `409` with `code: "CHECKOUT_IN_PROGRESS"` — this player's checkout is still being prepared; retry shortly
-- `400` — below `minContribution` (and not an exact clear), not a whole number, or payment isn't open yet (session not full)
+- `400` — below `minContribution` (and not an exact clear; `details.pool` has what's left), not a whole number, or payment isn't open yet (session not full)
 - `403` — caller is not a member of the session
 
 **Success Response** `201 Created`:

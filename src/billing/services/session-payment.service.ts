@@ -738,12 +738,13 @@ export class SessionPaymentService {
           message: pool.reserved > 0
             ? `Only ${pool.available} kobo is available right now — ${pool.reserved} is being paid by other players`
             : `Only ${pool.available} kobo is left to pay`,
-          pool,
+          // `details` is what the global error filter passes through to the app.
+          details: { pool },
         });
       }
       throw new BadRequestException({
         message: `Minimum contribution is ${minContribution} kobo (or exactly what's left: ${pool.available})`,
-        pool,
+        details: { pool },
       });
     }
 

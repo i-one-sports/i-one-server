@@ -679,7 +679,7 @@ describe('SessionPaymentService', () => {
           .catch((e) => e);
 
         expect(err).toBeInstanceOf(ConflictException);
-        expect(err.getResponse().pool).toMatchObject({ remaining: 500000, available: 500000 });
+        expect(err.getResponse().details.pool).toMatchObject({ remaining: 500000, available: 500000 });
         expect(sessionPaymentRepository.create).not.toHaveBeenCalled();
         expect(paystackService.initializeTransaction).not.toHaveBeenCalled();
       });
