@@ -5,6 +5,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectModel } from '@nestjs/mongoose';
@@ -17,6 +18,7 @@ import { TransactionSource } from '@app/common/schemas/transaction.schema';
 import { Session } from '@app/common/schemas/session.schema';
 import { randomUUID } from 'crypto';
 import {
+  IDEMPOTENCY_STATUS,
   LOCATION_PRICING_OPTION,
   SESSION_PAYMENT_MODE,
   SESSION_STATUS,
@@ -31,11 +33,30 @@ import { PlatformCommissionRepository } from '../repositories/platform-commissio
 import { SetsService } from '../../sets/sets.service';
 import { PoolSnapshot, SessionPaymentEventService } from './session-payment-event.service';
 import { grossUp } from '../utils/processing-fee';
+import { PaymentIdempotencyKeyRepository } from '../repositories/payment-idempotency-key.repository';
+import { PaymentIdempotencyKey } from '@app/common/schemas/payment-idempotency-key.schema';
 
 // How long a pool checkout holds its share of the pot before the expiry job
 // verifies it with Paystack and (if unpaid) releases it back to the pool.
 // Kept short so an abandoned checkout can't lock the pot for long.
 const POOL_RESERVATION_TTL_MS = 15 * 60 * 1000;
+
+// An open checkout older than this is stale: its page may have been
+// abandoned, so the next tap verifies it with Paystack and may issue a new
+// one. Same as the pool reservation, so a checkout and its hold end together.
+const CHECKOUT_STALE_MS = POOL_RESERVATION_TTL_MS;
+// A checkout stuck in STARTED this long means the request handling it died
+// mid-way (its reference is already saved on the payment row, so nothing is
+// lost); the next tap may start again.
+const CHECKOUT_STUCK_MS = 60 * 1000;
+
+// Rows recording an extra charge (a second paid checkout for an already-paid
+// payment) never count as a member's payment.
+const NOT_EXTRA_CHARGE = { duplicateOf: { $exists: false } };
+
+const isDuplicateKeyError = (error: unknown): boolean =>
+  typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 11000;
+const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 type PoolContributorLike = { userId: string; amount: number };
 
@@ -53,6 +74,7 @@ export class SessionPaymentService {
     private readonly setsService: SetsService,
     @InjectModel(Location.name) private readonly locationModel: Model<Location>,
     private readonly sessionPaymentEventService: SessionPaymentEventService,
+    private readonly idempotencyKeys: PaymentIdempotencyKeyRepository,
   ) {}
 
   // Explicit equality on purpose: lean reads of sessions created before
@@ -134,12 +156,135 @@ export class SessionPaymentService {
     }
   }
 
+  // One open checkout per player per session. The key is unique while open
+  // (payment_idempotency_keys), so double taps, network retries and second
+  // devices all get the same checkout back. Paystack charges a reference
+  // once, so one open checkout means one possible charge.
   async initializeCheckout(sessionId: string, userId: string, userEmail: string, amount?: number) {
-    const session = await this.sessionModel.findById(sessionId).lean();
-    if (session && this.isPoolSession(session)) {
-      return this.initializePoolCheckout(session, userId, userEmail, amount);
+    const key = `session-checkout:${sessionId}:${userId}`;
+
+    // 1. Already open? Hand the same checkout back — unless it was abandoned
+    //    (never paid, or the request died before Paystack answered), which
+    //    would otherwise lock the player out for good.
+    const open: PaymentIdempotencyKey | null = await this.idempotencyKeys.findOpen(key);
+    if (open) {
+      const age = Date.now() - new Date(open.updatedAt).getTime();
+      const abandoned = open.response ? age > CHECKOUT_STALE_MS : age > CHECKOUT_STUCK_MS;
+      if (!abandoned) {
+        if (!open.response) throw this.checkoutInProgress(); // Paystack hasn't answered yet
+        return this.sameCheckout(open.response);
+      }
+      // The fresh checkout below asks Paystack about the old one before
+      // making a new one, so a late payment on it is still caught.
+      await this.idempotencyKeys.close(open._id, IDEMPOTENCY_STATUS.EXPIRED);
     }
 
+    // 2. Create it. The unique index lets only one tap past this point.
+    let record: PaymentIdempotencyKey;
+    try {
+      record = await this.idempotencyKeys.create({ key, status: IDEMPOTENCY_STATUS.STARTED });
+    } catch (error: unknown) {
+      if (isDuplicateKeyError(error)) throw this.checkoutInProgress();
+      throw error;
+    }
+
+    // 3. Talk to Paystack, then save its answer on the record.
+    try {
+      const session = await this.sessionModel.findById(sessionId).lean();
+      const isPool = !!session && this.isPoolSession(session);
+      const result = isPool
+        ? await this.initializePoolCheckout(session, userId, userEmail, amount)
+        : await this.initializeFixedCheckout(sessionId, userId, userEmail);
+
+      if (result?.authorizationUrl) {
+        await this.idempotencyKeys.complete(record._id, {
+          authorizationUrl: result.authorizationUrl,
+          accessCode: result.accessCode,
+          reference: result.reference,
+        });
+      } else {
+        // No page means nothing to pay. Fixed share: the player's own share is
+        // already paid. Pool: the pot is full — possibly from other players'
+        // money, so it isn't recorded as this player's payment.
+        await this.idempotencyKeys.close(record._id, isPool ? IDEMPOTENCY_STATUS.FAILED : IDEMPOTENCY_STATUS.PAID);
+      }
+      return result;
+    } catch (error) {
+      await this.idempotencyKeys.close(record._id, IDEMPOTENCY_STATUS.FAILED); // let them try again
+      throw error;
+    }
+  }
+
+  private async sameCheckout(response: { authorizationUrl: string; reference: string }) {
+    const payment: SessionPayment | null = await this.sessionPaymentRepository.findOne({ paymentReference: response.reference });
+    return {
+      authorizationUrl: response.authorizationUrl,
+      reference: response.reference,
+      amount: payment?.amount,
+      baseAmount: payment?.baseAmount ?? payment?.amount,
+      commissionAmount: payment?.commissionAmount ?? 0,
+      processingFee: payment?.processingFee ?? 0,
+      ...(payment?.expiresAt && { expiresAt: payment.expiresAt }),
+    };
+  }
+
+  private checkoutInProgress() {
+    return new ConflictException({
+      message: 'Checkout is being prepared — try again',
+      code: 'CHECKOUT_IN_PROGRESS',
+    });
+  }
+
+  // "Change my amount": cancels the player's open checkout so they can start
+  // another straight away. Paystack is asked first — if the page was already
+  // paid, that payment is confirmed instead of cancelled. In a pool, a
+  // cancelled page that's paid later anyway is refunded, never counted, so
+  // the player can't end up paying both.
+  async cancelCheckout(sessionId: string, userId: string) {
+    const open: PaymentIdempotencyKey | null = await this.idempotencyKeys.findOpen(
+      `session-checkout:${sessionId}:${userId}`,
+    );
+    if (!open) throw new NotFoundException('No open checkout to cancel');
+    if (!open.response) throw this.checkoutInProgress();
+
+    const alreadyPaid = { cancelled: false, alreadyPaid: true, status: 'confirmed' } as const;
+    const payment: SessionPayment | null = await this.sessionPaymentRepository.findOne({
+      paymentReference: open.response.reference,
+    });
+
+    // Settled in the meantime (paid, or released by the expiry job).
+    if (!payment || payment.status !== PaymentStatus.PENDING) {
+      const paid = payment?.status === PaymentStatus.PAID;
+      await this.idempotencyKeys.close(open._id, paid ? IDEMPOTENCY_STATUS.PAID : IDEMPOTENCY_STATUS.EXPIRED);
+      return paid ? alreadyPaid : { cancelled: true };
+    }
+
+    if (this.isPoolPayment(payment)) {
+      // Verifies with Paystack, then releases the hold on the pot and closes
+      // the key — with the cancelled mark written in the same update.
+      const outcome = await this.settleReservation(payment, { 'metadata.cancelledByPlayer': true });
+      if (outcome === 'unknown') {
+        throw new ServiceUnavailableException("Couldn't confirm the checkout with Paystack — try again");
+      }
+      return outcome === 'confirmed' ? alreadyPaid : { cancelled: true };
+    }
+
+    // Fixed share: the player's one payment row — check every page it had.
+    const references = [payment.paymentReference, ...(payment.previousReferences ?? [])].filter(Boolean);
+    for (const reference of references) {
+      const tx = await this.paystackService.verifyTransaction(reference).catch((): null => null);
+      if (tx?.status === 'success') {
+        await this.confirmSessionPayment(payment.sessionId, payment.userId, reference, tx.amount, tx.fees);
+        return alreadyPaid;
+      }
+    }
+    // A late payment on the old page still pays this same row; if a new page
+    // is paid too, the extra charge is refunded.
+    await this.idempotencyKeys.close(open._id, IDEMPOTENCY_STATUS.EXPIRED);
+    return { cancelled: true };
+  }
+
+  private async initializeFixedCheckout(sessionId: string, userId: string, userEmail: string) {
     const payment = await this.sessionPaymentRepository.findOne({
       sessionId: new Types.ObjectId(sessionId),
       userId: new Types.ObjectId(userId),
@@ -215,7 +360,8 @@ export class SessionPaymentService {
     );
 
     try {
-      const result = await this.paystackService.initializeTransaction(
+      const 
+      result = await this.paystackService.initializeTransaction(
         userEmail,
         payment.amount,
         reference,
@@ -226,6 +372,7 @@ export class SessionPaymentService {
 
       return {
         authorizationUrl: result.authorization_url,
+        accessCode: result.access_code,
         reference: result.reference,
         amount: payment.amount,
         baseAmount: payment.baseAmount ?? payment.amount,
@@ -262,29 +409,12 @@ export class SessionPaymentService {
     // { status: PENDING } succeeds — the other gets null and exits without
     // touching the wallet, preventing double credits.
     const payment = await this.sessionPaymentRepository.findOneAndUpdate(
-      { sessionId, userId, status: PaymentStatus.PENDING },
-      { status: PaymentStatus.PAID, paidAt: new Date() },
+      { sessionId, userId, status: PaymentStatus.PENDING, ...NOT_EXTRA_CHARGE },
+      { status: PaymentStatus.PAID, paidAt: new Date(), paidReference: paystackReference },
     );
 
     if (!payment) {
-      // Already PAID (a redelivered webhook, or webhook + inline confirm
-      // racing)? Re-run the ledger postings — each is idempotent on its
-      // reference — so a confirmation whose postings failed half-way is
-      // completed by the redelivery instead of being left incomplete.
-      const paid = await this.sessionPaymentRepository.findOne({
-        sessionId,
-        userId,
-        status: PaymentStatus.PAID,
-        $or: [{ paymentReference: paystackReference }, { previousReferences: paystackReference }],
-      });
-      if (paid) {
-        await this.creditOwnerForPayment(paid, paystackReference, paid.amount, paystackFee);
-      }
-      this.logger.warn(
-        `confirmSessionPayment: no PENDING record found — already confirmed or does not exist ` +
-        `(session: ${sessionId}, user: ${userId}, ref: ${paystackReference})`,
-      );
-      return null;
+      return this.handleChargeOnSettledPayment(sessionId, userId, paystackReference, amount, paystackFee);
     }
 
     if (payment.amount !== amount) {
@@ -298,12 +428,127 @@ export class SessionPaymentService {
     }
 
     const updatedPayment = await this.creditOwnerForPayment(payment, paystackReference, amount, paystackFee);
+    await this.idempotencyKeys.closeByReference(paystackReference, IDEMPOTENCY_STATUS.PAID);
 
     this.logger.log(`Payment confirmed for session: ${sessionId}, user: ${userId}`);
 
     await this.maybeCompleteSessionPayments(sessionId);
 
     return updatedPayment;
+  }
+
+  // A charge arrived for a payment that's no longer PENDING. Either it's the
+  // same charge again (webhook redelivery / inline confirm racing) — re-run
+  // the idempotent postings so a half-finished confirmation completes — or
+  // it's a DIFFERENT reference: the player paid a second checkout for
+  // something already paid. That extra charge is recorded and refunded in
+  // full; it is never credited to anyone.
+  private async handleChargeOnSettledPayment(
+    sessionId: Types.ObjectId,
+    userId: Types.ObjectId,
+    paystackReference: string,
+    amount: number,
+    paystackFee?: number,
+  ) {
+    const original: SessionPayment | null = await this.sessionPaymentRepository.findOne({
+      sessionId,
+      userId,
+      ...NOT_EXTRA_CHARGE,
+      status: { $ne: PaymentStatus.PENDING },
+    });
+
+    if (!original) {
+      this.logger.error(
+        `CRITICAL: charge.success ${paystackReference} (${amount} kobo) matches no payment ` +
+          `(session ${sessionId}, user ${userId}) — money received but unrecorded; refund manually`,
+      );
+      return null;
+    }
+
+    // Rows paid before paidReference existed: keep the old rule (any of the
+    // row's own references is the same charge), so a redelivered legacy
+    // webhook is never mistaken for an extra charge.
+    const sameCharge = original.paidReference
+      ? original.paidReference === paystackReference
+      : [original.paymentReference, ...(original.previousReferences ?? [])].includes(paystackReference);
+
+    if (sameCharge) {
+      if (original.status === PaymentStatus.PAID) {
+        await this.creditOwnerForPayment(original, paystackReference, original.amount, paystackFee);
+      }
+      this.logger.warn(`Charge ${paystackReference} already confirmed for payment ${original._id} — redelivery`);
+      return null;
+    }
+
+    return this.refundExtraCharge(original, paystackReference, amount, paystackFee);
+  }
+
+  // Records an extra charge as its own row (linked to the original) and
+  // refunds it in full, processing fee included — it was never the player's
+  // intent. The owner is never credited, so nothing has to be clawed back
+  // (an owner who withdrew in between can't leave the books short). The only
+  // cost is Paystack's fee on the extra charge, which Paystack keeps: posted
+  // to the platform wallet. Idempotent: the row's paymentReference is unique,
+  // so a redelivered webhook finds it instead of refunding twice.
+  private async refundExtraCharge(original: SessionPayment, paystackReference: string, amount: number, paystackFee?: number) {
+    let extra: SessionPayment;
+    try {
+      extra = await this.sessionPaymentRepository.create({
+        sessionId: original.sessionId,
+        userId: original.userId,
+        locationId: original.locationId,
+        ownerId: original.ownerId,
+        amount,
+        baseAmount: 0,
+        commissionAmount: 0,
+        processingFee: 0,
+        status: PaymentStatus.REFUND_PENDING,
+        paymentReference: paystackReference,
+        paidReference: paystackReference,
+        paidAt: new Date(),
+        duplicateOf: original._id,
+        metadata: { reason: 'extra-charge' },
+      });
+    } catch (error: unknown) {
+      if (isDuplicateKeyError(error)) {
+        this.logger.warn(`Extra charge ${paystackReference} already recorded — redelivery`);
+        return this.sessionPaymentRepository.findOne({ paymentReference: paystackReference });
+      }
+      throw error;
+    }
+
+    this.logger.warn(
+      `Extra charge ${paystackReference} (${amount} kobo) on already-settled payment ${original._id} — refunding in full`,
+    );
+
+    if (Number.isFinite(paystackFee) && paystackFee > 0) {
+      const platform = await this.walletService.getPlatformWallet();
+      await this.walletService.debitWallet(
+        platform._id,
+        paystackFee,
+        TransactionSource.PAYSTACK_FEE,
+        `FEE_OUT_${paystackReference}`,
+        { paymentId: extra._id.toString(), duplicateOf: original._id.toString(), extraCharge: true },
+      );
+    }
+
+    try {
+      const refund = await this.paystackService.refundTransaction(
+        paystackReference,
+        amount,
+        'Refund of a duplicate charge — this session was already paid',
+      );
+      return this.sessionPaymentRepository.findOneAndUpdate(
+        { _id: extra._id },
+        { refundReference: refund?.id?.toString() },
+      );
+    } catch (error: unknown) {
+      this.logger.error(
+        `CRITICAL: refund request for extra charge ${paystackReference} failed (${errorMessage(error)}) — ` +
+          `retry via refundPayment(${extra._id})`,
+      );
+      return this.sessionPaymentRepository.findOneAndUpdate({ _id: extra._id }, { status: PaymentStatus.REFUND_FAILED });
+    }
   }
 
   // Ledger side of a confirmed payment, shared by PER_PERSON and POOL:
@@ -543,6 +788,7 @@ export class SessionPaymentService {
 
       return {
         authorizationUrl: result.authorization_url,
+        accessCode: result.access_code,
         reference: result.reference,
         amount: payment.amount,
         baseAmount: payment.baseAmount,
@@ -569,13 +815,13 @@ export class SessionPaymentService {
     let wasReserved = true;
     let payment = await this.sessionPaymentRepository.findOneAndUpdate(
       { _id: row._id, status: PaymentStatus.PENDING },
-      { status: PaymentStatus.PAID, paidAt: new Date() },
+      { status: PaymentStatus.PAID, paidAt: new Date(), paidReference: paystackReference },
     );
     if (!payment) {
       wasReserved = false;
       payment = await this.sessionPaymentRepository.findOneAndUpdate(
         { _id: row._id, status: PaymentStatus.EXPIRED },
-        { status: PaymentStatus.PAID, paidAt: new Date() },
+        { status: PaymentStatus.PAID, paidAt: new Date(), paidReference: paystackReference },
       );
     }
 
@@ -601,6 +847,7 @@ export class SessionPaymentService {
     }
 
     const updatedPayment = await this.creditOwnerForPayment(payment, paystackReference, amount, paystackFee);
+    await this.idempotencyKeys.closeByReference(paystackReference, IDEMPOTENCY_STATUS.PAID);
 
     const base = payment.baseAmount;
     const session = await this.sessionModel
@@ -615,8 +862,9 @@ export class SessionPaymentService {
     // If it shouldn't count toward this pot, hand it straight back through
     // the normal refund flow — which debits the owner when it settles.
     const isMember = (session?.members ?? []).some((m: any) => m.toString() === payment.userId.toString());
-    const refundReason =
-      (session?.status ?? SESSION_STATUS.OPEN) !== SESSION_STATUS.OPEN
+    const refundReason = payment.metadata?.cancelledByPlayer
+      ? 'Player cancelled this checkout'
+      : (session?.status ?? SESSION_STATUS.OPEN) !== SESSION_STATUS.OPEN
         ? 'Session is no longer open'
         : !isMember
           ? 'Player is no longer in this session'
@@ -668,7 +916,10 @@ export class SessionPaymentService {
   // back: if any of its references actually succeeded, confirm it instead.
   // Only releases when Paystack definitively says "not paid" — a network
   // error leaves the reservation in place for the next run.
-  private async settleReservation(row: any): Promise<'confirmed' | 'released' | 'unknown'> {
+  private async settleReservation(
+    row: SessionPayment,
+    releaseMark: Record<string, boolean> = {},
+  ): Promise<'confirmed' | 'released' | 'unknown'> {
     const references = [row.paymentReference, ...(row.previousReferences ?? [])].filter(Boolean);
 
     for (const ref of references) {
@@ -689,16 +940,19 @@ export class SessionPaymentService {
       }
     }
 
-    await this.releaseReservation(row);
+    await this.releaseReservation(row, releaseMark);
     return 'released';
   }
 
-  private async releaseReservation(row: any) {
+  // `mark` is written in the same update that releases the row (e.g. the
+  // player cancelled it), so a payment landing in between can't miss it.
+  private async releaseReservation(row: SessionPayment, mark: Record<string, boolean> = {}) {
     const expired = await this.sessionPaymentRepository.findOneAndUpdate(
       { _id: row._id, status: PaymentStatus.PENDING },
-      { status: PaymentStatus.EXPIRED },
+      { status: PaymentStatus.EXPIRED, ...mark },
     );
     if (!expired) return; // already confirmed / released by another caller
+    await this.idempotencyKeys.closeByReference(expired.paymentReference, IDEMPOTENCY_STATUS.EXPIRED);
 
     await this.sessionModel.updateOne(
       { _id: expired.sessionId },
@@ -917,8 +1171,10 @@ export class SessionPaymentService {
     }
 
     const [total, unpaid] = await Promise.all([
-      this.sessionPaymentRepository.findRaw().countDocuments({ sessionId }),
-      this.sessionPaymentRepository.findRaw().countDocuments({ sessionId, status: { $ne: PaymentStatus.PAID } }),
+      this.sessionPaymentRepository.findRaw().countDocuments({ sessionId, ...NOT_EXTRA_CHARGE }),
+      this.sessionPaymentRepository
+        .findRaw()
+        .countDocuments({ sessionId, ...NOT_EXTRA_CHARGE, status: { $ne: PaymentStatus.PAID } }),
     ]);
 
     return total === 0 || unpaid === 0;
@@ -965,7 +1221,7 @@ export class SessionPaymentService {
 
   async getSessionPaymentStatus(sessionId: string) {
     const [aggResult] = await this.sessionPaymentRepository.findRaw().aggregate([
-      { $match: { sessionId: new Types.ObjectId(sessionId) } },
+      { $match: { sessionId: new Types.ObjectId(sessionId), ...NOT_EXTRA_CHARGE } },
       {
         $facet: {
           stats: [
@@ -1036,7 +1292,7 @@ export class SessionPaymentService {
     const rows = await this.sessionPaymentRepository
       .findRaw()
       .find(
-        { sessionId: { $in: sessionIds } },
+        { sessionId: { $in: sessionIds }, ...NOT_EXTRA_CHARGE },
         { sessionId: 1, userId: 1, status: 1, baseAmount: 1, amount: 1, _id: 0 },
       )
       .lean();
@@ -1066,7 +1322,7 @@ export class SessionPaymentService {
   async getSessionMemberPaymentMap(sessionId: string): Promise<Map<string, PaymentStatus>> {
     const payments = await this.sessionPaymentRepository
       .findRaw()
-      .find({ sessionId: new Types.ObjectId(sessionId) }, { userId: 1, status: 1, _id: 0 })
+      .find({ sessionId: new Types.ObjectId(sessionId), ...NOT_EXTRA_CHARGE }, { userId: 1, status: 1, _id: 0 })
       .lean();
 
     // POOL sessions can have several rows per member (top-ups, expired
@@ -1244,6 +1500,18 @@ export class SessionPaymentService {
       return;
     }
 
+    // An extra charge was never credited to the owner or the platform, so
+    // there's nothing to reverse — the refund just closes it.
+    if (payment.duplicateOf) {
+      await this.sessionPaymentRepository.findOneAndUpdate(
+        { _id: payment._id },
+        { status: PaymentStatus.REFUNDED, refundedAt: new Date() },
+      );
+      this.logger.log(`Extra charge ${payment.paymentReference} refunded (payment ${payment._id})`);
+      await this.maybeCompleteSessionRefund(payment.sessionId);
+      return;
+    }
+
     // Only debit what the owner was actually credited (baseAmount), not the
     // full amount Paystack refunds to the player. Paystack refunds the
     // player their whole payment including commission — but the platform's
@@ -1358,6 +1626,7 @@ export class SessionPaymentService {
     const payment = await this.sessionPaymentRepository.findOne({
       sessionId: new Types.ObjectId(sessionId),
       userId: new Types.ObjectId(userId),
+      ...NOT_EXTRA_CHARGE,
     });
 
     if (!payment) {

@@ -1,4 +1,5 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { PaymentIdempotencyKeyRepository } from '../repositories/payment-idempotency-key.repository';
 import { Types } from 'mongoose';
 import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { LOCATION_PRICING_OPTION, SESSION_PAYMENT_MODE, SESSION_STATUS, USER_ROLE } from '@app/common';
@@ -44,6 +45,7 @@ describe('SessionPaymentService', () => {
   };
   let locationModel: { findById: jest.Mock };
   let eventService: { emitPoolUpdate: jest.Mock };
+  let idempotencyKeys: { findOpen: jest.Mock; create: jest.Mock; complete: jest.Mock; close: jest.Mock; closeByReference: jest.Mock };
   let setsService: {
     createSet: jest.Mock;
   };
@@ -105,6 +107,14 @@ describe('SessionPaymentService', () => {
     };
     locationModel = { findById: jest.fn().mockReturnValue(query({ owner: ownerId })) };
     eventService = { emitPoolUpdate: jest.fn().mockResolvedValue(undefined) };
+    // Each test is a single caller, so it always wins the checkout key.
+    idempotencyKeys = {
+      findOpen: jest.fn().mockResolvedValue(null),
+      create: jest.fn().mockResolvedValue({ _id: new Types.ObjectId() }),
+      complete: jest.fn().mockResolvedValue(undefined),
+      close: jest.fn().mockResolvedValue(true),
+      closeByReference: jest.fn().mockResolvedValue(undefined),
+    };
     setsService = {
       createSet: jest.fn().mockResolvedValue(undefined),
     };
@@ -119,7 +129,23 @@ describe('SessionPaymentService', () => {
       setsService as any,
       locationModel as any,
       eventService as any,
+      idempotencyKeys as unknown as PaymentIdempotencyKeyRepository,
     );
+  });
+
+  describe('cancelCheckout', () => {
+    it('404 when the player has no open checkout', async () => {
+      idempotencyKeys.findOpen.mockResolvedValue(null);
+      await expect(service.cancelCheckout(sessionId.toString(), userOne.toString())).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('409 CHECKOUT_IN_PROGRESS while Paystack has not answered yet', async () => {
+      idempotencyKeys.findOpen.mockResolvedValue({ _id: new Types.ObjectId(), status: 'STARTED' });
+      await expect(service.cancelCheckout(sessionId.toString(), userOne.toString())).rejects.toMatchObject({
+        status: 409,
+        response: expect.objectContaining({ code: 'CHECKOUT_IN_PROGRESS' }),
+      });
+    });
   });
 
   describe('initializeSessionPayments', () => {
@@ -318,8 +344,8 @@ describe('SessionPaymentService', () => {
 
       expect(sessionPaymentRepository.findOneAndUpdate).toHaveBeenNthCalledWith(
         1,
-        { sessionId, userId: userOne, status: PaymentStatus.PENDING },
-        expect.objectContaining({ status: PaymentStatus.PAID, paidAt: expect.any(Date) }),
+        { sessionId, userId: userOne, status: PaymentStatus.PENDING, duplicateOf: { $exists: false } },
+        expect.objectContaining({ status: PaymentStatus.PAID, paidAt: expect.any(Date), paidReference: 'PAYSTACK_REF' }),
       );
       expect(walletService.creditWallet).toHaveBeenCalledWith(
         walletId,

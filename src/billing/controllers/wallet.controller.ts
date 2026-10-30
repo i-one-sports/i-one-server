@@ -109,6 +109,13 @@ export class WalletController {
     );
   }
 
+  // Cancel the caller's open checkout on this session (e.g. to pay a
+  // different amount). Confirms it instead if Paystack shows it was paid.
+  @Delete('session/:sessionId/checkout')
+  async cancelSessionCheckout(@Param('sessionId') sessionId: string, @CurrentUser() user: User) {
+    return this.sessionPaymentService.cancelCheckout(sessionId, user._id.toString());
+  }
+
   // Live paid / remaining for a POOL session. Sends the full snapshot on
   // connect (so a reconnect always re-syncs from the DB), then a fresh
   // snapshot whenever the pot changes, plus a 30s heartbeat.

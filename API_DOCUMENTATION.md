@@ -3054,6 +3054,12 @@ Get the authenticated user's own payment record for a session.
 ### POST /wallet/session/:sessionId/pay
 Initialize a Paystack checkout for the current user's session payment. Returns a URL to redirect the user to.
 
+**Tapping twice, retries and second devices are safe.** A player has at most **one open checkout per session**. Calling this again while it's open returns **the same checkout** (same `authorizationUrl` and `reference`), and Paystack charges a reference only once. The app doesn't need to send any key; the server works it out from the session and the player.
+- While the first call is still waiting on Paystack, a repeat gets **`409`** with `code: "CHECKOUT_IN_PROGRESS"`. Retry after about a second to get the checkout.
+- An open checkout that hasn't been paid for **15 minutes** is treated as abandoned. The next call checks it with Paystack (a late payment on it still counts) and then starts a fresh checkout.
+- Once it's paid, a repeat returns `{ "alreadyPaid": true, ... }` as before.
+- If a player somehow pays **two** checkouts for the same thing (e.g. an abandoned page paid late, after a fresh one was issued), the extra charge is **refunded in full automatically**. It never counts as a payment and the owner is never credited for it.
+
 **Auth required**: Yes (JWT cookie)
 
 **Path Parameters**:
@@ -3069,6 +3075,7 @@ Initialize a Paystack checkout for the current user's session payment. Returns a
 ```json
 {
   "authorizationUrl": "https://checkout.paystack.com/...",
+  "accessCode": "0peioxfhpn...",
   "reference": "SESSION_507f..._USER_507f..._uuid",
   "amount": 1182467,
   "baseAmount": 1000000,
@@ -3078,11 +3085,12 @@ Initialize a Paystack checkout for the current user's session payment. Returns a
 }
 ```
 - `amount` is what Paystack charges = `baseAmount` + `commissionAmount` + `processingFee` (see [What a player pays](#what-a-player-pays)); `baseAmount` is what counts toward the pot. The pot share is held until `expiresAt`.
-- If the player already has a checkout in progress on this session, it's settled first (confirmed if Paystack shows it paid, otherwise released) before the new one is reserved.
+- If the player already has an open checkout on this session, **that checkout is returned**, even if this call asks for a different `amount`. To pay a different amount, cancel it first with `DELETE /wallet/session/:sessionId/checkout`, then call this again. (Otherwise it expires on its own after 15 minutes, at `expiresAt`.) One open checkout per player is what stops a double charge.
 - If the pot is already full, returns `{ "alreadyPaid": true, "status": "confirmed", "pool": { ... } }`.
 
 **Error Responses — POOL**:
 - `409` — amount is more than `available` right now; body includes the current `pool` so the app can update its numbers
+- `409` with `code: "CHECKOUT_IN_PROGRESS"` — this player's checkout is still being prepared; retry shortly
 - `400` — below `minContribution` (and not an exact clear), not a whole number, or payment isn't open yet (session not full)
 - `403` — caller is not a member of the session
 
@@ -3103,6 +3111,31 @@ Initialize a Paystack checkout for the current user's session payment. Returns a
 
 **Error Responses**:
 - `404` — no pending payment found for this user in this session (PER_PERSON)
+- `409` with `code: "CHECKOUT_IN_PROGRESS"` — this player's checkout is still being prepared; retry shortly
+
+---
+
+### DELETE /wallet/session/:sessionId/checkout
+Cancel the caller's open checkout on this session, typically to pay a **different amount** in a POOL session, or to get a fresh page.
+
+Paystack is asked first. **If the page was already paid, that payment is confirmed instead** and nothing is cancelled. Otherwise:
+- **POOL:** the hold on the pot is released at once (`reservation_released` on the payment stream). If the player pays the cancelled page later anyway, that payment is **refunded in full and never counts**, so they can't end up paying both.
+- **PER_PERSON:** the next `POST /pay` gives a fresh page. Paying the old page later still pays the same session share. If both get paid, the extra charge is refunded automatically.
+
+**Auth required**: Yes (JWT cookie)
+
+**Success Response** `200 OK`, one of:
+```json
+{ "cancelled": true }
+```
+```json
+{ "cancelled": false, "alreadyPaid": true, "status": "confirmed" }
+```
+
+**Error Responses**:
+- `404` — the player has no open checkout on this session
+- `409` with `code: "CHECKOUT_IN_PROGRESS"` — the checkout is still being prepared; retry shortly
+- `503` — Paystack couldn't be reached to confirm the page wasn't paid; nothing was changed, try again
 
 ---
 

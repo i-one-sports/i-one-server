@@ -11,6 +11,7 @@ import { Session, SessionSchema } from '@app/common/schemas/session.schema';
 import { Set, SetSchema } from '@app/common/schemas/sets.schema';
 import { Location, LocationSchema } from '@app/common/schemas/location.schema';
 import { PlatformCommission, PlatformCommissionSchema } from '@app/common/schemas/platform-commission.schema';
+import { PaymentIdempotencyKey, PaymentIdempotencyKeySchema } from '@app/common/schemas/payment-idempotency-key.schema';
 
 import { WalletRepository } from './repositories/wallet.repository';
 import { TransactionRepository } from './repositories/transaction.repository';
@@ -20,6 +21,7 @@ import { TournamentPaymentRepository } from './repositories/tournament-payment.r
 import { SessionPaymentRepository } from './repositories/session-payment.repository';
 import { BankAccountRepository } from './repositories/bank-account.repository';
 import { PlatformCommissionRepository } from './repositories/platform-commission.repository';
+import { PaymentIdempotencyKeyRepository } from './repositories/payment-idempotency-key.repository';
 
 import { WalletService } from './services/wallet.service';
 import { SessionPaymentService } from './services/session-payment.service';
@@ -49,6 +51,7 @@ import { SetsModule } from '../sets/sets.module';
       { name: WebhookEvent.name, schema: WebhookEventSchema },
       { name: TournamentPayment.name, schema: TournamentPaymentSchema },
       { name: SessionPayment.name, schema: SessionPaymentSchema },
+      { name: PaymentIdempotencyKey.name, schema: PaymentIdempotencyKeySchema },
       { name: BankAccount.name, schema: BankAccountSchema },
       { name: Session.name, schema: SessionSchema },
       { name: Set.name, schema: SetSchema },
@@ -68,6 +71,7 @@ import { SetsModule } from '../sets/sets.module';
     LedgerRepository,
     WebhookEventRepository,
     SessionPaymentRepository,
+    PaymentIdempotencyKeyRepository,
     TournamentPaymentRepository,
     BankAccountRepository,
     PlatformCommissionRepository,

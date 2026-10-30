@@ -93,6 +93,18 @@ export class SessionPayment extends AbstractDocument {
   @Prop({ type: Date, required: false })
   paidAt: Date;
 
+  // The reference that actually paid this row. A later charge.success for a
+  // different reference on an already-paid row is an extra charge (see
+  // duplicateOf), never a re-credit.
+  @Prop({ type: String })
+  paidReference?: string;
+
+  // Set on a row that records an extra charge: the player paid a second
+  // checkout for a payment that was already paid. Refunded in full straight
+  // away; the owner is never credited for it.
+  @Prop({ type: Types.ObjectId, ref: 'SessionPayment' })
+  duplicateOf?: Types.ObjectId;
+
   // Absence means "never refunded" — correct default for every existing
   // record, so no backfill migration needed for this field.
   @Prop({ type: Date, required: false })
