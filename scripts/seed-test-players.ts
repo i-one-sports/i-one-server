@@ -24,7 +24,7 @@ async function seedTestPlayers() {
   for (let i = 1; i <= TEST_USER_COUNT; i++) {
     // .test is a reserved TLD (RFC 2606) — Paystack rejects it as an
     // invalid email, so use a real TLD even though the domain is fake.
-    const email = `test.player${i}@i-one-test.com`;
+    const email = `tester.player${i}@i-one-test.com`;
 
     await UserModel.updateOne(
       { email },
