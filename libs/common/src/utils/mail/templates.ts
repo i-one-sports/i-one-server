@@ -174,19 +174,86 @@ function verificationRejectedTemplate(vars: MailVariables): RenderedTemplate {
   };
 }
 
-function sessionCreatedTemplate(vars: MailVariables): RenderedTemplate {
-  const firstName = vars.firstName || 'there';
-  const locationName = vars.locationName || 'your pitch';
+// Label/value rows in a soft box; rows with no value are left out.
+function detailsTable(rows: Array<[string, string]>): string {
+  const visible = rows.filter(([, value]) => value);
+  return `
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px; background-color:${SURFACE}; border:1px solid ${BORDER}; border-radius:10px;">
+      ${visible
+        .map(
+          ([label, value], i) => `
+      <tr>
+        <td style="padding:10px 16px; ${i ? `border-top:1px solid ${BORDER};` : ''} color:${TEXT_SECONDARY}; font-size:13px; white-space:nowrap; vertical-align:top;">${label}</td>
+        <td style="padding:10px 16px; ${i ? `border-top:1px solid ${BORDER};` : ''} color:${TEXT_PRIMARY}; font-size:14px; font-weight:600; text-align:right;">${value}</td>
+      </tr>`,
+        )
+        .join('')}
+    </table>`;
+}
 
-  const body = `
-    <h1 style="margin:0 0 12px; font-size:20px; line-height:1.3; font-weight:700; color:${TEXT_PRIMARY}; text-align:center;">New session created</h1>
-    <p style="margin:0; color:${TEXT_SECONDARY}; text-align:center;">Hi ${firstName}, a session has just been created at ${locationName}.</p>
+const escapeHtml = (value: unknown): string =>
+  String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+// The session's details as label/value rows, empty ones left out. Shared by
+// the booked and rescheduled emails so both show the same facts.
+function sessionRows(vars: MailVariables, extra: Array<[string, string]> = []): Array<[string, string]> {
+  return (
+    [
+      ['Pitch', String(vars.locationName || 'your pitch')],
+      ...extra,
+      ['Date', String(vars.date ?? '')],
+      ['Time', String(vars.time ?? '')],
+      ['Duration', String(vars.duration ?? '')],
+      ['Format', String(vars.format ?? '')],
+      ['Rules', String(vars.rules ?? '')],
+      ['Captain', String(vars.captainName ?? '')],
+      ['Payment', String(vars.payment ?? '')],
+    ] as Array<[string, string]>
+  ).filter(([, value]) => value);
+}
+
+const textRows = (rows: Array<[string, string]>): string => rows.map(([label, value]) => `${label}: ${value}`).join('\n');
+
+function sessionEmailBody(headline: string, intro: string, rows: Array<[string, string]>): string {
+  return `
+    <h1 style="margin:0 0 12px; font-size:20px; line-height:1.3; font-weight:700; color:${TEXT_PRIMARY}; text-align:center;">${headline}</h1>
+    <p style="margin:0 0 24px; color:${TEXT_SECONDARY}; text-align:center;">${escapeHtml(intro)}</p>
+    ${detailsTable(rows.map(([label, value]) => [label, escapeHtml(value)]))}
+    <p style="margin:0; color:${TEXT_SECONDARY}; font-size:13px; text-align:center;">You can see it, and who has joined and paid, in the i-One app.</p>
   `;
+}
+
+function sessionCreatedTemplate(vars: MailVariables): RenderedTemplate {
+  const firstName = String(vars.firstName || 'there');
+  const locationName = String(vars.locationName || 'your pitch');
+  const date = String(vars.date ?? '');
+  const intro = `Hi ${firstName}, a session has been booked at ${locationName}${date ? ` on ${date}` : ''}.`;
+  const rows = sessionRows(vars);
 
   return {
-    subject: `New session created at ${locationName}`,
-    html: renderLayout(body),
-    text: `Hi ${firstName},\n\nA session has just been created at ${locationName}.`,
+    subject: date ? `New session at ${locationName}: ${date}, ${vars.time ?? ''}` : `New session booked at ${locationName}`,
+    html: renderLayout(sessionEmailBody('New session booked', intro, rows)),
+    text: `${intro}\n\n${textRows(rows)}`,
+  };
+}
+
+function sessionRescheduledTemplate(vars: MailVariables): RenderedTemplate {
+  const firstName = String(vars.firstName || 'there');
+  const locationName = String(vars.locationName || 'your pitch');
+  const date = String(vars.date ?? '');
+  const by = vars.rescheduledBy ? ` by ${vars.rescheduledBy}` : '';
+  const intro = `Hi ${firstName}, a session at ${locationName} has been moved${by}${date ? ` to ${date}` : ''}.`;
+  const was = [vars.previousDate, vars.previousTime].filter(Boolean).join(', ');
+  const rows = sessionRows(vars, was ? [['Was', was]] : []);
+
+  return {
+    subject: date ? `Session moved at ${locationName}: now ${date}, ${vars.time ?? ''}` : `Session rescheduled at ${locationName}`,
+    html: renderLayout(sessionEmailBody('Session rescheduled', intro, rows)),
+    text: `${intro}\n\n${textRows(rows)}`,
   };
 }
 
@@ -198,4 +265,5 @@ export const LOCAL_TEMPLATES: Record<string, (vars: MailVariables) => RenderedTe
   'verification-approved': verificationApprovedTemplate,
   'verification-rejected': verificationRejectedTemplate,
   'session-created': sessionCreatedTemplate,
+  'session-rescheduled': sessionRescheduledTemplate,
 };

@@ -209,7 +209,7 @@ What to do with each notification type:
 | `SESSION_VOTE_OPEN` | Open the vote screen: `GET /votes/:sessionId` |
 | `SESSION_VOTE_RESULT` | Reload `GET /votes/:sessionId` — `result` is now filled in |
 | `BADGE_UNLOCKED` | Show the badge pop-up, then `POST /badges/:badgeId/seen` with `payload.badgeId` |
-| `SESSION_REMINDER`, `SESSION_BROADCAST`, `SESSION_CREATED`, `SESSION_CONFIGURED`, `ADMIN_BROADCAST`, verification types | Show as a banner / in the notification list; refresh the related screen if it's open |
+| `SESSION_REMINDER`, `SESSION_BROADCAST`, `SESSION_CREATED`, `SESSION_CONFIGURED`, `SESSION_RESCHEDULED`, `ADMIN_BROADCAST`, verification types | Show as a banner / in the notification list; refresh the related screen if it's open |
 
 ### Recording a match (referee / scoreboard phone)
 
@@ -1577,6 +1577,8 @@ Reschedule a session to a new time.
 ```json
 { "message": "Session rescheduled successfully", "session": { ...sessionDocument } }
 ```
+
+The pitch owner is told: a `SESSION_RESCHEDULED` push / in-app notification, and an email showing the old and new time (Lagos), who moved it, and the session's details. Sending them never fails the reschedule.
 
 **Error Responses**:
 - `403` — caller is neither the captain nor the location owner
@@ -3717,6 +3719,16 @@ data: {
   "timestamp": 1234567890
 }
 
+// Session moved to a new time (sent to location owner). Times are Lagos time.
+data: {
+  "targetUserId": "507f...",
+  "type": "SESSION_RESCHEDULED",
+  "title": "Session Rescheduled",
+  "body": "A session at Lagos Sports Complex moved to Sunday 3 May 2026, 11:00 AM – 12:00 PM",
+  "payload": { "sessionId": "507f...", "locationId": "507f..." },
+  "timestamp": 1234567890
+}
+
 // Heartbeat (every 30s — keeps connection alive through proxies)
 data: {"type":"heartbeat","timestamp":1234567890}
 ```
@@ -3725,7 +3737,8 @@ data: {"type":"heartbeat","timestamp":1234567890}
 | Type | Trigger | Recipient |
 |---|---|---|
 | `SESSION_CREATED` | User calls `POST /sessions/start` at a location | Location owner |
-| `SESSION_CONFIGURED` | Captain calls `POST /sessions/create/:sessionId` | Location owner |
+| `SESSION_CONFIGURED` | Captain calls `POST /sessions/create/:sessionId`. The owner also gets a **"New session booked" email** with the pitch, date, time (Lagos), duration, format, rules, captain and payment | Location owner |
+| `SESSION_RESCHEDULED` | Captain or owner calls `PATCH /sessions/reschedule/:sessionId`. The owner also gets a **"Session rescheduled" email** with the old time, the new time, who moved it, and the same details | Location owner |
 | `SESSION_BROADCAST` | Captain/owner calls `POST /sessions/notify/:sessionId` | All session members |
 | `ADMIN_BROADCAST` | Super admin calls `POST /notifications/broadcast` | Every user with a registered device token |
 | `SESSION_REMINDER` | Automatic, 15 and 5 minutes before a session starts | Session members; plus the captain and pitch owner when it isn't fully paid |

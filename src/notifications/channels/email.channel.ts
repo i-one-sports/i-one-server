@@ -5,6 +5,7 @@ import { EmailNotificationParams, NOTIFICATION_TYPE } from '../notification.type
 
 const EMAIL_TEMPLATE_BY_TYPE: Partial<Record<NOTIFICATION_TYPE, string>> = {
   [NOTIFICATION_TYPE.SESSION_CREATED]: 'session-created',
+  [NOTIFICATION_TYPE.SESSION_RESCHEDULED]: 'session-rescheduled',
   [NOTIFICATION_TYPE.WELCOME]: 'welcome',
   [NOTIFICATION_TYPE.EMAIL_VERIFICATION_OTP]: 'email-verification',
   [NOTIFICATION_TYPE.PASSWORD_RESET]: 'password-reset',

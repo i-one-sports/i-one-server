@@ -650,6 +650,81 @@ describe('SessionsService', () => {
       expect(update).not.toHaveProperty('paymentStatus');
       expect(update).not.toHaveProperty('paymentTarget');
     });
+
+    it('tells the pitch owner the old and new time, and who moved it', async () => {
+      const before = {
+        _id: sessionId,
+        location: locationId,
+        captain: userId,
+        startTime: new Date('2026-05-02T17:00:00.000Z'), // 6 PM Lagos
+        stopTime: new Date('2026-05-02T18:00:00.000Z'),
+        timeDuration: 60,
+        playersPerTeam: 5,
+        setNumber: 2,
+        paymentStatus: 'NOT_INITIATED',
+      };
+      sessionRepository.findOne.mockResolvedValueOnce(before).mockResolvedValue(null);
+      locationRepository.findOne.mockResolvedValue({ ...location, name: 'Camp nou' });
+      sessionModel.findOneAndUpdate.mockResolvedValue({
+        ...before,
+        startTime,
+        stopTime: new Date('2026-05-03T11:00:00.000Z'),
+        paymentRequired: true,
+        paymentMode: SESSION_PAYMENT_MODE.POOL,
+        paymentTarget: 2000000,
+      });
+      userRepository.findOne.mockImplementation(async ({ _id }: { _id: Types.ObjectId | string }) =>
+        String(_id) === ownerId.toString()
+          ? { _id: ownerId, email: 'owner@pitch.ng', firstName: 'Grey' }
+          : { _id: userId, nickname: 'chidi' },
+      );
+
+      await service.recheduleSession(sessionId.toString(), startTime, 60, userId.toString());
+      await new Promise((resolve) => setImmediate(resolve)); // fire-and-forget
+
+      expect(notificationService.send).toHaveBeenCalledWith(
+        'PUSH',
+        expect.objectContaining({
+          type: 'SESSION_RESCHEDULED',
+          targetUserId: ownerId.toString(),
+          body: 'A session at Camp nou moved to Sunday 3 May 2026, 11:00 AM – 12:00 PM',
+        }),
+      );
+      expect(notificationService.send).toHaveBeenCalledWith('EMAIL', {
+        type: 'SESSION_RESCHEDULED',
+        to: 'owner@pitch.ng',
+        variables: expect.objectContaining({
+          previousDate: 'Saturday 2 May 2026',
+          previousTime: '6:00 PM – 7:00 PM',
+          date: 'Sunday 3 May 2026',
+          time: '11:00 AM – 12:00 PM',
+          rescheduledBy: 'chidi',
+          format: '5-a-side · 2 teams · 10 players',
+          payment: '₦20,000 for the pitch, split between the players',
+        }),
+      });
+    });
+
+    it('says "you" when the owner moved it themselves', async () => {
+      const before = {
+        _id: sessionId, location: locationId, captain: userId, playersPerTeam: 5, setNumber: 2,
+        startTime: new Date('2026-05-02T17:00:00.000Z'), stopTime: new Date('2026-05-02T18:00:00.000Z'),
+      };
+      sessionRepository.findOne.mockResolvedValueOnce(before).mockResolvedValue(null);
+      locationRepository.findOne.mockResolvedValue(location);
+      sessionModel.findOneAndUpdate.mockResolvedValue({ ...before, startTime, stopTime: new Date('2026-05-03T11:00:00.000Z') });
+      userRepository.findOne.mockImplementation(async ({ _id }: { _id: Types.ObjectId | string }) =>
+        String(_id) === ownerId.toString() ? { _id: ownerId, email: 'owner@pitch.ng' } : { _id: userId, nickname: 'chidi' },
+      );
+
+      await service.recheduleSession(sessionId.toString(), startTime, 60, ownerId.toString());
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(notificationService.send).toHaveBeenCalledWith(
+        'EMAIL',
+        expect.objectContaining({ variables: expect.objectContaining({ rescheduledBy: 'you', captainName: 'chidi' }) }),
+      );
+    });
   });
 
   describe('slot booking', () => {
@@ -677,6 +752,33 @@ describe('SessionsService', () => {
       captainsService.isCaptain.mockResolvedValue(true);
       locationRepository.findOne.mockResolvedValue(freeLocation);
       (notificationService as any).send = jest.fn().mockResolvedValue(undefined);
+    });
+
+    it('emails the pitch owner the date, time and details once the session is configured', async () => {
+      userRepository.findOne.mockImplementation(async ({ _id }: { _id: Types.ObjectId | string }) =>
+        String(_id) === ownerId.toString()
+          ? { _id: ownerId, email: 'owner@pitch.ng', firstName: 'Grey' }
+          : { _id: userId, nickname: 'chidi' },
+      );
+
+      await configure();
+      await new Promise((resolve) => setImmediate(resolve)); // the email is fire-and-forget
+
+      expect(notificationService.send).toHaveBeenCalledWith('EMAIL', {
+        type: 'SESSION_CREATED',
+        to: 'owner@pitch.ng',
+        variables: {
+          firstName: 'Grey',
+          locationName: 'Lekki Pitch',
+          captainName: 'chidi',
+          date: 'Sunday 3 May 2026',
+          time: '11:00 AM – 12:00 PM', // 10:00 UTC is 11:00 in Lagos
+          duration: '1 hour',
+          format: '2-a-side · 2 teams · 4 players',
+          rules: 'Winner stays on · draws: penalties',
+          payment: 'Free',
+        },
+      });
     });
 
     it('bumps the pitch, checks for clashes, and saves — in that order, all in one transaction', async () => {

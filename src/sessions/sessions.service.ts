@@ -29,6 +29,7 @@ import { NotificationService } from 'src/notifications/notification.service';
 import { NOTIFICATION_CHANNEL, NOTIFICATION_TYPE } from 'src/notifications/notification.types';
 import { CacheService } from 'src/cache/cache.service';
 import { SetsService } from 'src/sets/sets.service';
+import { SessionEmailInput, sessionEmailDetails, sessionWhen } from './session-email-details';
 
 @Injectable()
 export class SessionsService {
@@ -375,23 +376,45 @@ export class SessionsService {
           payload: { sessionId: session._id.toString(), locationId },
         })
         .catch((err) => this.logger.error('Failed to send SESSION_CREATED push', err));
-
-      this.userRepository
-        .findOne({ _id: location.owner })
-        .then((owner) => {
-          if (!owner?.email) return;
-          this.notificationService
-            .send(NOTIFICATION_CHANNEL.EMAIL, {
-              type: NOTIFICATION_TYPE.SESSION_CREATED,
-              to: owner.email,
-              variables: { firstName: owner.firstName ?? 'there', locationName: location.name },
-            })
-            .catch((err) => this.logger.error('Failed to send SESSION_CREATED email', err));
-        })
-        .catch((err) => this.logger.error('Failed to look up owner for SESSION_CREATED email', err));
+      // The owner's email waits for createSession: only then does the
+      // session have a date, time and format worth telling them about.
     }
 
     return session;
+  }
+
+  // Emails the pitch owner a session's details (booked / rescheduled).
+  // Fire-and-forget: a mail failure must never fail the booking.
+  private emailOwnerAboutSession(
+    type: NOTIFICATION_TYPE.SESSION_CREATED | NOTIFICATION_TYPE.SESSION_RESCHEDULED,
+    location: Location,
+    captainId: string,
+    details: SessionEmailInput,
+    extra: (owner: User, captainName: string) => Record<string, string> = () => ({}),
+  ): void {
+    Promise.all([
+      this.userRepository.findOne({ _id: location.owner }),
+      this.userRepository.findOne({ _id: captainId }),
+    ])
+      .then(([owner, captain]) => {
+        if (!owner?.email) return;
+        const captainName =
+          captain?.nickname || [captain?.firstName, captain?.lastName].filter(Boolean).join(' ') || '';
+        return this.notificationService.send(NOTIFICATION_CHANNEL.EMAIL, {
+          type,
+          to: owner.email,
+          variables: {
+            firstName: owner.firstName ?? 'there',
+            locationName: location.name,
+            captainName,
+            ...sessionEmailDetails(details),
+            ...extra(owner, captainName),
+          },
+        });
+      })
+      .catch((err: unknown) =>
+        this.logger.error(`Failed to send ${type} email: ${err instanceof Error ? err.message : String(err)}`),
+      );
   }
 
   async createSession(
@@ -471,19 +494,32 @@ export class SessionsService {
       },
     );
 
-    this.locationRepository.findOne({ _id: session.location }).then((location) => {
-      if (location?.owner) {
-        this.notificationService
-          .send(NOTIFICATION_CHANNEL.PUSH, {
-            type: NOTIFICATION_TYPE.SESSION_CONFIGURED,
-            targetUserId: location.owner.toString(),
-            title: 'Session Configured',
-            body: `A session at ${location.name} has been configured and is ready`,
-            payload: { sessionId, locationId: session.location.toString() },
-          })
-          .catch((err) => this.logger.error('Failed to send SESSION_CONFIGURED push', err));
-      }
-    }).catch((err) => this.logger.error('Failed to fetch location for notification', err));
+    if (location.owner) {
+      this.notificationService
+        .send(NOTIFICATION_CHANNEL.PUSH, {
+          type: NOTIFICATION_TYPE.SESSION_CONFIGURED,
+          targetUserId: location.owner.toString(),
+          title: 'Session Configured',
+          body: `A session at ${location.name} has been configured and is ready`,
+          payload: { sessionId, locationId: session.location.toString() },
+        })
+        .catch((err) => this.logger.error('Failed to send SESSION_CONFIGURED push', err));
+
+      this.emailOwnerAboutSession(NOTIFICATION_TYPE.SESSION_CREATED, location, userId, {
+        startTime: new Date(startTime),
+        stopTime: addedStopTime,
+        timeDuration,
+        playersPerTeam,
+        setNumber,
+        rotationFormat: rotationFormat ?? ROTATION_FORMAT.WINNER_STAYS,
+        winningDecider,
+        paymentRequired: paymentConfig.paymentRequired,
+        paymentMode: paymentConfig.paymentMode,
+        paymentAmount: paymentConfig.paymentAmount,
+        paymentTarget: paymentConfig.paymentTarget,
+        pricingOption: location.pricingOption,
+      });
+    }
 
     return newSession;
   }
@@ -935,6 +971,54 @@ export class SessionsService {
     };
   }
 
+  private notifyOwnerRescheduled(
+    before: Session,
+    after: Session,
+    startTime: Date,
+    stopTime: Date,
+    location: Location,
+    rescheduledById: string,
+  ): void {
+    const previous = before.startTime && before.stopTime ? sessionWhen(before.startTime, before.stopTime) : null;
+    const now = sessionWhen(startTime, stopTime);
+
+    this.notificationService
+      .send(NOTIFICATION_CHANNEL.PUSH, {
+        type: NOTIFICATION_TYPE.SESSION_RESCHEDULED,
+        targetUserId: location.owner.toString(),
+        title: 'Session Rescheduled',
+        body: `A session at ${location.name} moved to ${now.date}, ${now.time}`,
+        payload: { sessionId: after._id.toString(), locationId: location._id.toString() },
+      })
+      .catch((err) => this.logger.error('Failed to send SESSION_RESCHEDULED push', err));
+
+    const captainId = (after.captain ?? before.captain)?.toString() ?? rescheduledById;
+    this.emailOwnerAboutSession(
+      NOTIFICATION_TYPE.SESSION_RESCHEDULED,
+      location,
+      captainId,
+      {
+        startTime,
+        stopTime,
+        timeDuration: after.timeDuration,
+        playersPerTeam: after.playersPerTeam,
+        setNumber: after.setNumber,
+        rotationFormat: after.rotationFormat,
+        winningDecider: after.winningDecider,
+        paymentRequired: after.paymentRequired,
+        paymentMode: after.paymentMode,
+        paymentAmount: after.paymentAmount,
+        paymentTarget: after.paymentTarget,
+        pricingOption: location.pricingOption,
+      },
+      (owner, captainName) => ({
+        previousDate: previous?.date ?? '',
+        previousTime: previous?.time ?? '',
+        rescheduledBy: owner._id.toString() === rescheduledById ? 'you' : captainName || 'the captain',
+      }),
+    );
+  }
+
   async recheduleSession(
     sessionId: string,
     startTime: Date,
@@ -998,6 +1082,15 @@ export class SessionsService {
       stopTime: addedStopTime,
       ...paymentFields,
     });
+
+    if (location.owner && updatedSession) {
+      try {
+        this.notifyOwnerRescheduled(session, updatedSession, new Date(startTime), addedStopTime, location, userId);
+      } catch (err: unknown) {
+        // Telling the owner must never fail the reschedule itself.
+        this.logger.error(`Failed to notify owner of reschedule: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
 
     return {
       message: 'Session rescheduled successfully',
