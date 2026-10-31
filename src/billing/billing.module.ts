@@ -87,6 +87,7 @@ import { SetsModule } from '../sets/sets.module';
   exports: [
     WalletService,
     SessionPaymentService,
+    SessionPaymentEventService,
     TournamentPaymentService,
     WithdrawalService,
   ],

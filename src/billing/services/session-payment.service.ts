@@ -31,7 +31,13 @@ import { Location } from '@app/common/schemas/location.schema';
 import { SettingsService } from '../../settings/settings.service';
 import { PlatformCommissionRepository } from '../repositories/platform-commission.repository';
 import { SetsService } from '../../sets/sets.service';
-import { PoolSnapshot, SessionPaymentEventService } from './session-payment-event.service';
+import {
+  MemberPaymentState,
+  PoolSnapshot,
+  SessionMemberSnapshot,
+  SessionPaymentEventService,
+  SessionSnapshot,
+} from './session-payment-event.service';
 import { grossUp } from '../utils/processing-fee';
 import { PaymentIdempotencyKeyRepository } from '../repositories/payment-idempotency-key.repository';
 import { PaymentIdempotencyKey } from '@app/common/schemas/payment-idempotency-key.schema';
@@ -59,6 +65,33 @@ const isDuplicateKeyError = (error: unknown): boolean =>
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 type PoolContributorLike = { userId: string; amount: number };
+
+type MemberName = { _id: Types.ObjectId; nickname?: string; firstName?: string; lastName?: string };
+type SessionWithMemberNames = Session & { _id: Types.ObjectId; memberUsers: MemberName[] };
+
+const displayName = (user?: Partial<MemberName>): string =>
+  user?.nickname || [user?.firstName, user?.lastName].filter(Boolean).join(' ') || 'Player';
+
+// A payment row's status as the session screen shows it. A failed charge
+// still owes; a refund stuck at Paystack is still "on its way back".
+const PER_PERSON_STATE: Partial<Record<PaymentStatus, MemberPaymentState>> = {
+  [PaymentStatus.PAID]: 'PAID',
+  [PaymentStatus.PENDING]: 'PENDING',
+  [PaymentStatus.FAILED]: 'PENDING',
+  [PaymentStatus.REFUND_PENDING]: 'REFUND_PENDING',
+  [PaymentStatus.REFUND_NEEDS_ATTENTION]: 'REFUND_PENDING',
+  [PaymentStatus.REFUND_FAILED]: 'REFUND_PENDING',
+  [PaymentStatus.REFUNDED]: 'REFUNDED',
+};
+// In a pool an open checkout is only a hold on the pot, not a debt, so a
+// member shows as PAID only once money actually landed.
+const POOL_STATE: Partial<Record<PaymentStatus, MemberPaymentState>> = {
+  [PaymentStatus.PAID]: 'PAID',
+  [PaymentStatus.REFUND_PENDING]: 'REFUND_PENDING',
+  [PaymentStatus.REFUND_NEEDS_ATTENTION]: 'REFUND_PENDING',
+  [PaymentStatus.REFUND_FAILED]: 'REFUND_PENDING',
+  [PaymentStatus.REFUNDED]: 'REFUNDED',
+};
 
 @Injectable()
 export class SessionPaymentService {
@@ -433,6 +466,7 @@ export class SessionPaymentService {
     this.logger.log(`Payment confirmed for session: ${sessionId}, user: ${userId}`);
 
     await this.maybeCompleteSessionPayments(sessionId);
+    await this.publishSessionUpdate(sessionId.toString(), 'paid');
 
     return updatedPayment;
   }
@@ -909,6 +943,7 @@ export class SessionPaymentService {
       this.logger.log(`Pool fully funded for session ${sessionId}`);
       this.setsService
         .createSet(sessionId.toString())
+        .then(() => this.publishSessionUpdate(sessionId.toString(), 'teams_ready'))
         .catch((err) => this.logger.error(`Auto set-allocation failed for session ${sessionId}: ${err.message}`));
     }
   }
@@ -1106,6 +1141,101 @@ export class SessionPaymentService {
     } catch (error: any) {
       this.logger.error(`Failed to publish pool update for session ${sessionId}: ${error.message}`);
     }
+    await this.publishSessionUpdate(sessionId, reason);
+  }
+
+  // The session screen's stream (GET /sessions/:sessionId/stream). Built once
+  // here and fanned out over Redis to every viewer. Best-effort like
+  // publishPoolUpdate: it never throws.
+  async publishSessionUpdate(sessionId: string, reason: string): Promise<void> {
+    try {
+      const snapshot = await this.getSessionSnapshot(sessionId);
+      await this.sessionPaymentEventService.emitSessionUpdate(snapshot, reason);
+    } catch (error: unknown) {
+      this.logger.error(`Failed to publish session update for session ${sessionId}: ${errorMessage(error)}`);
+    }
+  }
+
+  // Who's in the session and where each member is with paying.
+  async getSessionSnapshot(sessionId: string): Promise<SessionSnapshot> {
+    if (!Types.ObjectId.isValid(sessionId)) {
+      throw new NotFoundException('Session not found');
+    }
+    const [session] = await this.sessionModel.aggregate<SessionWithMemberNames>([
+      { $match: { _id: new Types.ObjectId(sessionId) } },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'members',
+          foreignField: '_id',
+          as: 'memberUsers',
+          pipeline: [{ $project: { nickname: 1, firstName: 1, lastName: 1 } }],
+        },
+      },
+    ]);
+    if (!session) {
+      throw new NotFoundException('Session not found');
+    }
+
+    const isPool = this.isPoolSession(session);
+    const memberIds = (session.members ?? []).map((m) => m.toString());
+    const names = new Map(session.memberUsers.map((u) => [u._id.toString(), displayName(u)]));
+    const rows = session.paymentRequired ? await this.getSessionMemberPaymentMap(sessionId) : new Map();
+    const covered = isPool ? new Set<string>() : await this.getCoveredMembers(session, memberIds, rows);
+
+    const stateFor = (userId: string): MemberPaymentState => {
+      if (covered.has(userId)) return 'COVERED';
+      const status = rows.get(userId);
+      if (!status) return null;
+      return (isPool ? POOL_STATE : PER_PERSON_STATE)[status] ?? null;
+    };
+
+    const members: SessionMemberSnapshot[] = memberIds.map((userId) => ({
+      userId,
+      name: names.get(userId) ?? 'Player',
+      payment: stateFor(userId),
+    }));
+    const count = (state: MemberPaymentState) => members.filter((m) => m.payment === state).length;
+
+    return {
+      sessionId,
+      maxNumber: session.maxNumber ?? 0,
+      isFull: session.isFull === true,
+      status: session.status ?? null,
+      paymentRequired: session.paymentRequired === true,
+      paymentMode: session.paymentMode ?? null,
+      paymentStatus: session.paymentStatus ?? null,
+      paymentDeadline: session.paymentDeadline ?? null,
+      members,
+      paidCount: count('PAID'),
+      owingCount: count('PENDING'),
+      coveredCount: count('COVERED'),
+      pool: isPool && session.paymentRequired ? await this.getPoolSnapshot(sessionId) : null,
+    };
+  }
+
+  // Members with no bill on a per-person session whose bills are already out
+  // — at a monthly pitch that's because an active pass covers them
+  // (onSessionFull skipped them). Checked against the pass itself rather
+  // than assumed from the missing bill.
+  private async getCoveredMembers(
+    session: Session,
+    memberIds: string[],
+    rows: Map<string, PaymentStatus>,
+  ): Promise<Set<string>> {
+    const unbilled = memberIds.filter((id) => !rows.has(id));
+    if (!session.paymentRequired || !session.paymentStatus || session.paymentStatus === 'NOT_INITIATED' || !unbilled.length) {
+      return new Set<string>();
+    }
+    const location = await this.locationModel.findById(session.location).select('pricingOption').lean();
+    if (location?.pricingOption !== LOCATION_PRICING_OPTION.MONTHLY) {
+      return new Set<string>();
+    }
+    return this.getUsersWithActiveRecurringPayment(
+      new Types.ObjectId(session.location.toString()),
+      unbilled.map((id) => new Types.ObjectId(id)),
+      LOCATION_PRICING_OPTION.MONTHLY,
+    );
   }
 
   // Who may see a session's payments (who paid, how much, contributor
@@ -1159,6 +1289,7 @@ export class SessionPaymentService {
     if (updated) {
       this.setsService
         .createSet(sessionId.toString())
+        .then(() => this.publishSessionUpdate(sessionId.toString(), 'teams_ready'))
         .catch((err) => this.logger.error(`Auto set-allocation failed for session ${sessionId}: ${err.message}`));
     }
   }
@@ -1390,6 +1521,8 @@ export class SessionPaymentService {
         { $inc: { amountPaid: -(payment.baseAmount ?? payment.amount) } },
       );
       await this.publishPoolUpdate(payment.sessionId.toString(), 'refund_requested');
+    } else if (updatedPayment) {
+      await this.publishSessionUpdate(payment.sessionId.toString(), 'refund_requested');
     }
 
     this.logger.log(
@@ -1561,6 +1694,7 @@ export class SessionPaymentService {
     this.logger.log(`Refund completed for payment ${payment._id}, session ${payment.sessionId}, amount: ${payment.amount}`);
 
     await this.maybeCompleteSessionRefund(payment.sessionId);
+    await this.publishSessionUpdate(payment.sessionId.toString(), 'refunded');
   }
 
   // Gives the commission on a refunded payment back out of the PLATFORM

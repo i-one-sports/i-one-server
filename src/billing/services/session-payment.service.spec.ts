@@ -42,9 +42,10 @@ describe('SessionPaymentService', () => {
     findOneAndUpdate: jest.Mock;
     findById: jest.Mock;
     updateOne: jest.Mock;
+    aggregate: jest.Mock;
   };
   let locationModel: { findById: jest.Mock };
-  let eventService: { emitPoolUpdate: jest.Mock };
+  let eventService: { emitPoolUpdate: jest.Mock; emitSessionUpdate: jest.Mock };
   let idempotencyKeys: { findOpen: jest.Mock; create: jest.Mock; complete: jest.Mock; close: jest.Mock; closeByReference: jest.Mock };
   let setsService: {
     createSet: jest.Mock;
@@ -104,9 +105,13 @@ describe('SessionPaymentService', () => {
       // Legacy (PER_PERSON) session by default — no paymentMode.
       findById: jest.fn().mockReturnValue(query({ _id: sessionId })),
       updateOne: jest.fn().mockResolvedValue({}),
+      aggregate: jest.fn().mockResolvedValue([]),
     };
     locationModel = { findById: jest.fn().mockReturnValue(query({ owner: ownerId })) };
-    eventService = { emitPoolUpdate: jest.fn().mockResolvedValue(undefined) };
+    eventService = {
+      emitPoolUpdate: jest.fn().mockResolvedValue(undefined),
+      emitSessionUpdate: jest.fn().mockResolvedValue(undefined),
+    };
     // Each test is a single caller, so it always wins the checkout key.
     idempotencyKeys = {
       findOpen: jest.fn().mockResolvedValue(null),
@@ -1131,6 +1136,138 @@ describe('SessionPaymentService', () => {
         commission: { earned: 60000, reversed: 30000, net: 30000 },
         processingFees: { collected: 8910, paidToPaystack: 5827, surplus: 3083 },
       });
+    });
+  });
+  describe('getSessionSnapshot', () => {
+    const covered = new Types.ObjectId();
+    const owing = new Types.ObjectId();
+    const refunding = new Types.ObjectId();
+
+    type Row = { userId: Types.ObjectId; status: PaymentStatus };
+    const paymentRows = (rows: Row[]) =>
+      sessionPaymentRepository.findRaw.mockReturnValue({
+        find: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(rows) }),
+      });
+    const sessionDoc = (overrides: Record<string, unknown>, members: Types.ObjectId[]) => ({
+      _id: sessionId,
+      location: locationId,
+      maxNumber: members.length,
+      isFull: true,
+      status: SESSION_STATUS.OPEN,
+      members,
+      memberUsers: members.map((m, i) => ({ _id: m, nickname: `player_${i + 1}` })),
+      ...overrides,
+    });
+
+    it('a free session lists its members with nothing to pay', async () => {
+      sessionModel.aggregate.mockResolvedValue([sessionDoc({ paymentRequired: false, isFull: false }, [userOne, userTwo])]);
+
+      const snapshot = await service.getSessionSnapshot(sessionId.toString());
+
+      expect(snapshot.members).toEqual([
+        { userId: userOne.toString(), name: 'player_1', payment: null },
+        { userId: userTwo.toString(), name: 'player_2', payment: null },
+      ]);
+      expect(snapshot).toMatchObject({ paymentRequired: false, paidCount: 0, owingCount: 0, coveredCount: 0, pool: null });
+      expect(sessionPaymentRepository.findRaw).not.toHaveBeenCalled();
+    });
+
+    it('per-person: paid, owing and refunding members, plus one covered by a monthly pass', async () => {
+      // The San Siro case: bills went out to everyone but the pass holder.
+      sessionModel.aggregate.mockResolvedValue([
+        sessionDoc({ paymentRequired: true, paymentMode: SESSION_PAYMENT_MODE.PER_PERSON, paymentStatus: 'PENDING' }, [
+          userOne,
+          covered,
+          owing,
+          refunding,
+        ]),
+      ]);
+      paymentRows([
+        { userId: userOne, status: PaymentStatus.PAID },
+        { userId: owing, status: PaymentStatus.PENDING },
+        { userId: refunding, status: PaymentStatus.REFUND_NEEDS_ATTENTION },
+      ]);
+      locationModel.findById.mockReturnValue(query({ pricingOption: LOCATION_PRICING_OPTION.MONTHLY }));
+      sessionPaymentRepository.find.mockResolvedValue([
+        { userId: covered, paidAt: new Date(Date.now() - 18 * 24 * 60 * 60 * 1000) },
+      ]);
+
+      const snapshot = await service.getSessionSnapshot(sessionId.toString());
+
+      expect(snapshot.members.map((m) => m.payment)).toEqual(['PAID', 'COVERED', 'PENDING', 'REFUND_PENDING']);
+      expect(snapshot).toMatchObject({ paidCount: 1, owingCount: 1, coveredCount: 1, pool: null });
+      // Only the unbilled member is checked for a pass.
+      expect(sessionPaymentRepository.find).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: { $in: [covered] } }),
+      );
+    });
+
+    it('a member without a bill at an hourly pitch is not shown as covered', async () => {
+      sessionModel.aggregate.mockResolvedValue([
+        sessionDoc({ paymentRequired: true, paymentMode: SESSION_PAYMENT_MODE.PER_PERSON, paymentStatus: 'PENDING' }, [
+          userOne,
+          userTwo,
+        ]),
+      ]);
+      paymentRows([{ userId: userOne, status: PaymentStatus.PAID }]);
+      locationModel.findById.mockReturnValue(query({ pricingOption: LOCATION_PRICING_OPTION.HOURLY }));
+
+      const snapshot = await service.getSessionSnapshot(sessionId.toString());
+
+      expect(snapshot.members.map((m) => m.payment)).toEqual(['PAID', null]);
+      expect(sessionPaymentRepository.find).not.toHaveBeenCalled();
+    });
+
+    it('pool: a contributor shows PAID, an open checkout is not a debt, and the pool snapshot rides along', async () => {
+      const poolSession = sessionDoc(
+        { paymentRequired: true, paymentMode: SESSION_PAYMENT_MODE.POOL, paymentStatus: 'PENDING', paymentTarget: 2000000 },
+        [userOne, userTwo],
+      );
+      sessionModel.aggregate.mockResolvedValue([poolSession]);
+      sessionModel.findById.mockReturnValue(query(poolSession));
+      sessionPaymentRepository.findRaw.mockReturnValue({
+        find: jest.fn().mockReturnValue({
+          lean: jest.fn().mockResolvedValue([
+            { userId: userOne, status: PaymentStatus.PAID },
+            { userId: userTwo, status: PaymentStatus.PENDING },
+          ]),
+        }),
+        aggregate: jest.fn().mockResolvedValue([{ _id: userOne, amount: 500000, user: { nickname: 'player_1' } }]),
+      });
+
+      const snapshot = await service.getSessionSnapshot(sessionId.toString());
+
+      expect(snapshot.members.map((m) => m.payment)).toEqual(['PAID', null]);
+      expect(snapshot.pool).toMatchObject({ target: 2000000, paid: 500000, remaining: 1500000 });
+    });
+
+    it('404 for a session that does not exist', async () => {
+      await expect(service.getSessionSnapshot(sessionId.toString())).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('publishing never throws, even when Redis is down', async () => {
+      sessionModel.aggregate.mockResolvedValue([sessionDoc({ paymentRequired: false }, [userOne])]);
+      eventService.emitSessionUpdate.mockRejectedValue(new Error('Redis down'));
+
+      await expect(service.publishSessionUpdate(sessionId.toString(), 'joined')).resolves.toBeUndefined();
+    });
+
+    it('a pool update also goes out on the session stream', async () => {
+      const poolSession = sessionDoc({ paymentRequired: true, paymentMode: SESSION_PAYMENT_MODE.POOL }, [userOne]);
+      sessionModel.findById.mockReturnValue(query(poolSession));
+      sessionModel.aggregate.mockResolvedValue([poolSession]);
+      sessionPaymentRepository.findRaw.mockReturnValue({
+        find: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }),
+        aggregate: jest.fn().mockResolvedValue([]),
+      });
+
+      await service.publishPoolUpdate(sessionId.toString(), 'reserved');
+
+      expect(eventService.emitPoolUpdate).toHaveBeenCalledWith(expect.anything(), 'reserved');
+      expect(eventService.emitSessionUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionId: sessionId.toString() }),
+        'reserved',
+      );
     });
   });
 });

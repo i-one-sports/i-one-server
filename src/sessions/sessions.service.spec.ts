@@ -42,10 +42,11 @@ describe('SessionsService', () => {
     getSessionMemberPaymentMap: jest.Mock;
     handlePoolMemberLeave: jest.Mock;
     publishPoolUpdate: jest.Mock;
+    publishSessionUpdate: jest.Mock;
     getUserSessionPayment: jest.Mock;
     refundPayment: jest.Mock;
   };
-  let notificationService: { emit: jest.Mock };
+  let notificationService: { send: jest.Mock };
   let setsService: { createSet: jest.Mock };
 
   const userId = new Types.ObjectId();
@@ -87,10 +88,11 @@ describe('SessionsService', () => {
       getSessionMemberPaymentMap: jest.fn(),
       handlePoolMemberLeave: jest.fn().mockResolvedValue({ refunded: 0 }),
       publishPoolUpdate: jest.fn().mockResolvedValue(undefined),
+      publishSessionUpdate: jest.fn().mockResolvedValue(undefined),
       getUserSessionPayment: jest.fn(),
       refundPayment: jest.fn(),
     };
-    notificationService = { emit: jest.fn().mockResolvedValue(undefined) };
+    notificationService = { send: jest.fn().mockResolvedValue(undefined) };
     setsService = { createSet: jest.fn().mockResolvedValue([]) };
 
     service = new SessionsService(
@@ -135,12 +137,15 @@ describe('SessionsService', () => {
         userId: userId.toString(),
         sessionId: sessionId.toString(),
       });
-      expect(notificationService.emit).toHaveBeenCalledWith(
+      expect(notificationService.send).toHaveBeenCalledWith(
+        'PUSH',
         expect.objectContaining({
           targetUserId: ownerId.toString(),
           type: 'SESSION_CREATED',
         }),
       );
+      // The owner's email waits until the session has a date and time.
+      expect(notificationService.send).not.toHaveBeenCalledWith('EMAIL', expect.anything());
     });
 
     it('blocks users whose email is not verified', async () => {
@@ -320,6 +325,7 @@ describe('SessionsService', () => {
       expect(
         sessionPaymentService.initializeSessionPayments,
       ).not.toHaveBeenCalled();
+      expect(sessionPaymentService.publishSessionUpdate).toHaveBeenCalledWith(sessionId.toString(), 'joined');
     });
 
     it('a racing joiner who lost the last spot gets "Session is full"', async () => {
@@ -488,6 +494,9 @@ describe('SessionsService', () => {
         { _id: sessionId },
         { paymentStatus: 'COMPLETED', allPaymentsCompleted: true },
       );
+      // No payment will arrive to trigger it, so the teams are made now.
+      expect(setsService.createSet).toHaveBeenCalledWith(sessionId.toString());
+      expect(sessionPaymentService.publishSessionUpdate).toHaveBeenCalledWith(sessionId.toString(), 'billing_opened');
     });
   });
 
@@ -549,6 +558,17 @@ describe('SessionsService', () => {
       );
       expect(sessionPaymentService.getUserSessionPayment).not.toHaveBeenCalled();
       expect(sessionPaymentService.publishPoolUpdate).toHaveBeenCalledWith(sessionId.toString(), 'member_left');
+    });
+
+    it('broadcasts a leave from a free session on the session stream', async () => {
+      sessionRepository.findOne.mockResolvedValue({ _id: sessionId, members: [userId], paymentRequired: false });
+      userRepository.findOne.mockResolvedValue({ _id: userId });
+      sessionRepository.findOneAndUpdate.mockResolvedValue({ _id: sessionId });
+
+      await service.leaveSession(userId.toString(), sessionId.toString());
+
+      expect(sessionPaymentService.publishPoolUpdate).not.toHaveBeenCalled();
+      expect(sessionPaymentService.publishSessionUpdate).toHaveBeenCalledWith(sessionId.toString(), 'member_left');
     });
 
     it('blocks the leave when a needed refund could not be requested', async () => {

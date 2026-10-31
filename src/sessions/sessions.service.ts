@@ -618,6 +618,7 @@ export class SessionsService {
       { _id: userId },
       { currentSession: sessionId },
     );
+    await this.sessionPaymentService.publishSessionUpdate(sessionId, 'joined');
 
     // Only the join that took the last spot flips isFull, so "session full"
     // (open payment / make teams) runs exactly once.
@@ -712,7 +713,10 @@ export class SessionsService {
       ]);
 
       if (isPool && session.paymentRequired) {
+        // Also sends the session update.
         await this.sessionPaymentService.publishPoolUpdate(sessionId, 'member_left');
+      } else {
+        await this.sessionPaymentService.publishSessionUpdate(sessionId, 'member_left');
       }
 
       return {
@@ -910,6 +914,7 @@ export class SessionsService {
       { _id: { $in: session.members } },
       { $set: { currentSession: null } },
     );
+    await this.sessionPaymentService.publishSessionUpdate(sessionId, 'cancelled');
 
     if (!refundSummary.allInitiated) {
       const failedCount = refundSummary.results.filter((r) => !r.success).length;
@@ -1024,17 +1029,19 @@ export class SessionsService {
     }
   }
 
-  // Free sessions have no payment to wait for, so their teams are made the
-  // moment they fill (paid sessions get theirs when the last payment lands,
-  // in SessionPaymentService). Fire-and-forget like the paid path: a failure
+  // Free sessions (and monthly ones where every member is already covered)
+  // have no payment to wait for, so their teams are made the moment they
+  // fill (paid sessions get theirs when the last payment lands, in
+  // SessionPaymentService). Fire-and-forget like the paid path: a failure
   // must never fail the join, and POST /sets/create/:sessionId is the manual
   // fallback. createSet refuses if teams already exist, so a repeat is harmless.
   private allocateTeams(sessionId: string): void {
     this.setsService
       .createSet(sessionId)
+      .then(() => this.sessionPaymentService.publishSessionUpdate(sessionId, 'teams_ready'))
       .catch((error: unknown) =>
         this.logger.error(
-          `Auto set-allocation failed for free session ${sessionId}: ${error instanceof Error ? error.message : String(error)}`,
+          `Auto set-allocation failed for unpaid session ${sessionId}: ${error instanceof Error ? error.message : String(error)}`,
         ),
       );
   }
@@ -1094,6 +1101,10 @@ export class SessionsService {
         { _id: session._id },
         { paymentStatus: 'COMPLETED', allPaymentsCompleted: true },
       );
+      await this.sessionPaymentService.publishSessionUpdate(session._id.toString(), 'billing_opened');
+      // Everyone's covered by a monthly pass: nothing to wait for, so the
+      // teams are made now (no payment will arrive to trigger it).
+      this.allocateTeams(session._id.toString());
       return;
     }
 
@@ -1112,6 +1123,7 @@ export class SessionsService {
         { paymentStatus: 'PENDING', paymentDeadline, allPaymentsCompleted: false },
       ),
     ]);
+    await this.sessionPaymentService.publishSessionUpdate(session._id.toString(), 'billing_opened');
   }
 
   async canSessionStart(sessionId: string): Promise<boolean> {

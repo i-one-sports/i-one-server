@@ -64,7 +64,8 @@ The app gets live updates over **Server-Sent Events (SSE)**: a long-lived HTTP `
 | `GET /matches/stream/:matchId` | A live match screen is open | That match: score changes, start, full time (with the next game), referee changes | `{"type":"connected"}` |
 | `GET /matches/stream/session/:sessionId` | A session screen showing its games is open | The same, for every match in the session | `{"type":"connected"}` |
 | `GET /matches/stream` | Admin / owner dashboards only — **not** for player screens | The same, for every match | `{"type":"connected"}` |
-| `GET /wallet/session/:sessionId/payment-stream` | The pool payment screen is open | The whole pool snapshot on connect, then a fresh snapshot on every change | `{"type":"pool_snapshot"}` |
+| `GET /sessions/:sessionId/stream` | A session screen (lobby / waiting to pay) is open | Who's in and where each member is with paying (`PAID` / `PENDING` / `COVERED` / refunds), plus the pool for pool sessions. The whole snapshot on connect, then a fresh one on every join, leave, payment, refund, cancel and when teams are made | `{"type":"session_snapshot"}` |
+| `GET /wallet/session/:sessionId/payment-stream` | Older pool payment screens only — new screens use the session stream above, which carries the same pool snapshot | The whole pool snapshot on connect, then a fresh snapshot on every change | `{"type":"pool_snapshot"}` |
 | `GET /tournaments/stream/:id` | A tournament screen is open | Bracket / fixture / standings changes | `{"type":"connected"}` |
 
 All of them send `{"type":"heartbeat"}` every **30 seconds**.
@@ -85,7 +86,7 @@ All of them send `{"type":"heartbeat"}` every **30 seconds**.
 Every message is one `data:` line holding JSON. The server never sends a named `event:` field, so listen to the default message handler (`onmessage`) and branch on the JSON:
 
 ```ts
-function handle(stream: 'notifications' | 'match' | 'payment' | 'tournament', raw: string) {
+function handle(stream: 'notifications' | 'match' | 'session' | 'payment' | 'tournament', raw: string) {
   const msg = JSON.parse(raw);
 
   if (msg.type === 'heartbeat') return markAlive();          // every 30s, all streams
@@ -95,6 +96,7 @@ function handle(stream: 'notifications' | 'match' | 'payment' | 'tournament', ra
   switch (stream) {
     case 'notifications': return onNotification(msg);        // msg.type is the notification type
     case 'match':         return onMatch(msg);               // msg.type: score | match_started | match_finished | referee_changed
+    case 'session':       return onSession(msg);             // msg.type: session_snapshot | session_update
     case 'payment':       return onPool(msg.snapshot);       // msg.type: pool_snapshot | pool_update
     case 'tournament':    return onTournament(msg);          // msg.event: started | result | advance | scheduled | completed
   }
@@ -162,6 +164,23 @@ function onMatch(msg) {
 }
 ```
 
+### Session stream events
+
+Every message carries the **whole** session state in `snapshot`, so just replace the screen with it. `reason` says what changed, for a toast or an animation.
+
+```ts
+function onSession(msg) {
+  render(msg.snapshot);                       // members, who has paid, counts, pool
+  switch (msg.reason) {                       // absent on the first message (session_snapshot)
+    case 'joined':        return toast('A player joined');
+    case 'member_left':   return toast('A player left');
+    case 'paid':          return toast('A player paid');
+    case 'teams_ready':   return openTeams(); // GET /sets/:sessionId
+    case 'cancelled':     return showCancelled();
+  }
+}
+```
+
 ### Missed events: always resync from REST
 
 **SSE doesn't replay anything.** Whatever happened while the phone was offline, backgrounded or reconnecting is gone. So every time a stream (re)connects — when `{"type":"connected"}` arrives — reload the screen's state from REST, then apply live messages on top:
@@ -171,6 +190,7 @@ function onMatch(msg) {
 | `/notifications/stream` | `GET /badges/me` (show any with `seenAt: null`), and whatever the open screen shows (e.g. `GET /votes/:sessionId`) |
 | `/matches/stream/:matchId` | `GET /matches/details/:matchId` |
 | `/matches/stream/session/:sessionId` | `GET /matches/matchups/:sessionId` |
+| `/sessions/:sessionId/stream` | Nothing — it sends the full snapshot when it connects |
 | `/wallet/session/:sessionId/payment-stream` | Nothing — it sends the full snapshot when it connects |
 | `/tournaments/stream/:id` | `GET /tournaments/:id` |
 
@@ -208,8 +228,8 @@ How the pay screens should talk to the server. The rule behind all of it: **a pl
 1. The player taps **Pay** → `POST /wallet/session/:sessionId/pay`. For a pool session, send `{ "amount": <kobo> }`.
 2. Open the returned `authorizationUrl` (Paystack's page).
 3. When the player comes back from Paystack, **don't treat that as paid.** Payment is only confirmed by Paystack's webhook to the server. Show "confirming…" and wait for the server:
-   - **pool session:** the payment stream (`GET /wallet/session/:sessionId/payment-stream`) sends a fresh snapshot when the money lands;
-   - **fixed share:** reload `GET /wallet/session/:sessionId/my-payment` every few seconds until its `status` is `PAID` (stop after about a minute and show "we'll update this when Paystack confirms").
+   - keep the session stream (`GET /sessions/:sessionId/stream`) open: when the money lands it sends a `session_update` with `reason: "paid"`, the player's `payment` is now `PAID`, and for a pool session `snapshot.pool` shows the new paid / remaining. Everyone else on the screen sees it at the same moment;
+   - if nothing has arrived after about a minute, show "we'll update this when Paystack confirms" and leave the stream open. **Don't poll** `GET /wallet/session/:sessionId/my-payment` while the stream is open.
 
 ### Tapping again, retries and reopening the app
 - **A repeat tap returns the same page.** If the player taps Pay again, the network retries, or they reopen the app, `POST /pay` gives back the **same** `authorizationUrl` and `reference`. Open that one. Never start a second checkout yourself.
@@ -1372,6 +1392,67 @@ Get a session with its members populated. If the session requires payment, each 
 
 ---
 
+### GET /sessions/:sessionId/stream (SSE)
+Live session screen: who's in, and where each member is with paying. Use this instead of refreshing — see the [SSE guide](#real-time-updates-sse--frontend-guide) for connecting, reconnecting and closing.
+
+**Auth required**: Yes (JWT cookie). Only the session's members, the pitch owner or a super-admin — anyone else gets `403` (`404` if the session doesn't exist) before the stream opens.
+
+**Headers**: `Accept: text/event-stream`
+
+**Messages**:
+- On connect: `{ "type": "session_snapshot", "snapshot": { ... }, "timestamp": ... }`
+- On every change: `{ "type": "session_update", "reason": "...", "snapshot": { ... }, "timestamp": ... }`
+- Every 30s: `{ "type": "heartbeat", "timestamp": ... }`
+
+`snapshot` is always the **whole** state, never just the change:
+```json
+{
+  "sessionId": "6ae5260316e150bb90f48164",
+  "maxNumber": 10,
+  "isFull": true,
+  "status": "OPEN",
+  "paymentRequired": true,
+  "paymentMode": "PER_PERSON",
+  "paymentStatus": "PENDING",
+  "paymentDeadline": "2026-10-31T23:25:56.100Z",
+  "members": [
+    { "userId": "6a872d0906211ff934181a3e", "name": "test_player_6", "payment": "PAID" },
+    { "userId": "6a872d0806211ff934181a36", "name": "test_player_2", "payment": "COVERED" },
+    { "userId": "6a872d0906211ff934181a40", "name": "test_player_7", "payment": "PENDING" }
+  ],
+  "paidCount": 1,
+  "owingCount": 1,
+  "coveredCount": 1,
+  "pool": null
+}
+```
+
+Each member's `payment`:
+| Value | Meaning |
+|---|---|
+| `PAID` | Their bill is paid. In a pool session: they've put money in the pot. |
+| `PENDING` | They still owe their bill (per-person sessions only). |
+| `COVERED` | Nothing to pay here: a monthly pass at this pitch already covers them. |
+| `REFUND_PENDING` | Their money is on its way back. |
+| `REFUNDED` | Their money has been returned. |
+| `null` | Nothing to pay: a free session, the session isn't full yet (bills go out when it fills), or a pool member who hasn't put money in. |
+
+`paidCount` / `owingCount` / `coveredCount` count members with `PAID` / `PENDING` / `COVERED`. `pool` is the pool snapshot (target, paid, remaining, contributors — same as the payment stream) for pool sessions with payment, otherwise `null`.
+
+`reason` is one of:
+| Reason | When |
+|---|---|
+| `joined` | A player joined |
+| `member_left` | A player left |
+| `billing_opened` | The session filled and bills went out (or, if everyone is covered, it was marked paid) |
+| `paid` | A payment was confirmed by Paystack |
+| `refund_requested` / `refunded` | A refund was started / returned the money |
+| `teams_ready` | The teams were made — load them with `GET /sets/:sessionId` |
+| `cancelled` | The session was cancelled |
+| `pool_opened`, `reserved`, `reservation_released`, `recomputed` | Pool sessions: the pot opened, a checkout is holding part of it, a hold ran out, or the pot was recounted |
+
+---
+
 ### GET /sessions/members/:sessionId
 Get the member list for a session (nickname only).
 
@@ -1543,15 +1624,15 @@ Send a free-text push notification to every member of a session (e.g. "pitch clo
 
 Sets (teams) are normally created **automatically**:
 - **free session** (`paymentRequired: false`): the moment the session fills (the join that takes the last spot);
-- **paid session**: the moment every member's payment is confirmed (pool: the pot is full).
+- **paid session**: the moment every member's payment is confirmed (pool: the pot is full);
+- **monthly session where every member already has a pass**: the moment it fills, like a free session.
 
 Either way the server allocates players into balanced teams on its own (fire-and-forget, so it never blocks or delays the join or the payment confirmation). In practice this lands well under a second later, but it's not instant, and — much more rarely — it can fail outright (e.g. an unexpected error) with nothing server-side to retry it automatically. `POST /sets/create/:sessionId` below is both the internal mechanism for that and the **manual fallback** the client should call if auto-allocation doesn't show up in time.
 
-**Recommended polling pattern** for the moment every member has paid:
-1. Once the session shows `allPaymentsCompleted: true` (or `paymentStatus: "COMPLETED"`) but `GET /sets/:sessionId` still returns `[]`, show a brief "Finalizing teams..." state.
-2. Poll `GET /sets/:sessionId` every **500ms**.
-3. Stop as soon as the response array is non-empty and show the teams.
-4. If still empty after **~10 attempts (5 seconds)**, stop polling and show a "Taking longer than expected" state with a **manual retry** button that calls `POST /sets/create/:sessionId` — this is the same endpoint auto-allocation uses internally, so retrying is safe and won't create duplicates (see error responses below).
+**Waiting for the teams** once the session is full and paid:
+1. Show a brief "Finalizing teams..." state while the session stream (`GET /sessions/:sessionId/stream`) is open.
+2. When a `session_update` with `reason: "teams_ready"` arrives, load `GET /sets/:sessionId` and show the teams. No polling.
+3. If it hasn't arrived after **~5 seconds**, call `GET /sets/:sessionId` once (the event may have been missed during a reconnect). Still empty → show a "Taking longer than expected" state with a **manual retry** button that calls `POST /sets/create/:sessionId` — this is the same endpoint auto-allocation uses internally, so retrying is safe and won't create duplicates (see error responses below).
 
 ### POST /sets/create/:sessionId
 Create team sets for a session. The number of sets equals the session's `setNumber`, teams are auto-balanced from the session's members, team names are auto-assigned. Normally triggered automatically (see above) — call this directly only as the manual retry fallback.
@@ -3219,6 +3300,8 @@ Paystack is asked first. **If the page was already paid, that payment is confirm
 
 ### GET /wallet/session/:sessionId/payment-stream
 Server-Sent Events stream of a POOL session's live paid / remaining.
+
+> New screens should use [`GET /sessions/:sessionId/stream`](#get-sessionssessionidstream-sse) instead: it sends the same pool snapshot (as `snapshot.pool`) plus joins, leaves and every member's payment, for every kind of session. This stream keeps working unchanged.
 
 **Auth required**: Yes (JWT cookie). Session members, the pitch owner, or `SUPER_ADMIN`.
 
