@@ -3,5 +3,9 @@ node_modules
 randomCordinates.js
 renameField.js
 addFields.js
+dist
+docs/mailgun-email-verification-template.html
+docs/mailgun-email-verification-template.md
 
 
+CLAUDE.md

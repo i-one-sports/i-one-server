@@ -1,0 +1,243 @@
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { PaystackService } from '@app/common/providers/paystack.service';
+import { WalletService } from './wallet.service';
+import { SessionPaymentService } from './session-payment.service';
+import { TournamentPaymentService } from './tournament-payment.service';
+import { WebhookEventRepository } from '../repositories/webhook-event.repository';
+import { TransactionRepository } from '../repositories/transaction.repository';
+import { WalletRepository } from '../repositories/wallet.repository';
+import { Types } from 'mongoose';
+import { TransactionSource, TransactionStatus } from '@app/common/schemas/transaction.schema';
+import { randomUUID } from 'crypto';
+
+// An unprocessed event is only reclaimed once its last attempt is this old.
+const WEBHOOK_REPROCESS_AFTER_MS = 2 * 60 * 1000;
+
+@Injectable()
+export class WebhookService {
+  private readonly logger = new Logger(WebhookService.name);
+
+  constructor(
+    private readonly paystackService: PaystackService,
+    private readonly walletService: WalletService,
+    private readonly sessionPaymentService: SessionPaymentService,
+    private readonly tournamentPaymentService: TournamentPaymentService,
+    private readonly webhookEventRepository: WebhookEventRepository,
+    private readonly transactionRepository: TransactionRepository,
+    private readonly walletRepository: WalletRepository,
+  ) {}
+
+  async handleWebhook(signature: string, body: any, rawBody: string) {
+    const isValid = this.paystackService.validateWebhookSignature(signature, rawBody);
+    if (!isValid) {
+      this.logger.error('Invalid webhook signature');
+      throw new BadRequestException('Invalid webhook signature');
+    }
+
+    const { event, data } = this.paystackService.parseWebhookEvent(body);
+    this.logger.log(`Received webhook event: ${event} | ref: ${data?.reference}`);
+
+    // charge.success / transfer.* events carry `data.reference` — refund.*
+    // events don't (they carry transaction_reference / refund_reference
+    // instead). Falling back to Date.now() for those would defeat dedupe
+    // entirely (every delivery gets a "unique" id), so fall back to a
+    // stable key derived from the event + transaction reference instead.
+    const eventId =
+      data?.reference ||
+      (data?.transaction_reference ? `${event}_${data.transaction_reference}` : `${event}_${Date.now()}`);
+
+    // Store the event BEFORE processing. The unique index on eventId means
+    // only one record ever exists per reference, even under concurrent
+    // deliveries. A repeat delivery returns the existing record's status —
+    // unless the earlier attempt failed part-way (processed: false), in
+    // which case it's reprocessed. That's safe because every step behind it
+    // is idempotent (atomic PENDING→PAID claim, creditWallet's reference
+    // check, PlatformCommission's unique index).
+    try {
+      await this.webhookEventRepository.create({
+        provider: 'paystack',
+        event,
+        eventId,
+        payload: body,
+        processed: false,
+        processingStartedAt: new Date(),
+        attempts: 1,
+      });
+    } catch (err: any) {
+      if (err?.code !== 11000) throw err;
+
+      const reclaimed = await this.claimForReprocessing(eventId);
+      if (!reclaimed) {
+        this.logger.warn(`Duplicate webhook ignored: ${eventId}`);
+        return { status: 'duplicate' };
+      }
+      this.logger.warn(`Reprocessing webhook ${eventId} (attempt ${reclaimed.attempts}) — earlier attempt did not finish`);
+    }
+
+    try {
+      switch (event) {
+        case 'charge.success':
+          await this.handleChargeSuccess(data);
+          break;
+        case 'transfer.success':
+          await this.handleTransferSuccess(data);
+          break;
+        case 'transfer.failed':
+          await this.handleTransferFailed(data);
+          break;
+        case 'transfer.reversed':
+          await this.handleTransferReversed(data);
+          break;
+        case 'refund.processed':
+        case 'refund.failed':
+        case 'refund.needs-attention':
+        case 'refund.pending':
+        case 'refund.processing':
+          await this.sessionPaymentService.handleRefundWebhookEvent(event, data);
+          break;
+        default:
+          this.logger.log(`Unhandled webhook event: ${event}`);
+      }
+
+      await this.webhookEventRepository.findOneAndUpdate(
+        { eventId },
+        { processed: true, processedAt: new Date() },
+      );
+    } catch (err: any) {
+      // Left processed: false. Rethrowing returns a non-2xx so Paystack
+      // redelivers, and the redelivery reclaims it (claimForReprocessing).
+      this.logger.error(`Webhook processing failed for event ${event} (${eventId}): ${err.message}`);
+      throw err;
+    }
+
+    return { status: 'success' };
+  }
+
+  // Atomically claims an unprocessed event for another attempt. The stale
+  // window stops two overlapping deliveries both reprocessing while the
+  // first one is still running.
+  private async claimForReprocessing(eventId: string) {
+    const staleBefore = new Date(Date.now() - WEBHOOK_REPROCESS_AFTER_MS);
+    return this.webhookEventRepository.findRaw().findOneAndUpdate(
+      {
+        eventId,
+        processed: false,
+        $or: [{ processingStartedAt: { $exists: false } }, { processingStartedAt: { $lt: staleBefore } }],
+      },
+      { $set: { processingStartedAt: new Date() }, $inc: { attempts: 1 } },
+      { new: true, lean: true },
+    );
+  }
+
+  private async handleChargeSuccess(data: any) {
+    this.logger.log(`Processing charge.success: ${data.reference}`);
+
+    const metadata = data.metadata || {};
+    const amount = data.amount; // kobo, same unit we store everywhere — no conversion
+
+    // Branch 1: Session payment — user paid for a specific session via Paystack checkout
+    if (metadata.sessionId && metadata.userId) {
+      const confirmed = await this.sessionPaymentService.confirmSessionPayment(
+        new Types.ObjectId(metadata.sessionId),
+        new Types.ObjectId(metadata.userId),
+        data.reference,
+        amount,
+        data.fees, // what Paystack charged us — posted to the platform wallet
+      );
+      if (confirmed) {
+        this.logger.log(`Session payment confirmed: ${data.reference}`);
+      }
+      return;
+    }
+
+    // Branch 2: Tournament registration fee
+    if (metadata.type === 'TOURNAMENT_REGISTRATION') {
+      await this.tournamentPaymentService.confirmPayment(data.reference, amount);
+      this.logger.log(`Tournament registration confirmed: ref ${data.reference}`);
+      return;
+    }
+
+    // Branch 3: Wallet funding — owner topped up their wallet via Paystack
+    if (metadata.type === 'WALLET_FUNDING' && metadata.walletId) {
+      const wallet = await this.walletRepository.findOne({
+        _id: new Types.ObjectId(metadata.walletId),
+      });
+
+      if (!wallet) {
+        this.logger.error(`Wallet not found for funding: ${metadata.walletId}`);
+        return;
+      }
+
+      // creditWallet finds the PENDING transaction row created at checkout
+      // time (initializeWalletFunding) and completes it in place — with the
+      // real post-credit balance, not a value computed from a stale read.
+      await this.walletService.creditWallet(
+        wallet._id,
+        amount,
+        TransactionSource.WALLET_FUNDING,
+        data.reference,
+        { paystackData: data },
+      );
+
+      // The owner is credited the full amount; Paystack's fee on this charge
+      // is i-One's cost, recorded on the platform wallet so the books stay
+      // complete (idempotent on the reference).
+      if (Number.isFinite(data.fees) && data.fees > 0) {
+        const platform = await this.walletService.getPlatformWallet();
+        await this.walletService.debitWallet(
+          platform._id,
+          data.fees,
+          TransactionSource.PAYSTACK_FEE,
+          `FEE_OUT_${data.reference}`,
+          { walletFunding: metadata.walletId },
+        );
+      }
+
+      this.logger.log(`Wallet funded: ${metadata.walletId}, amount: ${amount}`);
+      return;
+    }
+
+    this.logger.warn(`charge.success with unrecognized metadata — ref: ${data.reference}`);
+  }
+
+  private async handleTransferSuccess(data: any) {
+    this.logger.log(`Transfer successful: ${data.reference}`);
+
+    await this.transactionRepository.findOneAndUpdate(
+      { reference: data.reference, source: TransactionSource.WITHDRAWAL },
+      { status: TransactionStatus.SUCCESS },
+    );
+  }
+
+  private async handleTransferFailed(data: any) {
+    this.logger.error(`Transfer failed: ${data.reference}`);
+    await this.refundWithdrawal(data, 'Withdrawal failed');
+  }
+
+  private async handleTransferReversed(data: any) {
+    this.logger.warn(`Transfer reversed: ${data.reference}`);
+    await this.refundWithdrawal(data, 'Withdrawal reversed by Paystack');
+  }
+
+  private async refundWithdrawal(data: any, reason: string) {
+    const transaction = await this.transactionRepository.findOne({
+      reference: data.reference,
+      source: TransactionSource.WITHDRAWAL,
+    });
+
+    if (!transaction) return;
+
+    try {
+      await this.walletService.creditWallet(
+        transaction.walletId,
+        transaction.amount,
+        TransactionSource.REFUND,
+        `REFUND_${randomUUID()}`,
+        { originalReference: data.reference, reason, paystackData: data },
+      );
+      this.logger.log(`Refunded withdrawal: ${data.reference}`);
+    } catch (error: any) {
+      this.logger.error(`Failed to refund withdrawal ${data.reference}: ${error.message}`);
+    }
+  }
+}

@@ -1,0 +1,95 @@
+import { Module } from '@nestjs/common';
+import { MongooseModule } from '@nestjs/mongoose';
+import { Wallet, WalletSchema } from '@app/common/schemas/wallet.schema';
+import { Transaction, TransactionSchema } from '@app/common/schemas/transaction.schema';
+import { LedgerEntry, LedgerEntrySchema } from '@app/common/schemas/ledger-entry.schema';
+import { WebhookEvent, WebhookEventSchema } from '@app/common/schemas/webhook-event.schema';
+import { TournamentPayment, TournamentPaymentSchema } from '@app/common/schemas/tournament-payment.schema';
+import { SessionPayment, SessionPaymentSchema } from '@app/common/schemas/session-payment.schema';
+import { BankAccount, BankAccountSchema } from '@app/common/schemas/bank-account.schema';
+import { Session, SessionSchema } from '@app/common/schemas/session.schema';
+import { Set, SetSchema } from '@app/common/schemas/sets.schema';
+import { Location, LocationSchema } from '@app/common/schemas/location.schema';
+import { PlatformCommission, PlatformCommissionSchema } from '@app/common/schemas/platform-commission.schema';
+import { PaymentIdempotencyKey, PaymentIdempotencyKeySchema } from '@app/common/schemas/payment-idempotency-key.schema';
+
+import { WalletRepository } from './repositories/wallet.repository';
+import { TransactionRepository } from './repositories/transaction.repository';
+import { LedgerRepository } from './repositories/ledger.repository';
+import { WebhookEventRepository } from './repositories/webhook-event.repository';
+import { TournamentPaymentRepository } from './repositories/tournament-payment.repository';
+import { SessionPaymentRepository } from './repositories/session-payment.repository';
+import { BankAccountRepository } from './repositories/bank-account.repository';
+import { PlatformCommissionRepository } from './repositories/platform-commission.repository';
+import { PaymentIdempotencyKeyRepository } from './repositories/payment-idempotency-key.repository';
+
+import { WalletService } from './services/wallet.service';
+import { SessionPaymentService } from './services/session-payment.service';
+import { SessionPaymentEventService } from './services/session-payment-event.service';
+import { WebhookService } from './services/webhook.service';
+import { WithdrawalService } from './services/withdrawal.service';
+import { TournamentPaymentService } from './services/tournament-payment.service';
+import { LocationBillingService } from './services/location-billing.service';
+
+import { WalletController } from './controllers/wallet.controller';
+import { WebhookController } from './controllers/webhook.controller';
+import { AdminBillingController } from './controllers/admin-billing.controller';
+import { LocationBillingController } from './controllers/location-billing.controller';
+
+import { PaystackService } from '@app/common/providers/paystack.service';
+import { SettingsModule } from '../settings/settings.module';
+import { SetsModule } from '../sets/sets.module';
+
+@Module({
+  imports: [
+    SettingsModule,
+    SetsModule,
+    MongooseModule.forFeature([
+      { name: Wallet.name, schema: WalletSchema },
+      { name: Transaction.name, schema: TransactionSchema },
+      { name: LedgerEntry.name, schema: LedgerEntrySchema },
+      { name: WebhookEvent.name, schema: WebhookEventSchema },
+      { name: TournamentPayment.name, schema: TournamentPaymentSchema },
+      { name: SessionPayment.name, schema: SessionPaymentSchema },
+      { name: PaymentIdempotencyKey.name, schema: PaymentIdempotencyKeySchema },
+      { name: BankAccount.name, schema: BankAccountSchema },
+      { name: Session.name, schema: SessionSchema },
+      { name: Set.name, schema: SetSchema },
+      { name: PlatformCommission.name, schema: PlatformCommissionSchema },
+      { name: Location.name, schema: LocationSchema },
+    ]),
+  ],
+  controllers: [
+    WalletController,
+    WebhookController,
+    AdminBillingController,
+    LocationBillingController,
+  ],
+  providers: [
+    WalletRepository,
+    TransactionRepository,
+    LedgerRepository,
+    WebhookEventRepository,
+    SessionPaymentRepository,
+    PaymentIdempotencyKeyRepository,
+    TournamentPaymentRepository,
+    BankAccountRepository,
+    PlatformCommissionRepository,
+    WalletService,
+    SessionPaymentService,
+    SessionPaymentEventService,
+    TournamentPaymentService,
+    WebhookService,
+    WithdrawalService,
+    LocationBillingService,
+    PaystackService,
+  ],
+  exports: [
+    WalletService,
+    SessionPaymentService,
+    SessionPaymentEventService,
+    TournamentPaymentService,
+    WithdrawalService,
+  ],
+})
+export class BillingModule {}

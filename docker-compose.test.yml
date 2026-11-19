@@ -1,0 +1,22 @@
+services:
+  mongo-test:
+    image: mongo:7
+    ports:
+      - '27018:27017'
+    environment:
+      MONGO_INITDB_DATABASE: i-one-test
+    healthcheck:
+      test: ['CMD', 'mongosh', '--eval', 'db.adminCommand("ping")']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  redis-test:
+    image: redis:7-alpine
+    ports:
+      - '6380:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 12
