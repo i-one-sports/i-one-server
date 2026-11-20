@@ -80,6 +80,9 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     return (
       path.endsWith('/user') ||
       path.endsWith('/user/profile') ||
+      // Account deletion must work before email/KYC verification: someone
+      // who signs up and changes their mind can still delete (App Store 5.1.1(v)).
+      path.endsWith('/user/account') ||
       path.endsWith('/user/verify-email/send') ||
       path.endsWith('/user/verify-email/confirm') ||
       path.endsWith('/auth/user/logout')

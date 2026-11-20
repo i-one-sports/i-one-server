@@ -1,4 +1,4 @@
-import { OWNER_ONBOARDING_STATUS, USER_ROLE } from '@app/common';
+import { OWNER_ONBOARDING_STATUS, User, USER_ROLE } from '@app/common';
 import { JwtAuthGuard } from './jwt.guard';
 
 describe('JwtAuthGuard route allowlists', () => {
@@ -39,5 +39,17 @@ describe('JwtAuthGuard route allowlists', () => {
   it('allows unverified users to read profile state but blocks protected actions', () => {
     expect(shouldBlockUnverifiedEmail('/i-one/user/profile')).toBe(false);
     expect(shouldBlockUnverifiedEmail('/i-one/sessions/start')).toBe(true);
+  });
+
+  it('lets unverified users and pending owners delete their account', () => {
+    const unverified = { role: USER_ROLE.USER, emailVerified: false } as User;
+    const pendingOwner = {
+      role: USER_ROLE.ADMIN,
+      emailVerified: true,
+      ownerOnboardingStatus: OWNER_ONBOARDING_STATUS.PENDING_VERIFICATION,
+    } as User;
+
+    expect(guard['shouldBlockUnverifiedEmail'](unverified, '/i-one/user/account')).toBe(false);
+    expect(guard['shouldBlockPendingOwner'](pendingOwner, '/i-one/user/account')).toBe(false);
   });
 });
