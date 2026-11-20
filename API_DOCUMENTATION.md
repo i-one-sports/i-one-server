@@ -49,6 +49,33 @@
 | `JwtAuthGuard` | Requires a valid JWT cookie |
 | `IsOwnerGuard` | Requires `JwtAuthGuard` + `user.isOwner === true` |
 | `RolesGuard + @Roles(SUPER_ADMIN)` | Requires `JwtAuthGuard` + `user.role === 'SUPER_ADMIN'` |
+| `@GuestReadable()` | Read-only route open to signed-out users. With a valid cookie it behaves like `JwtAuthGuard`; with no cookie (or an invalid/expired one) the request goes through as a guest and gets the guest view |
+
+### Guest access (signed out)
+Signed-out users can browse (App Store guideline 5.1.1(v)). Only these `GET` routes work without a cookie; **every other route still returns `401`**.
+
+| Area | Routes |
+|---|---|
+| Pitches | `GET /location/nearby`, `GET /location/:locationId` |
+| Tournaments | `GET /tournaments`, `GET /tournaments/:id`, `GET /tournaments/location/:locationId` |
+| Sessions & schedules | `GET /sessions/nearby-sessions`, `GET /sessions/all`, `GET /sessions/by-location/:locationId`, `GET /sessions/:sessionId` |
+| Live scores | `GET /matches/matchups/:sessionId`, `GET /matches/details/:matchId`, SSE `GET /matches/stream/:matchId`, SSE `GET /matches/stream/session/:sessionId` |
+
+A guest gets a **different, smaller response** from the same route. It never contains a person: no names, nicknames, avatars, emails, phone numbers, addresses, dates of birth, user ids, payment state, owner or organiser details. Same route, signed in → the usual full response.
+
+| Guest view | Fields |
+|---|---|
+| Pitch | `_id, name, address, coordinates, pitchPhoto, pitchCondition, pitchSize, pitchMax, openingHour, closingHour, tier, pricingOption, pricePerHour, paymentPerPersonMonthly, tournamentFee, friendly, tournament` (prices in kobo) |
+| Session | `_id, location` (pitch view, or its id), `startTime, stopTime, timeDuration, playersPerTeam, matchType, status, inProgress, finished, isFull, maxNumber, memberCount, spotsLeft, paymentRequired, paymentMode, paymentTarget, paymentAmount`. No member list |
+| Match | `_id, session, sequence, status, isStarted, matchType, teamOne/teamTwo { _id, name, playerCount }, teamOneScore, teamTwoScore, startedAt, endedAt, winner` (team id), `decidedBy, penaltyWinner, goals[{ team, at }]` (which team scored, never who) |
+| Tournament | `_id, name, description, location, status, type, prizeMoney, registrationFee, minutesPerMatch, playersPerTeam, maxTeams, pitches, teamPrizes, playerPrizes, rules, registrationDeadline, startDate, endDate, teamCount, teams[{ _id, name, logo }], bracket, fixtures, standings, totalFixtures, completedFixtures, winner`. No organiser, captains or codes |
+| Stream events | `score` (scores, and `latestScorer: { team }` only), `match_started`, `match_finished` (no referee), `heartbeat`. `referee_changed` is not sent to guests. The `connected` message has `userId: null` |
+
+List routes keep their shape: `GET /sessions/all` → `{ sessions: [guest sessions], pagination }`; `GET /tournaments` → `{ tournaments: [guest tournaments], pagination }`; the others return arrays of guest views.
+
+Guest stream connections share a server-wide cap; when it's full the stream returns `429` ("Too many viewers right now — sign in or try again shortly").
+
+**About other players, signed in:** wherever a response includes other users (session members and captain, team players, goal scorers, referees), it has only `firstName, lastName, nickname, avatar, position`.
 
 ---
 
@@ -945,7 +972,7 @@ Get all registered locations.
 ### GET /location/nearby
 Get locations near a coordinate, sorted by proximity.
 
-**Auth required**: Yes (JWT cookie)
+**Auth required**: Optional — signed out gets the guest view (see [Guest access](#guest-access-signed-out)); signed in gets the full response below.
 
 **Query Parameters**:
 - `lng` (number, required) — longitude
@@ -957,6 +984,17 @@ Get locations near a coordinate, sorted by proximity.
 - Results are capped to locations within **5 km** of the supplied coordinate (`$maxDistance: 5000`). Locations beyond 5 km are excluded regardless of query params.
 
 **Success Response** `200 OK`: Array of location documents sorted nearest-first.
+
+---
+
+### GET /location/:locationId
+One pitch's details.
+
+**Auth required**: Optional — signed out gets the guest pitch view (see [Guest access](#guest-access-signed-out)).
+
+**Success Response** `200 OK`: the location document (signed in) or the guest pitch view.
+
+**Errors**: `404` "Pitch not found" — unknown id, malformed id, or a pitch that isn't listed (pending verification, rejected).
 
 ---
 
@@ -1183,7 +1221,7 @@ All session endpoints require authentication.
 ### GET /sessions/nearby-sessions
 Find active sessions near a coordinate.
 
-**Auth required**: Yes (JWT cookie)
+**Auth required**: Optional — signed out gets the guest view (see [Guest access](#guest-access-signed-out)); signed in gets the full response below.
 
 **Query Parameters**:
 - `lng` (number) — longitude
@@ -1196,7 +1234,7 @@ Find active sessions near a coordinate.
 ### GET /sessions/by-location/:locationId?date=YYYY-MM-DD
 Get all sessions at a specific location on a given date, sorted by start time ascending. Used to power the match schedule calendar (frontend sends the selected date, gets back that day's sessions).
 
-**Auth required**: Yes (JWT cookie)
+**Auth required**: Optional — signed out gets the guest view (see [Guest access](#guest-access-signed-out)); signed in gets the full response below.
 
 **Path Parameters**:
 - `locationId` — the location ID
@@ -1230,7 +1268,7 @@ Get all sessions at a specific location on a given date, sorted by start time as
 ### GET /sessions/all
 Get all non-finished sessions, paginated.
 
-**Auth required**: Yes (JWT cookie)
+**Auth required**: Optional — signed out gets the guest view (see [Guest access](#guest-access-signed-out)); signed in gets the full response below.
 
 **Query Parameters**:
 - `page` (number, default: 1)
@@ -1350,7 +1388,7 @@ Get the calling user's active session. Returns the full session document (same s
 ### GET /sessions/:sessionId
 Get a session with its members populated. If the session requires payment, each member includes a `paymentStatus` field for the paid/unpaid badge.
 
-**Auth required**: Yes (JWT cookie)
+**Auth required**: Optional — signed out gets the guest view (see [Guest access](#guest-access-signed-out)); signed in gets the full response below.
 
 **Success Response** `200 OK`:
 ```json
@@ -1756,7 +1794,7 @@ Any number of teams from 2 up works, including odd counts.
 ### GET /matches/matchups/:sessionId
 View every game of a session so far, ordered by `sequence`.
 
-**Auth required**: Yes (JWT cookie)
+**Auth required**: Optional — signed out gets the guest view (see [Guest access](#guest-access-signed-out)); signed in gets the full response below.
 
 **Success Response** `200 OK`: Array of match documents.
 
@@ -1779,7 +1817,7 @@ Start a match: `status` goes from `SCHEDULED` to `LIVE` and `startedAt` is set. 
 ### GET /matches/details/:matchId
 Get full details of a match, including both teams with their players populated and all goal scorers.
 
-**Auth required**: Yes (JWT cookie)
+**Auth required**: Optional — signed out gets the guest view (see [Guest access](#guest-access-signed-out)); signed in gets the full response below.
 
 **Success Response** `200 OK`:
 ```json
@@ -1966,7 +2004,7 @@ See *Recording safely on a bad network*. Because `scoreVersion` moves on every u
 ### GET /matches/stream/:matchId (SSE)
 Real-time score stream for a single match.
 
-**Auth required**: Yes (JWT cookie)
+**Auth required**: Optional — signed out gets the guest view (see [Guest access](#guest-access-signed-out)); signed in gets the full response below.
 
 **Headers**: `Accept: text/event-stream`, `Cache-Control: no-cache`
 
@@ -2013,7 +2051,7 @@ data: {"type":"heartbeat","timestamp":1234567890}
 ### GET /matches/stream/session/:sessionId (SSE)
 Real-time score stream for all matches in a session.
 
-**Auth required**: Yes (JWT cookie)
+**Auth required**: Optional — signed out gets the guest view (see [Guest access](#guest-access-signed-out)); signed in gets the full response below.
 
 **Headers**: `Accept: text/event-stream`, `Cache-Control: no-cache`
 
@@ -2302,10 +2340,36 @@ Create a tournament at a location. Only authenticated users can create.
 
 ---
 
+### GET /tournaments
+Tournament discovery across all pitches, soonest start first.
+
+**Auth required**: Optional — signed out gets guest tournament views (see [Guest access](#guest-access-signed-out)).
+
+**Query Parameters**:
+- `status` (optional) — `registration`, `started` or `completed`. Default: `registration` and `started` together.
+- `page` (optional, default `1`), `limit` (optional, default `20`, max `50`)
+
+**Success Response** `200 OK`:
+```json
+{
+  "tournaments": [
+    {
+      "_id": "...", "name": "Lagos Cup", "status": "registration", "type": "knockout",
+      "maxTeams": 8, "registeredTeams": ["..."], "startDate": "2026-12-05T09:00:00.000Z",
+      "registrationFee": 500000, "prizeMoney": 10000000,
+      "location": { "_id": "...", "name": "Ikoyi Turf", "address": "5 Pitch Rd" }
+    }
+  ],
+  "pagination": { "page": 1, "limit": 20, "total": 1, "totalPages": 1 }
+}
+```
+
+---
+
 ### GET /tournaments/location/:locationId
 Get all tournaments for a location. Lightweight — no team population.
 
-**Auth required**: Yes (JWT cookie)
+**Auth required**: Optional — signed out gets the guest view (see [Guest access](#guest-access-signed-out)); signed in gets the full response below.
 
 **Success Response** `200 OK`:
 ```json
@@ -2333,7 +2397,7 @@ Get all tournaments for a location. Lightweight — no team population.
 ### GET /tournaments/:id
 Get full tournament details — bracket or fixtures/standings (depending on `type`), registered teams (name + logo), and organizer info. Single query, no N+1.
 
-**Auth required**: Yes (JWT cookie)
+**Auth required**: Optional — signed out gets the guest view (see [Guest access](#guest-access-signed-out)); signed in gets the full response below.
 
 **Note**: `registeredTeams` never includes each team's join `code` — see `GET /tournaments/code/:code` for why.
 

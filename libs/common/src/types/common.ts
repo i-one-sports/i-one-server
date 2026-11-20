@@ -144,3 +144,8 @@ export enum SESSION_STATUS {
   COMPLETED = 'COMPLETED',
   REFUNDED = 'REFUNDED',
 }
+
+// The only user fields any populate may return about OTHER users. Never
+// populate users with '-password' (that exposes email, phone, DOB, address
+// and live OTP codes) — select these instead.
+export const PUBLIC_USER_FIELDS = 'firstName lastName nickname avatar position';

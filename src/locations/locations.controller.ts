@@ -21,6 +21,8 @@ import { CurrentUser, IsOwner, UploadType, User, IsOwnerGuard } from '@app/commo
 import { FileInterceptor } from '@nestjs/platform-express';
 import * as multer from 'multer'
 import { AwsService } from '@app/common/providers/aws.service';
+import { GuestReadable } from 'src/auth/decorators/guest-readable.decorator';
+import { toGuestPitch } from 'src/guest/guest-views';
 
 @Controller('location')
 @UseGuards(JwtAuthGuard)
@@ -92,12 +94,15 @@ export class LocationsController {
     return this.locationsService.findMatchesByLocation(locationId);
   }
     
+    @GuestReadable()
     @Get('nearby')
     async getNearbyLocations(
       @Query('lng') lng: number,
       @Query('lat') lat: number,
+      @CurrentUser() user: User | undefined,
     ) {
-      return this.locationsService.viewNearbyLocations(lng, lat);
+      const pitches = await this.locationsService.viewNearbyLocations(lng, lat);
+      return user ? pitches : pitches.map(toGuestPitch);
     }
 
     @Get('search')
@@ -205,6 +210,18 @@ export class LocationsController {
       @Body() data: UpdateOpeningHoursDto,
     ) {
       return this.locationsService.updateOpeningHours(locationId, user._id.toString(), data);
+    }
+
+    // Public pitch details (guest mode). Declared last so the fixed paths
+    // above ('all', 'nearby', 'search', ...) win over ':locationId'.
+    @GuestReadable()
+    @Get(':locationId')
+    async viewLocation(
+      @Param('locationId') locationId: string,
+      @CurrentUser() user: User | undefined,
+    ) {
+      const pitch = await this.locationsService.viewLocation(locationId);
+      return user ? pitch : toGuestPitch(pitch);
     }
 
   }

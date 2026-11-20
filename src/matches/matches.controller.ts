@@ -18,7 +18,7 @@ import {
 import { Request } from 'express';
 import { JwtAuthGuard } from 'src/auth/guards/jwt.guard';
 import { MatchesService } from './matches.service';
-import { MatchEventService } from './match-event.service';
+import { GUEST_CONNECTION_PREFIX, MatchEventService } from './match-event.service';
 import {
   filter,
   map,
@@ -28,7 +28,10 @@ import {
   of,
   finalize
 } from 'rxjs';
-import { MatchScoreUpdateEvent, CurrentUser } from '@app/common';
+import { MatchScoreUpdateEvent, CurrentUser, User } from '@app/common';
+import { randomUUID } from 'crypto';
+import { GuestReadable } from 'src/auth/decorators/guest-readable.decorator';
+import { toGuestMatch, toGuestStreamEvent } from 'src/guest/guest-views';
 import { EndMatchDto, RecordGoalScorerDto, ScoreChangeDto } from './dto/match.dto';
 import { AssignRefereeDto } from 'src/referees/dto/referees.dto';
 import { MatchRefereeService } from './match-referee.service';
@@ -51,9 +54,11 @@ export class MatchesController {
     return this.matchesService.matchUp(sessionId);
   }
 
+  @GuestReadable()
   @Get('matchups/:sessionId')
-  async viewSessionMatchUps(@Param('sessionId') sessionId: string) {
-    return this.matchesService.viewSessionMatchUps(sessionId);
+  async viewSessionMatchUps(@Param('sessionId') sessionId: string, @CurrentUser() user: User | undefined) {
+    const matches = await this.matchesService.viewSessionMatchUps(sessionId);
+    return user ? matches : matches.map(toGuestMatch);
   }
 
   @Post('start/:matchId')
@@ -62,9 +67,11 @@ export class MatchesController {
     return this.matchesService.startMatch(matchId, userId);
   }
 
+  @GuestReadable()
   @Get('details/:matchId')
-  async viewMatchDetails(@Param('matchId') matchId: string) {
-    return this.matchesService.viewMatchDetails(matchId);
+  async viewMatchDetails(@Param('matchId') matchId: string, @CurrentUser() user: User | undefined) {
+    const match = await this.matchesService.viewMatchDetails(matchId);
+    return user ? match : toGuestMatch(match);
   }
 
 
@@ -148,19 +155,19 @@ export class MatchesController {
     }
   }
 
+  @GuestReadable()
   @Sse('stream/:matchId')
   @Header('Cache-Control', 'no-cache')
   @Header('X-Accel-Buffering', 'no')
   matchScoreStream(
     @Param('matchId') matchId: string,
-    @CurrentUser() user: any,
+    @CurrentUser() user: User | undefined,
     @Req() request: Request,
   ) {
-    const userId = user?._id?.toString() || user?.id?.toString();
-
-    if (!userId) {
-      throw new HttpException('User authentication required', HttpStatus.UNAUTHORIZED);
-    }
+    // Guests get their own connection key (counted against the guest cap in
+    // MatchEventService) and see events with the people taken out.
+    const isGuest = !user;
+    const userId = user ? user._id.toString() : `${GUEST_CONNECTION_PREFIX}${randomUUID()}`;
 
     const connectionCheck = this.matchEventService.canConnect(userId, 'match', matchId);
     if (!connectionCheck.allowed) {
@@ -183,11 +190,13 @@ export class MatchesController {
 
     return merge(
       this.matchEventService.getScoreUpdates().pipe(
-        filter((update: any) => update.matchId && update.matchId.toString() === matchId),
+        filter((update) => update.matchId && update.matchId.toString() === matchId),
+        map((update) => (isGuest ? toGuestStreamEvent(update) : update)),
+        filter((update) => update !== null),
       ),
       this.matchEventService.getHeartbeat(),
     ).pipe(
-      startWith({ type: 'connected', message: 'Connection established', matchId, userId, timestamp: Date.now() }),
+      startWith({ type: 'connected', message: 'Connection established', matchId, userId: isGuest ? null : userId, timestamp: Date.now() }),
       map(update => ({ data: update })),
       catchError((error) => {
         this.logger.error(`SSE Stream error for ${connectionId}:`, error.message);
@@ -197,19 +206,17 @@ export class MatchesController {
     );
   }
 
+  @GuestReadable()
   @Sse('stream/session/:sessionId')
   @Header('Cache-Control', 'no-cache')
   @Header('X-Accel-Buffering', 'no')
   sessionMatchesStream(
     @Param('sessionId') sessionId: string,
-    @CurrentUser() user: any,
+    @CurrentUser() user: User | undefined,
     @Req() request: Request,
   ) {
-    const userId = user?._id?.toString() || user?.id?.toString();
-
-    if (!userId) {
-      throw new HttpException('User authentication required', HttpStatus.UNAUTHORIZED);
-    }
+    const isGuest = !user;
+    const userId = user ? user._id.toString() : `${GUEST_CONNECTION_PREFIX}${randomUUID()}`;
 
     const connectionCheck = this.matchEventService.canConnect(userId, 'session', sessionId);
     if (!connectionCheck.allowed) {
@@ -232,11 +239,13 @@ export class MatchesController {
 
     return merge(
       this.matchEventService.getScoreUpdates().pipe(
-        filter((update: any) => update.sessionId && update.sessionId.toString() === sessionId),
+        filter((update) => update.sessionId && update.sessionId.toString() === sessionId),
+        map((update) => (isGuest ? toGuestStreamEvent(update) : update)),
+        filter((update) => update !== null),
       ),
       this.matchEventService.getHeartbeat(),
     ).pipe(
-      startWith({ type: 'connected', message: 'Session stream connected', sessionId, userId, timestamp: Date.now() }),
+      startWith({ type: 'connected', message: 'Session stream connected', sessionId, userId: isGuest ? null : userId, timestamp: Date.now() }),
       map(update => ({ data: update })),
       catchError((error) => {
         this.logger.error(`Session SSE Stream error for ${connectionId}:`, error.message);

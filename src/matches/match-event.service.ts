@@ -15,6 +15,11 @@ interface ConnectionInfo {
 
 const CHANNEL = 'app:match-scores';
 
+// Connection keys for signed-out viewers of the live-score streams. Each guest
+// connection gets its own key, so the per-user cap doesn't apply; instead all
+// guest connections together are capped (MAX_GUEST_CONNECTIONS).
+export const GUEST_CONNECTION_PREFIX = 'guest:';
+
 @Injectable()
 export class MatchEventService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MatchEventService.name);
@@ -37,6 +42,7 @@ export class MatchEventService implements OnModuleInit, OnModuleDestroy {
   
   private readonly MAX_CONNECTIONS_PER_USER = 10;
   private readonly MAX_CONNECTIONS_PER_MATCH = 500;
+  private readonly MAX_GUEST_CONNECTIONS = 1000;
   private readonly HEARTBEAT_INTERVAL = 30000; // 30 seconds
   
   // Heartbeat observable that emits every 30 seconds
@@ -74,7 +80,7 @@ export class MatchEventService implements OnModuleInit, OnModuleDestroy {
   /**
    * Get observable for score updates
    */
-  getScoreUpdates(): Observable<any> {
+  getScoreUpdates(): Observable<MatchStreamEvent> {
     return this.matchscore$.asObservable();
   }
 
@@ -90,6 +96,15 @@ export class MatchEventService implements OnModuleInit, OnModuleDestroy {
    */
   canConnect(userId: string, type: 'match' | 'session' | 'global', resourceId?: string): { allowed: boolean; reason?: string } {
     const userConnectionCount = this.userConnections.get(userId)?.size || 0;
+
+    if (userId.startsWith(GUEST_CONNECTION_PREFIX)) {
+      const guestConnections = Array.from(this.connectionDetails.values()).filter((conn) =>
+        conn.userId.startsWith(GUEST_CONNECTION_PREFIX),
+      ).length;
+      if (guestConnections >= this.MAX_GUEST_CONNECTIONS) {
+        return { allowed: false, reason: 'Too many viewers right now — sign in or try again shortly' };
+      }
+    }
 
     if (userConnectionCount >= this.MAX_CONNECTIONS_PER_USER) {
       return {

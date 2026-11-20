@@ -1,11 +1,15 @@
 import { OWNER_ONBOARDING_STATUS, User, USER_ROLE } from '@app/common';
 import { JwtAuthGuard } from './jwt.guard';
+import { Reflector } from '@nestjs/core';
+import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
+import { GUEST_READABLE_KEY } from '../decorators/guest-readable.decorator';
 
 describe('JwtAuthGuard route allowlists', () => {
   let guard: JwtAuthGuard;
 
   beforeEach(() => {
-    guard = new JwtAuthGuard();
+    guard = new JwtAuthGuard(new Reflector());
   });
 
   const shouldBlockPendingOwner = (originalUrl: string) =>
@@ -39,6 +43,34 @@ describe('JwtAuthGuard route allowlists', () => {
   it('allows unverified users to read profile state but blocks protected actions', () => {
     expect(shouldBlockUnverifiedEmail('/i-one/user/profile')).toBe(false);
     expect(shouldBlockUnverifiedEmail('/i-one/sessions/start')).toBe(true);
+  });
+
+  describe('guest-readable routes', () => {
+    const contextFor = (handler: () => void) =>
+      ({
+        getHandler: () => handler,
+        getClass: () => class {},
+        switchToHttp: () => ({ getRequest: () => ({}) }),
+      }) as unknown as ExecutionContext;
+
+    const guestRoute = () => undefined;
+    Reflect.defineMetadata(GUEST_READABLE_KEY, true, guestRoute);
+    const normalRoute = () => undefined;
+
+    it('lets a request with no token through as a guest', async () => {
+      jest.spyOn(AuthGuard('jwt').prototype, 'canActivate').mockRejectedValueOnce(new UnauthorizedException());
+      await expect(guard.canActivate(contextFor(guestRoute))).resolves.toBe(true);
+    });
+
+    it('still rejects a request with no token on every other route', async () => {
+      jest.spyOn(AuthGuard('jwt').prototype, 'canActivate').mockRejectedValueOnce(new UnauthorizedException());
+      await expect(guard.canActivate(contextFor(normalRoute))).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+
+    it('does not hide real failures (e.g. the database) as guest access', async () => {
+      jest.spyOn(AuthGuard('jwt').prototype, 'canActivate').mockRejectedValueOnce(new Error('db down'));
+      await expect(guard.canActivate(contextFor(guestRoute))).rejects.toThrow('db down');
+    });
   });
 
   it('lets unverified users and pending owners delete their account', () => {

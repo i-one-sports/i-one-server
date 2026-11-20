@@ -10,6 +10,7 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Query,
   Res,
   Sse,
   UseGuards,
@@ -20,6 +21,8 @@ import { TournamentsService } from './tournaments.service';
 import { TournamentEventService } from './tournament-event.service';
 import { TournamentPaymentService } from 'src/billing/services/tournament-payment.service';
 import { CurrentUser, User } from '@app/common';
+import { GuestReadable } from 'src/auth/decorators/guest-readable.decorator';
+import { toGuestTournament } from 'src/guest/guest-views';
 import { catchError, filter, finalize, map, merge, of, startWith } from 'rxjs';
 import {
   CreateTournamentDto,
@@ -51,16 +54,33 @@ export class TournamentsController {
     return this.tournamentsService.create(dto, locationId, user._id.toString());
   }
 
+  // Upcoming and live tournaments everywhere (?status=registration|started|completed)
+  @GuestReadable()
+  @Get()
+  async listPublic(
+    @CurrentUser() user: User | undefined,
+    @Query('status') status?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const result = await this.tournamentsService.listPublic(status, Number(page) || 1, Number(limit) || 20);
+    return user ? result : { ...result, tournaments: result.tournaments.map(toGuestTournament) };
+  }
+
   // All tournaments for a location
+  @GuestReadable()
   @Get('location/:locationId')
-  findByLocation(@Param('locationId') locationId: string) {
-    return this.tournamentsService.findByLocation(locationId);
+  async findByLocation(@Param('locationId') locationId: string, @CurrentUser() user: User | undefined) {
+    const tournaments = await this.tournamentsService.findByLocation(locationId);
+    return user ? tournaments : tournaments.map(toGuestTournament);
   }
 
   // Full tournament detail (bracket + registered teams)
+  @GuestReadable()
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.tournamentsService.findOne(id);
+  async findOne(@Param('id') id: string, @CurrentUser() user: User | undefined) {
+    const tournament = await this.tournamentsService.findOne(id);
+    return user ? tournament : toGuestTournament(tournament);
   }
 
   // Discovery by the player-facing tournament code

@@ -204,6 +204,36 @@ export class TournamentsService {
     });
   }
 
+  // Tournament discovery (also open to guests): upcoming and live by
+  // default, soonest first, with the pitch's name and address.
+  async listPublic(statusFilter: string | undefined, page = 1, limit = 20) {
+    const allowed = [TournamentStatus.REGISTRATION, TournamentStatus.STARTED, TournamentStatus.COMPLETED];
+    const requested = allowed.find((status) => status === statusFilter);
+    const filter = requested
+      ? { status: requested }
+      : { status: { $in: [TournamentStatus.REGISTRATION, TournamentStatus.STARTED] } };
+    const pageNum = Math.max(1, Number(page) || 1);
+    const limitNum = Math.min(50, Math.max(1, Number(limit) || 20));
+
+    const [tournaments, total] = await Promise.all([
+      this.tournamentRepository
+        .findRaw()
+        .find(filter)
+        .select('name status type maxTeams registeredTeams startDate endDate registrationDeadline prizeMoney registrationFee location winner')
+        .populate('location', 'name address location pitchPhoto')
+        .sort({ startDate: 1 })
+        .skip((pageNum - 1) * limitNum)
+        .limit(limitNum)
+        .lean(),
+      this.tournamentRepository.findRaw().countDocuments(filter),
+    ]);
+
+    return {
+      tournaments,
+      pagination: { page: pageNum, limit: limitNum, total, totalPages: Math.ceil(total / limitNum) },
+    };
+  }
+
   // List tournaments for a location — lean, no population needed
   async findByLocation(locationId: string) {
     return this.tournamentRepository
