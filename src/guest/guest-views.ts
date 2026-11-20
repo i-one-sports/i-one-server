@@ -1,14 +1,3 @@
-// What signed-out users (guest mode, App Store 5.1.1(v)) may see.
-//
-// Every mapper here is an ALLOWLIST: it copies only the fields it names, so
-// a field added to a schema later never reaches guests by accident. Guests
-// get pitches, times, counts, team names and scores — never a person: no
-// names, nicknames, avatars, contact details, DOB, user ids, payment state
-// or owner details.
-//
-// Inputs are lean objects or Mongoose documents (both expose schema paths
-// as properties), possibly with references populated or not.
-
 type Obj = Record<string, unknown>;
 
 const isObj = (value: unknown): value is Obj => typeof value === 'object' && value !== null;

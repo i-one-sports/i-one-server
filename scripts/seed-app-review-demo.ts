@@ -1,23 +1,3 @@
-// App Review demo data (BE-AR-05). Gives Apple's reviewer a login with
-// something to look at: a pitch, an open session to join, a tournament,
-// and a finished game with stats.
-//
-//   APP_REVIEW_DEMO_PASSWORD=... npm run seed:app-review-demo -- [--yes]
-//   APP_REVIEW_DEMO_PASSWORD=... npm run seed:app-review-demo -- --throwaway [--yes]
-//
-// Safe to run again: everything is upserted by email / code, and the demo
-// sessions are rebuilt with fresh dates (tomorrow, 3 days ago) each run. Run
-// it again after a review, or after a deletion test, to reset the demo.
-//
-// --throwaway creates a separate, empty account (review.delete+<time>@…) for
-// recording the account-deletion flow, so the demo account itself survives.
-//
-// The password comes from the environment, never the repo. Writing to
-// anything other than a local database needs --yes.
-//
-// No wallet history: wallet rows are real money in the ledger, and players
-// have no wallet screen yet. Owner wallet history should come from a real
-// small payment, not seeded rows.
 import 'dotenv/config';
 import * as bcrypt from 'bcrypt';
 import { randomBytes } from 'crypto';
