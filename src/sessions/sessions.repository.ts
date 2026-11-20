@@ -11,6 +11,22 @@ export class SessionRepository extends AbstractRepository<Session> {
     super(SessionModel);
   }
 
+  // A session at one of these pitches that is booked and not over yet
+  // (upcoming or being played).
+  async findActiveAtLocations(locationIds: Types.ObjectId[], now: Date): Promise<{ location: Types.ObjectId } | null> {
+    if (!locationIds.length) return null;
+    return this.model
+      .findOne({
+        location: { $in: locationIds },
+        stopTime: { $gt: now },
+        finished: { $ne: true },
+        status: { $nin: [SESSION_STATUS.CANCELLED, SESSION_STATUS.REFUNDED, SESSION_STATUS.COMPLETED] },
+      })
+      .select('location')
+      .lean<{ location: Types.ObjectId }>()
+      .exec();
+  }
+
   // Sessions that are over — ended by the captain/owner, or past stopTime —
   // within the lookback, excluding cancelled/refunded ones.
   async findEndedSince(now: Date, lookbackMs: number): Promise<Array<{ _id: Types.ObjectId }>> {

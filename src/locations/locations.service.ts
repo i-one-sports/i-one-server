@@ -141,6 +141,25 @@ export class LocationsService {
     });
   }
 
+  // One listed pitch. Unlisted (pending, rejected, inactive) pitches are 404,
+  // same as an id that doesn't exist.
+  async viewLocation(locationId: string): Promise<Location> {
+    if (!Types.ObjectId.isValid(locationId)) {
+      throw new CustomHttpException('Pitch not found', HttpStatus.NOT_FOUND);
+    }
+    const pitch = await this.locationRepository.findOne({
+      _id: new Types.ObjectId(locationId),
+      $or: [
+        { status: LOCATION_STATUS.ACTIVE },
+        { status: { $exists: false } },
+      ],
+    });
+    if (!pitch) {
+      throw new CustomHttpException('Pitch not found', HttpStatus.NOT_FOUND);
+    }
+    return pitch;
+  }
+
   async viewNearbyLocations(lng: number, lat: number) {
     return await this.locationRepository.find({
       $or: [

@@ -86,6 +86,12 @@ export class User extends AbstractDocument {
   @Prop({ type: String, required: false, default: null })
   fcmToken?: string;
 
+  // Set when the user deletes their account. The row is kept (payments,
+  // ledger, stats and matches point at it) but every personal field is
+  // wiped and they can no longer sign in. See AccountDeletionService.
+  @Prop({ type: Date, required: false, default: null })
+  deletedAt?: Date | null;
+
   @Prop({
     type: {
       type: String,

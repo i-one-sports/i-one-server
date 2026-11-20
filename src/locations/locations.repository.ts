@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AbstractRepository, Location, LOCATION_STATUS } from '@app/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { ClientSession, Model, Types } from 'mongoose';
 
 @Injectable()
 export class LocationRepository extends AbstractRepository<Location> {
@@ -9,6 +9,15 @@ export class LocationRepository extends AbstractRepository<Location> {
 
   constructor(@InjectModel(Location.name) LocationModel: Model<Location>) {
     super(LocationModel);
+  }
+
+  async findOwnedBy(ownerId: Types.ObjectId): Promise<Array<{ _id: Types.ObjectId; name: string }>> {
+    return this.model.find({ owner: ownerId }).select('name').lean<Array<{ _id: Types.ObjectId; name: string }>>();
+  }
+
+  // Takes every pitch of this owner out of discovery (owner deleted their account).
+  async unlistOwnedBy(ownerId: Types.ObjectId, session: ClientSession): Promise<void> {
+    await this.model.updateMany({ owner: ownerId }, { $set: { status: LOCATION_STATUS.INACTIVE } }, { session });
   }
 
   // Anchored (`^`) regex against the indexed, pre-lowercased `nameLower`

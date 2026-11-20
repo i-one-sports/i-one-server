@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { AbstractRepository, MATCH_RESULT_STATUS, MATCH_STATUS, Match } from '@app/common';
+import { AbstractRepository, MATCH_RESULT_STATUS, MATCH_STATUS, Match, PUBLIC_USER_FIELDS } from '@app/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 
@@ -58,10 +58,10 @@ export class MatchRepository extends AbstractRepository<Match> {
     return this.model
       .findById(matchId)
       .populate([
-        { path: 'teamOne', populate: { path: 'players', select: '-password' } },
-        { path: 'teamTwo', populate: { path: 'players', select: '-password' } },
-        { path: 'goalScorers.player', select: '-password' },
-        { path: 'goalScorers.assistedBy', select: '-password' },
+        { path: 'teamOne', populate: { path: 'players', select: PUBLIC_USER_FIELDS } },
+        { path: 'teamTwo', populate: { path: 'players', select: PUBLIC_USER_FIELDS } },
+        { path: 'goalScorers.player', select: PUBLIC_USER_FIELDS },
+        { path: 'goalScorers.assistedBy', select: PUBLIC_USER_FIELDS },
       ])
       .lean() as any;
   }

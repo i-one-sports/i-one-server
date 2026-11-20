@@ -49,6 +49,33 @@
 | `JwtAuthGuard` | Requires a valid JWT cookie |
 | `IsOwnerGuard` | Requires `JwtAuthGuard` + `user.isOwner === true` |
 | `RolesGuard + @Roles(SUPER_ADMIN)` | Requires `JwtAuthGuard` + `user.role === 'SUPER_ADMIN'` |
+| `@GuestReadable()` | Read-only route open to signed-out users. With a valid cookie it behaves like `JwtAuthGuard`; with no cookie (or an invalid/expired one) the request goes through as a guest and gets the guest view |
+
+### Guest access (signed out)
+Signed-out users can browse (App Store guideline 5.1.1(v)). Only these `GET` routes work without a cookie; **every other route still returns `401`**.
+
+| Area | Routes |
+|---|---|
+| Pitches | `GET /location/nearby`, `GET /location/:locationId` |
+| Tournaments | `GET /tournaments`, `GET /tournaments/:id`, `GET /tournaments/location/:locationId` |
+| Sessions & schedules | `GET /sessions/nearby-sessions`, `GET /sessions/all`, `GET /sessions/by-location/:locationId`, `GET /sessions/:sessionId` |
+| Live scores | `GET /matches/matchups/:sessionId`, `GET /matches/details/:matchId`, SSE `GET /matches/stream/:matchId`, SSE `GET /matches/stream/session/:sessionId` |
+
+A guest gets a **different, smaller response** from the same route. It never contains a person: no names, nicknames, avatars, emails, phone numbers, addresses, dates of birth, user ids, payment state, owner or organiser details. Same route, signed in → the usual full response.
+
+| Guest view | Fields |
+|---|---|
+| Pitch | `_id, name, address, coordinates, pitchPhoto, pitchCondition, pitchSize, pitchMax, openingHour, closingHour, tier, pricingOption, pricePerHour, paymentPerPersonMonthly, tournamentFee, friendly, tournament` (prices in kobo) |
+| Session | `_id, location` (pitch view, or its id), `startTime, stopTime, timeDuration, playersPerTeam, matchType, status, inProgress, finished, isFull, maxNumber, memberCount, spotsLeft, paymentRequired, paymentMode, paymentTarget, paymentAmount`. No member list |
+| Match | `_id, session, sequence, status, isStarted, matchType, teamOne/teamTwo { _id, name, playerCount }, teamOneScore, teamTwoScore, startedAt, endedAt, winner` (team id), `decidedBy, penaltyWinner, goals[{ team, at }]` (which team scored, never who) |
+| Tournament | `_id, name, description, location, status, type, prizeMoney, registrationFee, minutesPerMatch, playersPerTeam, maxTeams, pitches, teamPrizes, playerPrizes, rules, registrationDeadline, startDate, endDate, teamCount, teams[{ _id, name, logo }], bracket, fixtures, standings, totalFixtures, completedFixtures, winner`. No organiser, captains or codes |
+| Stream events | `score` (scores, and `latestScorer: { team }` only), `match_started`, `match_finished` (no referee), `heartbeat`. `referee_changed` is not sent to guests. The `connected` message has `userId: null` |
+
+List routes keep their shape: `GET /sessions/all` → `{ sessions: [guest sessions], pagination }`; `GET /tournaments` → `{ tournaments: [guest tournaments], pagination }`; the others return arrays of guest views.
+
+Guest stream connections share a server-wide cap; when it's full the stream returns `429` ("Too many viewers right now — sign in or try again shortly").
+
+**About other players, signed in:** wherever a response includes other users (session members and captain, team players, goal scorers, referees), it has only `firstName, lastName, nickname, avatar, position`.
 
 ---
 
@@ -543,22 +570,47 @@ Change the authenticated user's password. Requires the current password for veri
 ---
 
 ### DELETE /user/account
-Permanently delete the authenticated user's account. Clears the auth cookie on success.
+Delete the signed-in user's account (App Store 5.1.1(v)). Clears the auth cookie on success.
 
-**Auth required**: Yes (JWT cookie)
+Full URL: `DELETE {baseUrl}/user/account` (e.g. `https://…/i-one/user/account`). No body.
 
-**Blockers** — the request will be rejected if:
-- User is currently in an active session → leave the session first (`DELETE /sessions/leave/:sessionId`)
-- User is a player in a team registered in an active tournament (`registration` or `started`) → leave the tournament team first
+**Auth required**: Yes (JWT cookie). Works **before** email verification and for owners still pending KYC, so anyone who signs up can delete.
+
+**What happens**: the account is anonymised, not erased — payments, the ledger, matches and stats still point at it, shown as "Deleted player".
+- Wiped: name, nickname, email, phone, address, date of birth, avatar link, height, position, push token, OTPs. The password is replaced, so nobody can sign in.
+- The email is freed: the same address can sign up again as a new account.
+- Saved bank accounts are deleted. The wallet (balance ₦0) is closed. An owner's pitches are unlisted (`status: "inactive"`).
+- Kept: wallet transactions, payments, match records and stats.
+- Any cookie issued before deletion stops working (`401`).
+
+**Blockers** — `400` with a message to show the user as-is, and `details.code` to branch on. Checked in this order; only the first problem is returned:
+
+| `details.code` | When | Message |
+|---|---|---|
+| `IN_SESSION` | In a session | "You must leave your current session before deleting your account" |
+| `IN_TOURNAMENT` | On a team in a tournament that is in `registration` or `started` | "You are part of an active tournament ({name}). Leave or finish it before deleting your account" |
+| `ORGANISING_TOURNAMENT` | Organiser of a tournament in `registration` or `started` | "You're running {name}. Finish or cancel it before deleting your account." |
+| `WALLET_BALANCE` | Wallet balance above ₦0 | "You have ₦12,500 in your wallet. Withdraw it before deleting your account." |
+| `WITHDRAWAL_PENDING` | A withdrawal from the last 7 days that Paystack hasn't confirmed yet | "Your withdrawal of ₦5,000 is still being processed. Try again once it has arrived." |
+| `PITCH_HAS_BOOKINGS` | Owner: one of their pitches has an upcoming or ongoing session | "{pitch} has upcoming sessions. Cancel them before deleting your account." |
+| `PITCH_HAS_TOURNAMENT` | Owner: a tournament at one of their pitches is in `registration` or `started` | "{pitch} has a tournament in progress ({name}). Wait until it has finished before deleting your account." |
+
+Example:
+```json
+{
+  "statusCode": 400,
+  "message": "You have ₦12,500 in your wallet. Withdraw it before deleting your account.",
+  "timestamp": "2026-11-20T19:00:00.000Z",
+  "details": { "code": "WALLET_BALANCE" }
+}
+```
 
 **Success Response** `200 OK`:
 ```json
 { "message": "Account deleted successfully" }
 ```
 
-**Error Responses**:
-- `400` — user is in an active session or active tournament
-- `404` — user not found
+**Other errors**: `404` — user not found or already deleted.
 
 ---
 
@@ -945,7 +997,7 @@ Get all registered locations.
 ### GET /location/nearby
 Get locations near a coordinate, sorted by proximity.
 
-**Auth required**: Yes (JWT cookie)
+**Auth required**: Optional — signed out gets the guest view (see [Guest access](#guest-access-signed-out)); signed in gets the full response below.
 
 **Query Parameters**:
 - `lng` (number, required) — longitude
@@ -957,6 +1009,17 @@ Get locations near a coordinate, sorted by proximity.
 - Results are capped to locations within **5 km** of the supplied coordinate (`$maxDistance: 5000`). Locations beyond 5 km are excluded regardless of query params.
 
 **Success Response** `200 OK`: Array of location documents sorted nearest-first.
+
+---
+
+### GET /location/:locationId
+One pitch's details.
+
+**Auth required**: Optional — signed out gets the guest pitch view (see [Guest access](#guest-access-signed-out)).
+
+**Success Response** `200 OK`: the location document (signed in) or the guest pitch view.
+
+**Errors**: `404` "Pitch not found" — unknown id, malformed id, or a pitch that isn't listed (pending verification, rejected).
 
 ---
 
@@ -1183,7 +1246,7 @@ All session endpoints require authentication.
 ### GET /sessions/nearby-sessions
 Find active sessions near a coordinate.
 
-**Auth required**: Yes (JWT cookie)
+**Auth required**: Optional — signed out gets the guest view (see [Guest access](#guest-access-signed-out)); signed in gets the full response below.
 
 **Query Parameters**:
 - `lng` (number) — longitude
@@ -1196,7 +1259,7 @@ Find active sessions near a coordinate.
 ### GET /sessions/by-location/:locationId?date=YYYY-MM-DD
 Get all sessions at a specific location on a given date, sorted by start time ascending. Used to power the match schedule calendar (frontend sends the selected date, gets back that day's sessions).
 
-**Auth required**: Yes (JWT cookie)
+**Auth required**: Optional — signed out gets the guest view (see [Guest access](#guest-access-signed-out)); signed in gets the full response below.
 
 **Path Parameters**:
 - `locationId` — the location ID
@@ -1230,7 +1293,7 @@ Get all sessions at a specific location on a given date, sorted by start time as
 ### GET /sessions/all
 Get all non-finished sessions, paginated.
 
-**Auth required**: Yes (JWT cookie)
+**Auth required**: Optional — signed out gets the guest view (see [Guest access](#guest-access-signed-out)); signed in gets the full response below.
 
 **Query Parameters**:
 - `page` (number, default: 1)
@@ -1350,7 +1413,7 @@ Get the calling user's active session. Returns the full session document (same s
 ### GET /sessions/:sessionId
 Get a session with its members populated. If the session requires payment, each member includes a `paymentStatus` field for the paid/unpaid badge.
 
-**Auth required**: Yes (JWT cookie)
+**Auth required**: Optional — signed out gets the guest view (see [Guest access](#guest-access-signed-out)); signed in gets the full response below.
 
 **Success Response** `200 OK`:
 ```json
@@ -1756,7 +1819,7 @@ Any number of teams from 2 up works, including odd counts.
 ### GET /matches/matchups/:sessionId
 View every game of a session so far, ordered by `sequence`.
 
-**Auth required**: Yes (JWT cookie)
+**Auth required**: Optional — signed out gets the guest view (see [Guest access](#guest-access-signed-out)); signed in gets the full response below.
 
 **Success Response** `200 OK`: Array of match documents.
 
@@ -1779,7 +1842,7 @@ Start a match: `status` goes from `SCHEDULED` to `LIVE` and `startedAt` is set. 
 ### GET /matches/details/:matchId
 Get full details of a match, including both teams with their players populated and all goal scorers.
 
-**Auth required**: Yes (JWT cookie)
+**Auth required**: Optional — signed out gets the guest view (see [Guest access](#guest-access-signed-out)); signed in gets the full response below.
 
 **Success Response** `200 OK`:
 ```json
@@ -1966,7 +2029,7 @@ See *Recording safely on a bad network*. Because `scoreVersion` moves on every u
 ### GET /matches/stream/:matchId (SSE)
 Real-time score stream for a single match.
 
-**Auth required**: Yes (JWT cookie)
+**Auth required**: Optional — signed out gets the guest view (see [Guest access](#guest-access-signed-out)); signed in gets the full response below.
 
 **Headers**: `Accept: text/event-stream`, `Cache-Control: no-cache`
 
@@ -2013,7 +2076,7 @@ data: {"type":"heartbeat","timestamp":1234567890}
 ### GET /matches/stream/session/:sessionId (SSE)
 Real-time score stream for all matches in a session.
 
-**Auth required**: Yes (JWT cookie)
+**Auth required**: Optional — signed out gets the guest view (see [Guest access](#guest-access-signed-out)); signed in gets the full response below.
 
 **Headers**: `Accept: text/event-stream`, `Cache-Control: no-cache`
 
@@ -2302,10 +2365,36 @@ Create a tournament at a location. Only authenticated users can create.
 
 ---
 
+### GET /tournaments
+Tournament discovery across all pitches, soonest start first.
+
+**Auth required**: Optional — signed out gets guest tournament views (see [Guest access](#guest-access-signed-out)).
+
+**Query Parameters**:
+- `status` (optional) — `registration`, `started` or `completed`. Default: `registration` and `started` together.
+- `page` (optional, default `1`), `limit` (optional, default `20`, max `50`)
+
+**Success Response** `200 OK`:
+```json
+{
+  "tournaments": [
+    {
+      "_id": "...", "name": "Lagos Cup", "status": "registration", "type": "knockout",
+      "maxTeams": 8, "registeredTeams": ["..."], "startDate": "2026-12-05T09:00:00.000Z",
+      "registrationFee": 500000, "prizeMoney": 10000000,
+      "location": { "_id": "...", "name": "Ikoyi Turf", "address": "5 Pitch Rd" }
+    }
+  ],
+  "pagination": { "page": 1, "limit": 20, "total": 1, "totalPages": 1 }
+}
+```
+
+---
+
 ### GET /tournaments/location/:locationId
 Get all tournaments for a location. Lightweight — no team population.
 
-**Auth required**: Yes (JWT cookie)
+**Auth required**: Optional — signed out gets the guest view (see [Guest access](#guest-access-signed-out)); signed in gets the full response below.
 
 **Success Response** `200 OK`:
 ```json
@@ -2333,7 +2422,7 @@ Get all tournaments for a location. Lightweight — no team population.
 ### GET /tournaments/:id
 Get full tournament details — bracket or fixtures/standings (depending on `type`), registered teams (name + logo), and organizer info. Single query, no N+1.
 
-**Auth required**: Yes (JWT cookie)
+**Auth required**: Optional — signed out gets the guest view (see [Guest access](#guest-access-signed-out)); signed in gets the full response below.
 
 **Note**: `registeredTeams` never includes each team's join `code` — see `GET /tournaments/code/:code` for why.
 
@@ -4203,6 +4292,7 @@ interface User {
   otp?: number;
   otpExpiration?: Date;
   otpVerified?: boolean;
+  deletedAt?: string | null; // set when the account was deleted (anonymised); such users show as "Deleted player"
   createdAt: string;
   updatedAt: string;
 }
@@ -4263,6 +4353,7 @@ interface Location {
   paymentPerPersonMonthly?: number; // set when pricingOption === 'monthly'
   openingHour?: string;             // HH:mm Lagos time, e.g. "08:00"
   closingHour?: string;             // HH:mm Lagos time, e.g. "22:00". Earlier than openingHour = overnight; equal = 24 hours
+  status?: 'pending_verification' | 'active' | 'rejected' | 'inactive'; // only 'active' (or missing) pitches are listed; 'inactive' = owner deleted their account
   createdAt: string;
   updatedAt: string;
 }

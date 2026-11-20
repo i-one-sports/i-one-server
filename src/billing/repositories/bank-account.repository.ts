@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AbstractRepository } from '@app/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { ClientSession, Model, Types } from 'mongoose';
 import { BankAccount } from '@app/common/schemas/bank-account.schema';
 
 @Injectable()
@@ -10,5 +10,10 @@ export class BankAccountRepository extends AbstractRepository<BankAccount> {
 
   constructor(@InjectModel(BankAccount.name) bankAccountModel: Model<BankAccount>) {
     super(bankAccountModel);
+  }
+
+  async deleteForUser(userId: Types.ObjectId, session: ClientSession): Promise<number> {
+    const result = await this.model.deleteMany({ userId }, { session });
+    return result.deletedCount ?? 0;
   }
 }

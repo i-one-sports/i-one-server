@@ -13,6 +13,7 @@ import {
   lagosDateKey,
   lagosMidnight,
   lagosParts,
+  PUBLIC_USER_FIELDS,
   SESSION_STATUS,
   Session,
   SessionI,
@@ -808,7 +809,7 @@ export class SessionsService {
     const session = await this.sessionRepository
       .findRaw()
       .findOne({ _id: sessionId })
-      .populate({ path: 'members', select: 'firstName lastName nickname avatar' })
+      .populate({ path: 'members', select: PUBLIC_USER_FIELDS })
       .populate('location')
       .lean() as any;
 
@@ -841,8 +842,8 @@ export class SessionsService {
         location: new Types.ObjectId(locationId),
         startTime: { $gte: start, $lte: end },
       })
-      .populate('captain', '-password')
-      .populate('members', '-password')
+      .populate('captain', PUBLIC_USER_FIELDS)
+      .populate('members', PUBLIC_USER_FIELDS)
       .populate('location')
       .sort({ startTime: 1 });
 
@@ -858,8 +859,8 @@ export class SessionsService {
       this.sessionRepository
         .findRaw()
         .find({ finished: false })
-        .populate('captain', '-password')
-        .populate('members', '-password')
+        .populate('captain', PUBLIC_USER_FIELDS)
+        .populate('members', PUBLIC_USER_FIELDS)
         .populate('location')
         .skip(skip)
         .limit(limitNum)

@@ -6,6 +6,14 @@ import { UserRepository } from './users.repository';
 import {
   Location,
   LocationSchema,
+  Session,
+  SessionSchema,
+  Transaction,
+  TransactionSchema,
+  Wallet,
+  WalletSchema,
+  WebhookEvent,
+  WebhookEventSchema,
   Team,
   TeamSchema,
   Tournament,
@@ -25,6 +33,13 @@ import { BankAccount, BankAccountSchema } from '@app/common/schemas/bank-account
 import { BankAccountRepository } from 'src/billing/repositories/bank-account.repository';
 import { PaystackService } from '@app/common/providers/paystack.service';
 import { NotificationsModule } from 'src/notifications/notifications.module';
+import { AccountDeletionService } from './account-deletion.service';
+import { TeamRepository } from 'src/tournaments/teams.repository';
+import { TournamentRepository } from 'src/tournaments/tournaments.repository';
+import { SessionRepository } from 'src/sessions/sessions.repository';
+import { WalletRepository } from 'src/billing/repositories/wallet.repository';
+import { TransactionRepository } from 'src/billing/repositories/transaction.repository';
+import { WebhookEventRepository } from 'src/billing/repositories/webhook-event.repository';
 
 @Module({
   imports: [
@@ -34,6 +49,10 @@ import { NotificationsModule } from 'src/notifications/notifications.module';
       { name: Tournament.name, schema: TournamentSchema },
       { name: Location.name, schema: LocationSchema },
       { name: BankAccount.name, schema: BankAccountSchema },
+      { name: Session.name, schema: SessionSchema },
+      { name: Wallet.name, schema: WalletSchema },
+      { name: Transaction.name, schema: TransactionSchema },
+      { name: WebhookEvent.name, schema: WebhookEventSchema },
     ]),
     StatsModule,
     NotificationsModule,
@@ -50,6 +69,13 @@ import { NotificationsModule } from 'src/notifications/notifications.module';
     LocationRepository,
     BankAccountRepository,
     PaystackService,
+    AccountDeletionService,
+    TeamRepository,
+    TournamentRepository,
+    SessionRepository,
+    WalletRepository,
+    TransactionRepository,
+    WebhookEventRepository,
   ],
   exports: [UsersService, UserRepository],
 })

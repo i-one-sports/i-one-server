@@ -14,4 +14,15 @@ export class WebhookEventRepository extends AbstractRepository<WebhookEvent> {
   ) {
     super(model, connection);
   }
+
+  // The subset of `eventIds` (Paystack references) whose webhook has been
+  // fully processed.
+  async processedEventIds(eventIds: string[]): Promise<Set<string>> {
+    if (!eventIds.length) return new Set();
+    const rows = await this.model
+      .find({ eventId: { $in: eventIds }, processed: true })
+      .select('eventId')
+      .lean<Array<{ eventId: string }>>();
+    return new Set(rows.map((row) => row.eventId));
+  }
 }

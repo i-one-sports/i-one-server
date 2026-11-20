@@ -24,6 +24,8 @@ import {
   SessionUpdateEvent,
 } from 'src/billing/services/session-payment-event.service';
 import { CanViewSessionPaymentsGuard } from 'src/billing/guards/can-view-session-payments.guard';
+import { GuestReadable } from 'src/auth/decorators/guest-readable.decorator';
+import { toGuestMatch, toGuestSession, toGuestSessionList } from 'src/guest/guest-views';
 
 type SessionStreamMessage =
   | { type: 'session_snapshot'; snapshot: SessionSnapshot; timestamp: number }
@@ -39,21 +41,26 @@ export class SessionsController {
     private readonly sessionPaymentEventService: SessionPaymentEventService,
   ) {}
 
+  @GuestReadable()
   @Get('nearby-sessions')
   async findNearbySessionMatches(
     @Query('lng') lng: number,
     @Query('lat') lat: number,
+    @CurrentUser() user: User | undefined,
   ) {
-    console.log(lng, lat);
-    return this.sessionsService.findNearbySessionMatches(lng, lat);
+    const matches = await this.sessionsService.findNearbySessionMatches(lng, lat);
+    return user ? matches : matches.map(toGuestMatch);
   }
 
+  @GuestReadable()
   @Get('all')
   async viewAllSessions(
+    @CurrentUser() user: User | undefined,
     @Query('page') page: number = 1,
     @Query('limit') limit: number = 6,
   ) {
-    return this.sessionsService.viewAllSessions(page, limit);
+    const result = await this.sessionsService.viewAllSessions(page, limit);
+    return user ? result : toGuestSessionList(result);
   }
 
   @Post('start')
@@ -88,12 +95,15 @@ export class SessionsController {
     return this.sessionsService.joinSession(user._id.toString(), sessionId);
   }
 
+  @GuestReadable()
   @Get('by-location/:locationId')
   async getSessionsByLocationAndDate(
     @Param('locationId') locationId: string,
     @Query('date') date: string,
+    @CurrentUser() user: User | undefined,
   ) {
-    return this.sessionsService.getSessionsByLocationAndDate(locationId, date);
+    const sessions = await this.sessionsService.getSessionsByLocationAndDate(locationId, date);
+    return user ? sessions : sessions.map(toGuestSession);
   }
 
   @Get('my-current')
@@ -123,9 +133,11 @@ export class SessionsController {
     );
   }
 
+  @GuestReadable()
   @Get(':sessionId')
-  async viewSession(@Param('sessionId') sessionId: string) {
-    return this.sessionsService.viewSession(sessionId);
+  async viewSession(@Param('sessionId') sessionId: string, @CurrentUser() user: User | undefined) {
+    const session = await this.sessionsService.viewSession(sessionId);
+    return user ? session : toGuestSession(session);
   }
 
   @Get('members/:sessionId')

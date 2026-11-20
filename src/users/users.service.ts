@@ -5,7 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { InjectConnection, InjectModel } from '@nestjs/mongoose';
+import { InjectConnection } from '@nestjs/mongoose';
 import { Connection, Model, Types } from 'mongoose';
 import { UserRepository } from './users.repository';
 import {
@@ -27,8 +27,6 @@ import {
   LOCATION_TIER,
   Location,
   OWNER_ONBOARDING_STATUS,
-  Team,
-  Tournament,
   User,
   USER_ROLE,
 } from '@app/common';
@@ -53,9 +51,6 @@ export class UsersService {
     private readonly notificationService: NotificationService,
     private readonly statsService: StatsService,
     private readonly cacheService: CacheService,
-    @InjectModel(Team.name) private readonly teamModel: Model<Team>,
-    @InjectModel(Tournament.name)
-    private readonly tournamentModel: Model<Tournament>,
     private readonly locationRepository: LocationRepository,
     private readonly bankAccountRepository: BankAccountRepository,
     private readonly paystackService: PaystackService,
@@ -698,48 +693,6 @@ export class UsersService {
     );
 
     return { message: 'Password changed successfully' };
-  }
-
-  public async deleteAccount(userId: string): Promise<{ message: string }> {
-    const user = await this.usersRepository.findOne({ _id: userId });
-    if (!user)
-      throw new CustomHttpException('User not found', HttpStatus.NOT_FOUND);
-
-    // Blocker 1: active session
-    if (user.currentSession) {
-      throw new CustomHttpException(
-        'You must leave your current session before deleting your account',
-        HttpStatus.BAD_REQUEST,
-      );
-    }
-
-    // Blocker 2: active tournament — find any team the user is in, then check if that team is in a live tournament
-    const teams = await this.teamModel
-      .find({ players: new Types.ObjectId(userId) }, { _id: 1 })
-      .lean();
-
-    if (teams.length > 0) {
-      const teamIds = teams.map((t) => t._id);
-      const activeTournament = await this.tournamentModel
-        .findOne(
-          {
-            registeredTeams: { $in: teamIds },
-            status: { $in: ['registration', 'started'] },
-          },
-          { name: 1 },
-        )
-        .lean();
-
-      if (activeTournament) {
-        throw new CustomHttpException(
-          `You are part of an active tournament (${(activeTournament as any).name}). Leave or finish it before deleting your account`,
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-    }
-
-    await this.usersRepository.findRaw().deleteOne({ _id: userId });
-    return { message: 'Account deleted successfully' };
   }
 
   public async validateUser(email: string, password: string): Promise<User> {

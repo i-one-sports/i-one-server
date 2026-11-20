@@ -1,6 +1,7 @@
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { Types } from 'mongoose';
 import {
+  PUBLIC_USER_FIELDS,
   CustomHttpException,
   MATCH_STATUS,
   REFEREE_MODE,
@@ -19,7 +20,6 @@ import { NotificationOutboxService } from 'src/notifications/notification-outbox
 import { NOTIFICATION_TYPE } from 'src/notifications/notification.types';
 
 const CLOSED_SESSION_STATUSES = [SESSION_STATUS.CANCELLED, SESSION_STATUS.COMPLETED, SESSION_STATUS.REFUNDED];
-const PUBLIC_USER_FIELDS = 'firstName lastName nickname avatar';
 
 // The session's referee roster (screens 12–14). Assigning a roster entry to a
 // particular match lives in MatchRefereeService, because that's where the
