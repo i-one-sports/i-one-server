@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { PutObjectCommand, S3 } from '@aws-sdk/client-s3'
-import { fromEnv } from '@aws-sdk/credential-providers'
 import { RandomGen, UploadType } from '@app/common'
 import { ConfigService } from '@nestjs/config'
 
@@ -15,7 +14,6 @@ export class AwsService {
     this.AWS_S3_BUCKET = this.configService.get('AWS_S3_BUCKET') || 'i-one'
     
     this.s3 = new S3({
-      credentials: fromEnv(),
       endpoint,
       forcePathStyle: true,
       region: this.configService.get('AWS_REGION')
