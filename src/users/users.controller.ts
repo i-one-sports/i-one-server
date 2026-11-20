@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { Response } from 'express';
 import { UsersService } from './users.service';
+import { AccountDeletionService } from './account-deletion.service';
 import {
   ChangePasswordDto,
   ForgotPasswordDto,
@@ -25,6 +26,7 @@ export class UsersController {
   constructor(
     private usersService: UsersService,
     private readonly awsService: AwsService,
+    private readonly accountDeletionService: AccountDeletionService,
   ) {}
 
   @Post('register')
@@ -135,7 +137,7 @@ export class UsersController {
     @CurrentUser() user: User,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const result = await this.usersService.deleteAccount(user._id.toString());
+    const result = await this.accountDeletionService.deleteAccount(user._id.toString());
     res.clearCookie('Authentication');
     return result;
   }

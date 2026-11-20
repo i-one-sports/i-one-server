@@ -23,10 +23,14 @@ export class UsersJwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   }
 
   async validate({ userId }: TokenPayload): Promise<User> {
+    let user: User;
     try {
-      return await this.usersService.getProfile(userId);
-    } catch (error:any) {
-      throw new UnauthorizedException(error.message);
+      user = await this.usersService.getProfile(userId);
+    } catch (error: unknown) {
+      throw new UnauthorizedException(error instanceof Error ? error.message : 'Unauthorized');
     }
+    // A deleted (anonymised) account can't use a cookie it was issued before.
+    if (user.deletedAt) throw new UnauthorizedException('This account has been deleted');
+    return user;
   }
 }

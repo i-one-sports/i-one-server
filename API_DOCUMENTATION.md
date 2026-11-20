@@ -570,22 +570,47 @@ Change the authenticated user's password. Requires the current password for veri
 ---
 
 ### DELETE /user/account
-Permanently delete the authenticated user's account. Clears the auth cookie on success.
+Delete the signed-in user's account (App Store 5.1.1(v)). Clears the auth cookie on success.
 
-**Auth required**: Yes (JWT cookie)
+Full URL: `DELETE {baseUrl}/user/account` (e.g. `https://…/i-one/user/account`). No body.
 
-**Blockers** — the request will be rejected if:
-- User is currently in an active session → leave the session first (`DELETE /sessions/leave/:sessionId`)
-- User is a player in a team registered in an active tournament (`registration` or `started`) → leave the tournament team first
+**Auth required**: Yes (JWT cookie). Works **before** email verification and for owners still pending KYC, so anyone who signs up can delete.
+
+**What happens**: the account is anonymised, not erased — payments, the ledger, matches and stats still point at it, shown as "Deleted player".
+- Wiped: name, nickname, email, phone, address, date of birth, avatar link, height, position, push token, OTPs. The password is replaced, so nobody can sign in.
+- The email is freed: the same address can sign up again as a new account.
+- Saved bank accounts are deleted. The wallet (balance ₦0) is closed. An owner's pitches are unlisted (`status: "inactive"`).
+- Kept: wallet transactions, payments, match records and stats.
+- Any cookie issued before deletion stops working (`401`).
+
+**Blockers** — `400` with a message to show the user as-is, and `details.code` to branch on. Checked in this order; only the first problem is returned:
+
+| `details.code` | When | Message |
+|---|---|---|
+| `IN_SESSION` | In a session | "You must leave your current session before deleting your account" |
+| `IN_TOURNAMENT` | On a team in a tournament that is in `registration` or `started` | "You are part of an active tournament ({name}). Leave or finish it before deleting your account" |
+| `ORGANISING_TOURNAMENT` | Organiser of a tournament in `registration` or `started` | "You're running {name}. Finish or cancel it before deleting your account." |
+| `WALLET_BALANCE` | Wallet balance above ₦0 | "You have ₦12,500 in your wallet. Withdraw it before deleting your account." |
+| `WITHDRAWAL_PENDING` | A withdrawal from the last 7 days that Paystack hasn't confirmed yet | "Your withdrawal of ₦5,000 is still being processed. Try again once it has arrived." |
+| `PITCH_HAS_BOOKINGS` | Owner: one of their pitches has an upcoming or ongoing session | "{pitch} has upcoming sessions. Cancel them before deleting your account." |
+| `PITCH_HAS_TOURNAMENT` | Owner: a tournament at one of their pitches is in `registration` or `started` | "{pitch} has a tournament in progress ({name}). Wait until it has finished before deleting your account." |
+
+Example:
+```json
+{
+  "statusCode": 400,
+  "message": "You have ₦12,500 in your wallet. Withdraw it before deleting your account.",
+  "timestamp": "2026-11-20T19:00:00.000Z",
+  "details": { "code": "WALLET_BALANCE" }
+}
+```
 
 **Success Response** `200 OK`:
 ```json
 { "message": "Account deleted successfully" }
 ```
 
-**Error Responses**:
-- `400` — user is in an active session or active tournament
-- `404` — user not found
+**Other errors**: `404` — user not found or already deleted.
 
 ---
 
@@ -4267,6 +4292,7 @@ interface User {
   otp?: number;
   otpExpiration?: Date;
   otpVerified?: boolean;
+  deletedAt?: string | null; // set when the account was deleted (anonymised); such users show as "Deleted player"
   createdAt: string;
   updatedAt: string;
 }
@@ -4327,6 +4353,7 @@ interface Location {
   paymentPerPersonMonthly?: number; // set when pricingOption === 'monthly'
   openingHour?: string;             // HH:mm Lagos time, e.g. "08:00"
   closingHour?: string;             // HH:mm Lagos time, e.g. "22:00". Earlier than openingHour = overnight; equal = 24 hours
+  status?: 'pending_verification' | 'active' | 'rejected' | 'inactive'; // only 'active' (or missing) pitches are listed; 'inactive' = owner deleted their account
   createdAt: string;
   updatedAt: string;
 }

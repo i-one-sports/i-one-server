@@ -120,6 +120,8 @@ export enum LOCATION_STATUS {
   PENDING_VERIFICATION = 'pending_verification',
   ACTIVE = 'active',
   REJECTED = 'rejected',
+  // Unlisted because the owner deleted their account.
+  INACTIVE = 'inactive',
 }
 
 // Lifecycle status layered on top of the existing paymentStatus/isFull/finished

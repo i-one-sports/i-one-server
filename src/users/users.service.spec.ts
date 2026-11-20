@@ -38,8 +38,6 @@ describe('UsersService', () => {
   };
   let statsService: { initializeStat: jest.Mock };
   let cacheService: { set: jest.Mock; get: jest.Mock; delete: jest.Mock };
-  let teamModel: { find: jest.Mock };
-  let tournamentModel: { findOne: jest.Mock };
   let locationRepository: { findOne: jest.Mock; create: jest.Mock };
   let bankAccountRepository: { create: jest.Mock };
   let paystackService: { resolveAccount: jest.Mock };
@@ -71,8 +69,6 @@ describe('UsersService', () => {
       get: jest.fn(),
       delete: jest.fn().mockResolvedValue(undefined),
     };
-    teamModel = { find: jest.fn() };
-    tournamentModel = { findOne: jest.fn() };
     locationRepository = {
       findOne: jest.fn(),
       create: jest.fn(),
@@ -92,8 +88,6 @@ describe('UsersService', () => {
       mailService as any,
       statsService as any,
       cacheService as any,
-      teamModel as any,
-      tournamentModel as any,
       locationRepository as never,
       bankAccountRepository as never,
       paystackService as never,
@@ -472,53 +466,6 @@ describe('UsersService', () => {
 
       expect(usersRepository.findOne).toHaveBeenCalledWith({
         email: 'jane@example.com',
-      });
-    });
-
-    it('blocks account deletion while user has a current session', async () => {
-      usersRepository.findOne.mockResolvedValue({
-        _id: userId,
-        currentSession: new Types.ObjectId(),
-      });
-
-      await expect(
-        service.deleteAccount(userId.toString()),
-      ).rejects.toMatchObject({
-        status: HttpStatus.BAD_REQUEST,
-      });
-    });
-
-    it('deletes account when there are no active blockers', async () => {
-      usersRepository.findOne.mockResolvedValue({
-        _id: userId,
-        currentSession: null,
-      });
-      teamModel.find.mockReturnValue(leanResult([]));
-      const deleteOne = jest.fn().mockResolvedValue({ deletedCount: 1 });
-      usersRepository.findRaw.mockReturnValue({ deleteOne });
-
-      await expect(service.deleteAccount(userId.toString())).resolves.toEqual({
-        message: 'Account deleted successfully',
-      });
-
-      expect(deleteOne).toHaveBeenCalledWith({ _id: userId.toString() });
-    });
-
-    it('blocks account deletion when user is in an active tournament team', async () => {
-      const teamId = new Types.ObjectId();
-      usersRepository.findOne.mockResolvedValue({
-        _id: userId,
-        currentSession: null,
-      });
-      teamModel.find.mockReturnValue(leanResult([{ _id: teamId }]));
-      tournamentModel.findOne.mockReturnValue(
-        leanResult({ name: 'Weekend Cup' }),
-      );
-
-      await expect(
-        service.deleteAccount(userId.toString()),
-      ).rejects.toMatchObject({
-        status: HttpStatus.BAD_REQUEST,
       });
     });
   });
