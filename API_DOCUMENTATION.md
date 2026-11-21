@@ -577,7 +577,7 @@ Full URL: `DELETE {baseUrl}/user/account` (e.g. `https://…/i-one/user/account`
 **Auth required**: Yes (JWT cookie). Works **before** email verification and for owners still pending KYC, so anyone who signs up can delete.
 
 **What happens**: the account is anonymised, not erased — payments, the ledger, matches and stats still point at it, shown as "Deleted player".
-- Wiped: name, nickname, email, phone, address, date of birth, avatar link, height, position, push token, OTPs. The password is replaced, so nobody can sign in.
+- Wiped: name, nickname, email, phone, address, date of birth, avatar (the link and the image file in storage), height, position, push token, OTPs. The password is replaced, so nobody can sign in.
 - The email is freed: the same address can sign up again as a new account.
 - Saved bank accounts are deleted. The wallet (balance ₦0) is closed. An owner's pitches are unlisted (`status: "inactive"`).
 - Kept: wallet transactions, payments, match records and stats.

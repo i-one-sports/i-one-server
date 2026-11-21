@@ -3,7 +3,8 @@ import { InjectConnection } from '@nestjs/mongoose';
 import { Connection, Types } from 'mongoose';
 import * as bcrypt from 'bcrypt';
 import { randomBytes } from 'crypto';
-import { CustomHttpException } from '@app/common';
+import { CustomHttpException, UploadType } from '@app/common';
+import { AwsService } from '@app/common/providers/aws.service';
 import { UserRepository } from './users.repository';
 import { TeamRepository } from 'src/tournaments/teams.repository';
 import { TournamentRepository } from 'src/tournaments/tournaments.repository';
@@ -56,6 +57,7 @@ export class AccountDeletionService {
     private readonly transactions: TransactionRepository,
     private readonly webhookEvents: WebhookEventRepository,
     private readonly bankAccounts: BankAccountRepository,
+    private readonly aws: AwsService,
     @InjectConnection() private readonly connection: Connection,
   ) {}
 
@@ -85,10 +87,13 @@ export class AccountDeletionService {
       }
     });
 
+    // After the commit: the account is already deleted, so a storage hiccup
+    // must not fail the request — it's logged instead.
+    const avatarDeleted = await this.aws.deleteByUrl(user.avatar, [UploadType.USER_AVATAR, UploadType.AVATAR]);
     this.logger.log(
       `Account ${userId} deleted (anonymised)` +
         (ownedPitches.length ? `; ${ownedPitches.length} pitch(es) unlisted` : '') +
-        (user.avatar ? `; avatar file left in storage: ${user.avatar}` : ''),
+        (user.avatar && !avatarDeleted ? `; avatar file NOT removed from storage: ${user.avatar}` : ''),
     );
     return { message: 'Account deleted successfully' };
   }
