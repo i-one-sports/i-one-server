@@ -38,7 +38,8 @@ import {
   SessionPaymentEventService,
   SessionSnapshot,
 } from './session-payment-event.service';
-import { grossUp } from '../utils/processing-fee';
+import { PlatformPostingService } from './platform-posting.service';
+import { isDuplicateKeyError } from '../utils/mongo-errors';
 import { PaymentIdempotencyKeyRepository } from '../repositories/payment-idempotency-key.repository';
 import { PaymentIdempotencyKey } from '@app/common/schemas/payment-idempotency-key.schema';
 
@@ -60,8 +61,6 @@ const CHECKOUT_STUCK_MS = 60 * 1000;
 // payment) never count as a member's payment.
 const NOT_EXTRA_CHARGE = { duplicateOf: { $exists: false } };
 
-const isDuplicateKeyError = (error: unknown): boolean =>
-  typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 11000;
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 type PoolContributorLike = { userId: string; amount: number };
@@ -108,6 +107,7 @@ export class SessionPaymentService {
     @InjectModel(Location.name) private readonly locationModel: Model<Location>,
     private readonly sessionPaymentEventService: SessionPaymentEventService,
     private readonly idempotencyKeys: PaymentIdempotencyKeyRepository,
+    private readonly platformPosting: PlatformPostingService,
   ) {}
 
   // Explicit equality on purpose: lean reads of sessions created before
@@ -123,14 +123,8 @@ export class SessionPaymentService {
   // What a player is charged for a share of `base` kobo: base + commission
   // (i-One's cut, on top) + processing fee (covers Paystack's fee, on top).
   // Rates are read from Settings now and snapshotted on the payment row.
-  private async priceShare(base: number) {
-    const commissionPercentage = await this.settingsService.getCommissionPercentage();
-    const commissionAmount = Math.round((base * commissionPercentage) / 100);
-    const { total, processingFee } = grossUp(
-      base + commissionAmount,
-      await this.settingsService.getProcessingFeeConfig(),
-    );
-    return { commissionPercentage, commissionAmount, processingFee, amount: total };
+  private priceShare(base: number) {
+    return this.platformPosting.priceShare(base);
   }
 
   // `baseAmount` is the location's listed per-person price, in kobo — what
@@ -507,6 +501,12 @@ export class SessionPaymentService {
       : [original.paymentReference, ...(original.previousReferences ?? [])].includes(paystackReference);
 
     if (sameCharge) {
+      // The bill was cancelled (EXPIRED) before this payment on its own page
+      // arrived — e.g. the monthly pass migration cancelled unpaid monthly
+      // bills. Nothing is owed any more, so the money goes back in full.
+      if (original.status === PaymentStatus.EXPIRED) {
+        return this.refundChargeOnCancelledBill(original, paystackReference, amount, paystackFee);
+      }
       if (original.status === PaymentStatus.PAID) {
         await this.creditOwnerForPayment(original, paystackReference, original.amount, paystackFee);
       }
@@ -515,6 +515,36 @@ export class SessionPaymentService {
     }
 
     return this.refundExtraCharge(original, paystackReference, amount, paystackFee);
+  }
+
+  // A per-player bill was cancelled (EXPIRED) and then paid on a page the
+  // player still had open: refund it in full. It was never credited, so the
+  // refund webhook only closes it (metadata.neverCredited — see completeRefund).
+  private async refundChargeOnCancelledBill(bill: SessionPayment, paystackReference: string, amount: number, paystackFee?: number) {
+    const claimed = await this.sessionPaymentRepository.findOneAndUpdate(
+      { _id: bill._id, status: PaymentStatus.EXPIRED },
+      {
+        status: PaymentStatus.REFUND_PENDING,
+        paidReference: paystackReference,
+        paidAt: new Date(),
+        'metadata.neverCredited': true,
+      },
+    );
+    if (!claimed) return null; // already being handled (webhook redelivery)
+
+    this.logger.warn(`Charge ${paystackReference} (${amount} kobo) on cancelled bill ${bill._id} — refunding in full`);
+    await this.platformPosting.postPaystackFee(paystackReference, paystackFee, { paymentId: bill._id.toString(), cancelledBill: 'true' });
+    try {
+      const refund = await this.paystackService.refundTransaction(
+        paystackReference,
+        amount,
+        'Refund: this bill was cancelled before your payment arrived',
+      );
+      return this.sessionPaymentRepository.findOneAndUpdate({ _id: bill._id }, { refundReference: refund?.id?.toString() });
+    } catch (error: unknown) {
+      this.logger.error(`CRITICAL: refund request for ${paystackReference} on cancelled bill ${bill._id} failed (${errorMessage(error)}) — needs manual follow-up`);
+      return this.sessionPaymentRepository.findOneAndUpdate({ _id: bill._id }, { status: PaymentStatus.REFUND_FAILED });
+    }
   }
 
   // Records an extra charge as its own row (linked to the original) and
@@ -658,46 +688,18 @@ export class SessionPaymentService {
   // Throws on failure so the webhook is redelivered; the redelivery re-runs
   // these postings and the ones that already landed are skipped.
   private async postPlatformEntries(payment: any, paystackReference: string, paystackFee?: number) {
-    const platform = await this.walletService.getPlatformWallet();
-    const meta = {
-      paymentId: payment._id.toString(),
-      sessionId: payment.sessionId.toString(),
-      userId: payment.userId.toString(),
-    };
-
-    const commission = payment.commissionAmount ?? 0;
-    if (commission > 0) {
-      await this.walletService.creditWallet(
-        platform._id,
-        commission,
-        TransactionSource.PLATFORM_COMMISSION,
-        `COMMISSION_${paystackReference}`,
-        meta,
-        payment.sessionId,
-      );
-    }
-
-    const feeCollected = payment.processingFee ?? 0;
-    if (feeCollected > 0) {
-      await this.walletService.creditWallet(
-        platform._id,
-        feeCollected,
-        TransactionSource.PROCESSING_FEE_COLLECTED,
-        `FEE_IN_${paystackReference}`,
-        meta,
-        payment.sessionId,
-      );
-    }
-
-    if (Number.isFinite(paystackFee) && paystackFee > 0) {
-      await this.walletService.debitWallet(
-        platform._id,
-        paystackFee,
-        TransactionSource.PAYSTACK_FEE,
-        `FEE_OUT_${paystackReference}`,
-        meta,
-      );
-    }
+    await this.platformPosting.postPlatformEntries({
+      reference: paystackReference,
+      commissionAmount: payment.commissionAmount ?? 0,
+      processingFee: payment.processingFee ?? 0,
+      paystackFee,
+      meta: {
+        paymentId: payment._id.toString(),
+        sessionId: payment.sessionId.toString(),
+        userId: payment.userId.toString(),
+      },
+      sessionId: payment.sessionId,
+    });
   }
 
   // ─── POOL payments ────────────────────────────────────────────────────
@@ -1181,7 +1183,10 @@ export class SessionPaymentService {
     const memberIds = (session.members ?? []).map((m) => m.toString());
     const names = new Map(session.memberUsers.map((u) => [u._id.toString(), displayName(u)]));
     const rows = session.paymentRequired ? await this.getSessionMemberPaymentMap(sessionId) : new Map();
-    const covered = isPool ? new Set<string>() : await this.getCoveredMembers(session, memberIds, rows);
+    // Members who joined with a monthly pass (recorded at join, never
+    // recomputed — so an expired pass or a pitch pricing change doesn't
+    // un-cover a session they already joined).
+    const covered = new Set((session.passHolders ?? []).map((holder) => holder.userId.toString()));
 
     const stateFor = (userId: string): MemberPaymentState => {
       if (covered.has(userId)) return 'COVERED';
@@ -1212,30 +1217,6 @@ export class SessionPaymentService {
       coveredCount: count('COVERED'),
       pool: isPool && session.paymentRequired ? await this.getPoolSnapshot(sessionId) : null,
     };
-  }
-
-  // Members with no bill on a per-person session whose bills are already out
-  // — at a monthly pitch that's because an active pass covers them
-  // (onSessionFull skipped them). Checked against the pass itself rather
-  // than assumed from the missing bill.
-  private async getCoveredMembers(
-    session: Session,
-    memberIds: string[],
-    rows: Map<string, PaymentStatus>,
-  ): Promise<Set<string>> {
-    const unbilled = memberIds.filter((id) => !rows.has(id));
-    if (!session.paymentRequired || !session.paymentStatus || session.paymentStatus === 'NOT_INITIATED' || !unbilled.length) {
-      return new Set<string>();
-    }
-    const location = await this.locationModel.findById(session.location).select('pricingOption').lean();
-    if (location?.pricingOption !== LOCATION_PRICING_OPTION.MONTHLY) {
-      return new Set<string>();
-    }
-    return this.getUsersWithActiveRecurringPayment(
-      new Types.ObjectId(session.location.toString()),
-      unbilled.map((id) => new Types.ObjectId(id)),
-      LOCATION_PRICING_OPTION.MONTHLY,
-    );
   }
 
   // Who may see a session's payments (who paid, how much, contributor
@@ -1310,45 +1291,6 @@ export class SessionPaymentService {
     ]);
 
     return total === 0 || unpaid === 0;
-  }
-
-  async getUsersWithActiveRecurringPayment(
-    locationId: Types.ObjectId,
-    userIds: Types.ObjectId[],
-    pricingOption: LOCATION_PRICING_OPTION,
-  ): Promise<Set<string>> {
-    if (!userIds.length || pricingOption === LOCATION_PRICING_OPTION.HOURLY) {
-      return new Set<string>();
-    }
-
-    const now = new Date();
-    const validityMs = 30 * 24 * 60 * 60 * 1000;
-
-    const paidRecords = await this.sessionPaymentRepository.find({
-      locationId,
-      userId: { $in: userIds },
-      status: PaymentStatus.PAID,
-      'metadata.pricingOption': pricingOption,
-    });
-
-    const latestPaidByUser = new Map<string, Date>();
-    for (const record of paidRecords) {
-      if (!record.paidAt) continue;
-      const userId = record.userId.toString();
-      const currentLatest = latestPaidByUser.get(userId);
-      if (!currentLatest || new Date(record.paidAt) > currentLatest) {
-        latestPaidByUser.set(userId, new Date(record.paidAt));
-      }
-    }
-
-    const activeUsers = new Set<string>();
-    for (const [userId, paidAt] of latestPaidByUser.entries()) {
-      if (now.getTime() - paidAt.getTime() < validityMs) {
-        activeUsers.add(userId);
-      }
-    }
-
-    return activeUsers;
   }
 
   async getSessionPaymentStatus(sessionId: string) {
@@ -1488,6 +1430,13 @@ export class SessionPaymentService {
       return payment;
     }
 
+    // An old monthly payment migrated into a MonthlyPass belongs to the pass
+    // now: cancelling or leaving a session never refunds it (MP-6).
+    if (payment.metadata?.convertedToPass) {
+      this.logger.warn(`Payment ${paymentId} was converted to monthly pass ${payment.metadata.convertedToPass}; not refunding`);
+      return payment;
+    }
+
     if (
       payment.status === PaymentStatus.REFUND_PENDING ||
       payment.status === PaymentStatus.REFUND_NEEDS_ATTENTION
@@ -1545,6 +1494,7 @@ export class SessionPaymentService {
     const paidPayments = await this.sessionPaymentRepository.find({
       sessionId: new Types.ObjectId(sessionId),
       status: PaymentStatus.PAID,
+      'metadata.convertedToPass': { $exists: false },
     });
 
     const results: Array<{ paymentId: string; userId: string; success: boolean; error?: string }> = [];
@@ -1634,9 +1584,10 @@ export class SessionPaymentService {
       return;
     }
 
-    // An extra charge was never credited to the owner or the platform, so
-    // there's nothing to reverse — the refund just closes it.
-    if (payment.duplicateOf) {
+    // An extra charge, or a charge on a cancelled bill, was never credited to
+    // the owner or the platform, so there's nothing to reverse — the refund
+    // just closes it.
+    if (payment.duplicateOf || payment.metadata?.neverCredited) {
       await this.sessionPaymentRepository.findOneAndUpdate(
         { _id: payment._id },
         { status: PaymentStatus.REFUNDED, refundedAt: new Date() },

@@ -144,6 +144,11 @@ export class UpdateLocationPricingDto {
   paymentPerPersonMonthly?: number;
 }
 
+export class UpdateMonthlyPassSalesDto {
+  @IsBoolean()
+  paused: boolean;
+}
+
 export class UpdateOpeningHoursDto {
   @Matches(/^([01]\d|2[0-3]):([0-5]\d)$/, {
     message: 'openingHour must be in HH:mm format',

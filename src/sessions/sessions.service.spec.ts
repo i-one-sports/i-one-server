@@ -9,6 +9,7 @@ import {
   Session,
 } from '@app/common';
 import { SessionsService } from './sessions.service';
+import { MonthlyPassService } from 'src/billing/services/monthly-pass.service';
 import { SetsService } from 'src/sets/sets.service';
 
 describe('SessionsService', () => {
@@ -38,7 +39,6 @@ describe('SessionsService', () => {
   let captainsService: { createCaptain: jest.Mock; isCaptain: jest.Mock };
   let sessionPaymentService: {
     initializeSessionPayments: jest.Mock;
-    getUsersWithActiveRecurringPayment: jest.Mock;
     getSessionMemberPaymentMap: jest.Mock;
     handlePoolMemberLeave: jest.Mock;
     publishPoolUpdate: jest.Mock;
@@ -48,6 +48,7 @@ describe('SessionsService', () => {
   };
   let notificationService: { send: jest.Mock };
   let setsService: { createSet: jest.Mock };
+  let monthlyPassService: { onActivated: jest.Mock; findCoveringPass: jest.Mock; passOffer: jest.Mock };
 
   const userId = new Types.ObjectId();
   const locationId = new Types.ObjectId();
@@ -84,7 +85,6 @@ describe('SessionsService', () => {
     };
     sessionPaymentService = {
       initializeSessionPayments: jest.fn(),
-      getUsersWithActiveRecurringPayment: jest.fn(),
       getSessionMemberPaymentMap: jest.fn(),
       handlePoolMemberLeave: jest.fn().mockResolvedValue({ refunded: 0 }),
       publishPoolUpdate: jest.fn().mockResolvedValue(undefined),
@@ -94,6 +94,15 @@ describe('SessionsService', () => {
     };
     notificationService = { send: jest.fn().mockResolvedValue(undefined) };
     setsService = { createSet: jest.fn().mockResolvedValue([]) };
+    monthlyPassService = {
+      onActivated: jest.fn(),
+      findCoveringPass: jest.fn().mockResolvedValue(null),
+      passOffer: jest.fn().mockResolvedValue({
+        locationId: locationId.toString(),
+        salesPaused: false,
+        price: { baseAmount: 2000000, commissionPercentage: 15, commissionAmount: 300000, processingFee: 10000, amount: 2310000 },
+      }),
+    };
 
     service = new SessionsService(
       sessionRepository as any,
@@ -106,6 +115,7 @@ describe('SessionsService', () => {
       { get: jest.fn(), set: jest.fn(), delete: jest.fn() } as any,
       connection as any,
       setsService as unknown as SetsService,
+      monthlyPassService as unknown as MonthlyPassService,
     );
     sessionRepository.findRaw.mockReturnValue(sessionModel);
   });
@@ -318,9 +328,10 @@ describe('SessionsService', () => {
           _id: sessionId.toString(),
           isFull: { $ne: true },
           members: { $ne: userId.toString() },
-          $expr: { $lt: [{ $size: '$members' }, '$maxNumber'] },
+          // room = members + other players' unexpired buy-to-join holds < maxNumber
+          $expr: expect.objectContaining({ $lt: expect.any(Array) }),
         },
-        { $push: { members: userId.toString() } },
+        { $push: { members: userId.toString() }, $pull: { passHolds: { userId } } },
       );
       expect(
         sessionPaymentService.initializeSessionPayments,
@@ -382,8 +393,6 @@ describe('SessionsService', () => {
         tier: LOCATION_TIER.PAID,
         pricingOption: LOCATION_PRICING_OPTION.MONTHLY,
       });
-      sessionPaymentService.getUsersWithActiveRecurringPayment.mockResolvedValue(new Set());
-
       await service.joinSession(userId.toString(), sessionId.toString());
 
       expect(
@@ -395,7 +404,7 @@ describe('SessionsService', () => {
         expect.arrayContaining([existingMember, userId]),
         5000,
         expect.any(Date),
-        LOCATION_PRICING_OPTION.MONTHLY,
+        undefined, // the session's own pricing snapshot (none on this legacy session)
       );
       // Paid: teams wait for the last payment (SessionPaymentService).
       expect(setsService.createSet).not.toHaveBeenCalled();
@@ -465,38 +474,6 @@ describe('SessionsService', () => {
         { paymentRequired: false, paymentStatus: 'COMPLETED', allPaymentsCompleted: true },
       );
       expect(setsService.createSet).toHaveBeenCalledWith(sessionId.toString());
-    });
-
-    it('marks monthly sessions complete when every member already has active recurring payment', async () => {
-      const memberOne = new Types.ObjectId();
-      const memberTwo = new Types.ObjectId();
-      locationRepository.findOne.mockResolvedValue({
-        _id: locationId,
-        owner: ownerId,
-        tier: LOCATION_TIER.PAID,
-        pricingOption: LOCATION_PRICING_OPTION.MONTHLY,
-      });
-      sessionPaymentService.getUsersWithActiveRecurringPayment.mockResolvedValue(
-        new Set([memberOne.toString(), memberTwo.toString()]),
-      );
-
-      await service.onSessionFull({
-        _id: sessionId,
-        location: locationId,
-        members: [memberOne, memberTwo],
-        paymentAmount: 5000,
-      } as any);
-
-      expect(
-        sessionPaymentService.initializeSessionPayments,
-      ).not.toHaveBeenCalled();
-      expect(sessionRepository.findOneAndUpdate).toHaveBeenCalledWith(
-        { _id: sessionId },
-        { paymentStatus: 'COMPLETED', allPaymentsCompleted: true },
-      );
-      // No payment will arrive to trigger it, so the teams are made now.
-      expect(setsService.createSet).toHaveBeenCalledWith(sessionId.toString());
-      expect(sessionPaymentService.publishSessionUpdate).toHaveBeenCalledWith(sessionId.toString(), 'billing_opened');
     });
   });
 
@@ -924,6 +901,133 @@ describe('SessionsService', () => {
           $lte: new Date('2026-05-04T22:59:59.999Z'),
         },
       });
+    });
+  });
+
+  describe('monthly pitches: passes instead of a session bill', () => {
+    const startTime = new Date('2026-12-10T17:00:00.000Z');
+    const passId = new Types.ObjectId();
+    const monthlyPitch = {
+      _id: locationId, owner: ownerId, tier: LOCATION_TIER.PAID, pricingOption: LOCATION_PRICING_OPTION.MONTHLY,
+      paymentPerPersonMonthly: 2000000, openingHour: '00:00', closingHour: '23:59',
+    };
+    const passSession = (overrides: Record<string, unknown> = {}) => ({
+      _id: sessionId, location: locationId, members: [new Types.ObjectId()], maxNumber: 4, isFull: false,
+      startTime, requiresPass: true, paymentRequired: false, passHolders: [], ...overrides,
+    });
+    const detailsOf = async (promise: Promise<unknown>) =>
+      promise.then(
+        () => null,
+        (e: { getStatus: () => number; getResponse: () => { details?: { code?: string; pass?: { price?: unknown } } } }) => ({
+          status: e.getStatus(),
+          ...e.getResponse().details,
+        }),
+      );
+    const configure = () =>
+      service.createSession(
+        { setNumber: 2, playersPerTeam: 5, timeDuration: 60, minsPerSet: 10, startTime, winningDecider: 'penalties' as never },
+        userId.toString(),
+        sessionId.toString(),
+      );
+
+    beforeEach(() => {
+      captainsService.isCaptain.mockResolvedValue(true);
+      locationRepository.findOne.mockResolvedValue(monthlyPitch);
+    });
+
+    it('configuring needs the captain to hold a pass covering the start time (402 PASS_REQUIRED + price)', async () => {
+      sessionRepository.findOne.mockResolvedValue({ _id: sessionId, location: locationId });
+      const result = await detailsOf(configure());
+      expect(result).toMatchObject({ status: HttpStatus.PAYMENT_REQUIRED, code: 'PASS_REQUIRED', pass: { price: { amount: 2310000 } } });
+      expect(monthlyPassService.findCoveringPass).toHaveBeenCalledWith(userId, locationId, startTime);
+      expect(sessionModel.findOneAndUpdate).not.toHaveBeenCalled();
+    });
+
+    it('configured with a pass: no bill, requiresPass, the captain recorded as a pass holder', async () => {
+      sessionRepository.findOne
+        .mockResolvedValueOnce({ _id: sessionId, location: locationId })
+        .mockResolvedValue(null);
+      monthlyPassService.findCoveringPass.mockResolvedValue({ _id: passId });
+
+      await configure();
+
+      expect(sessionModel.findOneAndUpdate).toHaveBeenCalledWith(
+        { _id: sessionId },
+        expect.objectContaining({
+          paymentRequired: false,
+          paymentAmount: 0,
+          paymentStatus: 'COMPLETED',
+          requiresPass: true,
+          pricingOption: LOCATION_PRICING_OPTION.MONTHLY,
+          passHolders: [{ userId, passId }],
+        }),
+        expect.anything(),
+      );
+    });
+
+    it('joining without a pass covering the session: 402 PASS_REQUIRED with the offer, nobody added', async () => {
+      sessionRepository.findOne.mockResolvedValue(passSession());
+      const result = await detailsOf(service.joinSession(userId.toString(), sessionId.toString()));
+      expect(result).toMatchObject({ status: HttpStatus.PAYMENT_REQUIRED, code: 'PASS_REQUIRED', sessionId: sessionId.toString() });
+      expect(sessionRepository.findOneAndUpdate).not.toHaveBeenCalled();
+    });
+
+    it('joining with a pass records it on the session', async () => {
+      sessionRepository.findOne.mockResolvedValue(passSession());
+      monthlyPassService.findCoveringPass.mockResolvedValue({ _id: passId });
+      sessionRepository.findOneAndUpdate.mockResolvedValue(passSession({ members: [new Types.ObjectId(), userId] }));
+
+      await service.joinSession(userId.toString(), sessionId.toString());
+
+      expect(monthlyPassService.findCoveringPass).toHaveBeenCalledWith(userId, locationId, startTime);
+      expect(sessionRepository.findOneAndUpdate.mock.calls[0][1]).toEqual({
+        $push: { members: userId.toString(), passHolders: { userId, passId } },
+        $pull: { passHolds: { userId } },
+      });
+    });
+
+    it('a pass session that fills gets its teams straight away and sends no bills', async () => {
+      sessionRepository.findOne.mockResolvedValue(passSession({ maxNumber: 2 }));
+      monthlyPassService.findCoveringPass.mockResolvedValue({ _id: passId });
+      const full = passSession({ maxNumber: 2, members: [new Types.ObjectId(), userId] });
+      sessionRepository.findOneAndUpdate.mockResolvedValueOnce(full).mockResolvedValueOnce({ ...full, isFull: true });
+
+      await service.joinSession(userId.toString(), sessionId.toString());
+
+      expect(setsService.createSet).toHaveBeenCalledWith(sessionId.toString());
+      expect(sessionPaymentService.initializeSessionPayments).not.toHaveBeenCalled();
+    });
+
+    it('leaving never refunds the pass; the player just stops being a pass holder', async () => {
+      sessionRepository.findOne.mockResolvedValue(passSession({ members: [userId], passHolders: [{ userId, passId }] }));
+      userRepository.findOne.mockResolvedValue({ _id: userId });
+      sessionRepository.findOneAndUpdate.mockResolvedValue({ _id: sessionId });
+
+      await service.leaveSession(userId.toString(), sessionId.toString());
+
+      expect(sessionPaymentService.refundPayment).not.toHaveBeenCalled();
+      expect(sessionRepository.findOneAndUpdate).toHaveBeenCalledWith(
+        { _id: sessionId.toString() },
+        expect.objectContaining({ $pull: expect.objectContaining({ passHolders: { userId } }) }),
+      );
+    });
+
+    it('buy-to-join: once the pass is paid, the player is added to the held session', async () => {
+      service.onModuleInit();
+      const handler = monthlyPassService.onActivated.mock.calls[0][0] as (pass: unknown) => Promise<void>;
+      sessionRepository.findOne.mockResolvedValue(passSession());
+      monthlyPassService.findCoveringPass.mockResolvedValue({ _id: passId });
+      sessionRepository.findOneAndUpdate.mockResolvedValue(passSession({ members: [new Types.ObjectId(), userId] }));
+
+      await handler({ _id: passId, userId, holdSessionId: sessionId });
+      expect(sessionPaymentService.publishSessionUpdate).toHaveBeenCalledWith(sessionId.toString(), 'joined');
+    });
+
+    it('buy-to-join: if the session filled up meanwhile, the player keeps the pass and nothing throws', async () => {
+      service.onModuleInit();
+      const handler = monthlyPassService.onActivated.mock.calls[0][0] as (pass: unknown) => Promise<void>;
+      sessionRepository.findOne.mockResolvedValue(passSession({ isFull: true }));
+      await expect(handler({ _id: passId, userId, holdSessionId: sessionId })).resolves.toBeUndefined();
     });
   });
 });

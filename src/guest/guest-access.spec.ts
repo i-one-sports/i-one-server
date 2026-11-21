@@ -29,6 +29,10 @@ const pitch = { _id: new Types.ObjectId(), name: 'Ikoyi Turf', address: '5 Pitch
 const tournament = { _id: new Types.ObjectId(), name: 'Lagos Cup', organizer: person(), registeredTeams: [{ name: 'Lions', captain: person() }] };
 const session = { _id: new Types.ObjectId(), location: pitch, members: [person(), person()], captain: person(), maxNumber: 10 };
 
+// Boots a real Nest app; the first request also warms up passport and the
+// routes. Allow for a busy machine (full parallel test run).
+jest.setTimeout(30_000);
+
 describe('guest access over HTTP', () => {
   let app: INestApplication;
   let cookie: string;

@@ -12,6 +12,12 @@ import { Set, SetSchema } from '@app/common/schemas/sets.schema';
 import { Location, LocationSchema } from '@app/common/schemas/location.schema';
 import { PlatformCommission, PlatformCommissionSchema } from '@app/common/schemas/platform-commission.schema';
 import { PaymentIdempotencyKey, PaymentIdempotencyKeySchema } from '@app/common/schemas/payment-idempotency-key.schema';
+import { MonthlyPass, MonthlyPassSchema } from '@app/common/schemas/monthly-pass.schema';
+import { MonthlyPassRepository } from './repositories/monthly-pass.repository';
+import { MonthlyPassService } from './services/monthly-pass.service';
+import { MonthlyPassController } from './controllers/monthly-pass.controller';
+import { LocationRepository } from '../locations/locations.repository';
+import { SessionRepository } from '../sessions/sessions.repository';
 
 import { WalletRepository } from './repositories/wallet.repository';
 import { TransactionRepository } from './repositories/transaction.repository';
@@ -30,6 +36,7 @@ import { WebhookService } from './services/webhook.service';
 import { WithdrawalService } from './services/withdrawal.service';
 import { TournamentPaymentService } from './services/tournament-payment.service';
 import { LocationBillingService } from './services/location-billing.service';
+import { PlatformPostingService } from './services/platform-posting.service';
 
 import { WalletController } from './controllers/wallet.controller';
 import { WebhookController } from './controllers/webhook.controller';
@@ -57,6 +64,7 @@ import { SetsModule } from '../sets/sets.module';
       { name: Set.name, schema: SetSchema },
       { name: PlatformCommission.name, schema: PlatformCommissionSchema },
       { name: Location.name, schema: LocationSchema },
+      { name: MonthlyPass.name, schema: MonthlyPassSchema },
     ]),
   ],
   controllers: [
@@ -64,6 +72,7 @@ import { SetsModule } from '../sets/sets.module';
     WebhookController,
     AdminBillingController,
     LocationBillingController,
+    MonthlyPassController,
   ],
   providers: [
     WalletRepository,
@@ -82,6 +91,11 @@ import { SetsModule } from '../sets/sets.module';
     WebhookService,
     WithdrawalService,
     LocationBillingService,
+    PlatformPostingService,
+    MonthlyPassRepository,
+    MonthlyPassService,
+    LocationRepository,
+    SessionRepository,
     PaystackService,
   ],
   exports: [
@@ -90,6 +104,7 @@ import { SetsModule } from '../sets/sets.module';
     SessionPaymentEventService,
     TournamentPaymentService,
     WithdrawalService,
+    MonthlyPassService,
   ],
 })
 export class BillingModule {}

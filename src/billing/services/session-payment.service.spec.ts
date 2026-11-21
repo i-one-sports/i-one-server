@@ -1,4 +1,5 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { PlatformPostingService } from './platform-posting.service';
 import { PaymentIdempotencyKeyRepository } from '../repositories/payment-idempotency-key.repository';
 import { Types } from 'mongoose';
 import { ConflictException, ForbiddenException } from '@nestjs/common';
@@ -135,6 +136,7 @@ describe('SessionPaymentService', () => {
       locationModel as any,
       eventService as any,
       idempotencyKeys as unknown as PaymentIdempotencyKeyRepository,
+      new PlatformPostingService(walletService as never, settingsService as never),
     );
   });
 
@@ -541,41 +543,60 @@ describe('SessionPaymentService', () => {
     });
   });
 
-  describe('getUsersWithActiveRecurringPayment', () => {
-    it('ignores hourly pricing because each session requires a fresh payment', async () => {
-      await expect(
-        service.getUsersWithActiveRecurringPayment(
-          locationId,
-          [userOne],
-          LOCATION_PRICING_OPTION.HOURLY,
-        ),
-      ).resolves.toEqual(new Set());
-
-      expect(sessionPaymentRepository.find).not.toHaveBeenCalled();
+  describe('a bill cancelled before its payment arrived (e.g. by the monthly pass migration)', () => {
+    const cancelledBill = () => ({
+      _id: new Types.ObjectId(), sessionId, userId: userOne, ownerId, amount: 2310000, baseAmount: 2000000,
+      status: PaymentStatus.EXPIRED, paymentReference: 'REF_LATE', previousReferences: [],
+      metadata: { pricingOption: 'monthly', cancelledByMigration: true },
     });
 
-    it('returns only users with a recent paid recurring payment', async () => {
-      jest.useFakeTimers().setSystemTime(new Date('2026-05-03T12:00:00.000Z'));
-      sessionPaymentRepository.find.mockResolvedValue([
-        {
-          userId: userOne,
-          paidAt: new Date('2026-04-25T12:00:00.000Z'),
-        },
-        {
-          userId: userTwo,
-          paidAt: new Date('2026-03-01T12:00:00.000Z'),
-        },
-      ]);
+    it('refunds the charge in full and credits nobody', async () => {
+      const bill = cancelledBill();
+      sessionPaymentRepository.findOne.mockResolvedValue(bill);
+      sessionPaymentRepository.findOneAndUpdate
+        .mockResolvedValueOnce(null) // the PENDING claim fails: the bill isn't pending any more
+        .mockResolvedValueOnce({ ...bill, status: PaymentStatus.REFUND_PENDING }) // EXPIRED → REFUND_PENDING
+        .mockResolvedValueOnce({ ...bill, status: PaymentStatus.REFUND_PENDING, refundReference: '999' });
 
-      await expect(
-        service.getUsersWithActiveRecurringPayment(
-          locationId,
-          [userOne, userTwo],
-          LOCATION_PRICING_OPTION.MONTHLY,
-        ),
-      ).resolves.toEqual(new Set([userOne.toString()]));
+      await service.confirmSessionPayment(sessionId, userOne, 'REF_LATE', 2310000, 4465);
 
-      jest.useRealTimers();
+      expect(sessionPaymentRepository.findOneAndUpdate).toHaveBeenNthCalledWith(2,
+        { _id: bill._id, status: PaymentStatus.EXPIRED },
+        expect.objectContaining({ status: PaymentStatus.REFUND_PENDING, paidReference: 'REF_LATE', 'metadata.neverCredited': true }),
+      );
+      expect(paystackService.refundTransaction).toHaveBeenCalledWith('REF_LATE', 2310000, expect.any(String));
+      expect(walletService.creditWallet).not.toHaveBeenCalled(); // nobody is credited
+    });
+
+    it('when the refund settles, the owner is not debited (they were never credited)', async () => {
+      const bill = { ...cancelledBill(), status: PaymentStatus.REFUND_PENDING, metadata: { neverCredited: true } };
+      sessionPaymentRepository.findOne.mockResolvedValue(bill);
+      sessionPaymentRepository.findOneAndUpdate.mockResolvedValue({ ...bill, status: PaymentStatus.REFUNDED });
+      sessionPaymentRepository.findRaw.mockReturnValue({ countDocuments: jest.fn().mockResolvedValue(1) });
+
+      await service.handleRefundWebhookEvent('refund.processed', { transaction_reference: 'REF_LATE' });
+
+      expect(walletService.debitWallet).not.toHaveBeenCalled();
+      expect(sessionPaymentRepository.findOneAndUpdate).toHaveBeenCalledWith(
+        { _id: bill._id }, { status: PaymentStatus.REFUNDED, refundedAt: expect.any(Date) },
+      );
+    });
+  });
+
+  describe('payments converted to monthly passes', () => {
+    it('refundPayment never refunds a payment that became a pass', async () => {
+      const converted = { _id: new Types.ObjectId(), status: PaymentStatus.PAID, metadata: { convertedToPass: 'pass1' } };
+      sessionPaymentRepository.findOne.mockResolvedValue(converted);
+      await expect(service.refundPayment(converted._id.toString())).resolves.toBe(converted);
+      expect(paystackService.refundTransaction).not.toHaveBeenCalled();
+    });
+
+    it('cancelling a session skips converted payments', async () => {
+      sessionPaymentRepository.find.mockResolvedValue([]);
+      await service.refundAllForSession(sessionId.toString());
+      expect(sessionPaymentRepository.find).toHaveBeenCalledWith(
+        expect.objectContaining({ 'metadata.convertedToPass': { $exists: false } }),
+      );
     });
   });
 
@@ -1172,34 +1193,46 @@ describe('SessionPaymentService', () => {
       expect(sessionPaymentRepository.findRaw).not.toHaveBeenCalled();
     });
 
-    it('per-person: paid, owing and refunding members, plus one covered by a monthly pass', async () => {
-      // The San Siro case: bills went out to everyone but the pass holder.
+    it('per-person: paid, owing and refunding members, plus one recorded as a pass holder', async () => {
       sessionModel.aggregate.mockResolvedValue([
-        sessionDoc({ paymentRequired: true, paymentMode: SESSION_PAYMENT_MODE.PER_PERSON, paymentStatus: 'PENDING' }, [
-          userOne,
-          covered,
-          owing,
-          refunding,
-        ]),
+        sessionDoc(
+          {
+            paymentRequired: true, paymentMode: SESSION_PAYMENT_MODE.PER_PERSON, paymentStatus: 'PENDING',
+            passHolders: [{ userId: covered, passId: new Types.ObjectId() }],
+          },
+          [userOne, covered, owing, refunding],
+        ),
       ]);
       paymentRows([
         { userId: userOne, status: PaymentStatus.PAID },
         { userId: owing, status: PaymentStatus.PENDING },
         { userId: refunding, status: PaymentStatus.REFUND_NEEDS_ATTENTION },
       ]);
-      locationModel.findById.mockReturnValue(query({ pricingOption: LOCATION_PRICING_OPTION.MONTHLY }));
-      sessionPaymentRepository.find.mockResolvedValue([
-        { userId: covered, paidAt: new Date(Date.now() - 18 * 24 * 60 * 60 * 1000) },
-      ]);
 
       const snapshot = await service.getSessionSnapshot(sessionId.toString());
 
       expect(snapshot.members.map((m) => m.payment)).toEqual(['PAID', 'COVERED', 'PENDING', 'REFUND_PENDING']);
       expect(snapshot).toMatchObject({ paidCount: 1, owingCount: 1, coveredCount: 1, pool: null });
-      // Only the unbilled member is checked for a pass.
-      expect(sessionPaymentRepository.find).toHaveBeenCalledWith(
-        expect.objectContaining({ userId: { $in: [covered] } }),
-      );
+      // Read from the session, never re-checked live against passes or the pitch.
+      expect(sessionPaymentRepository.find).not.toHaveBeenCalled();
+      expect(locationModel.findById).not.toHaveBeenCalled();
+    });
+
+    it('pass session (monthly pitch): every member who joined with a pass shows COVERED', async () => {
+      sessionModel.aggregate.mockResolvedValue([
+        sessionDoc(
+          {
+            paymentRequired: false, requiresPass: true, paymentStatus: 'COMPLETED',
+            passHolders: [userOne, userTwo].map((userId) => ({ userId, passId: new Types.ObjectId() })),
+          },
+          [userOne, userTwo],
+        ),
+      ]);
+
+      const snapshot = await service.getSessionSnapshot(sessionId.toString());
+
+      expect(snapshot.members.map((m) => m.payment)).toEqual(['COVERED', 'COVERED']);
+      expect(snapshot).toMatchObject({ coveredCount: 2, owingCount: 0 });
     });
 
     it('a member without a bill at an hourly pitch is not shown as covered', async () => {

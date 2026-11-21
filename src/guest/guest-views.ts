@@ -94,6 +94,7 @@ export interface GuestSession {
   paymentMode: string | null;
   paymentTarget: number | null;
   paymentAmount: number | null;
+  requiresPass: boolean; // monthly pitch: players need a monthly pass to join
 }
 
 export function toGuestSession(session: unknown): GuestSession {
@@ -118,6 +119,7 @@ export function toGuestSession(session: unknown): GuestSession {
     paymentMode: str(get(session, 'paymentMode')),
     paymentTarget: num(get(session, 'paymentTarget')),
     paymentAmount: num(get(session, 'paymentAmount')),
+    requiresPass: bool(get(session, 'requiresPass')),
   };
 }
 

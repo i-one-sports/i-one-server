@@ -16,7 +16,7 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from 'src/auth/guards/jwt.guard';
 import { LocationsService } from './locations.service';
-import { CreateLocationDto, UpdateLocationPricingDto, UpdateOpeningHoursDto, UpdatePitchConditionDto, ViewNearbyLocationsDto } from './dto/location.dto';
+import { CreateLocationDto, UpdateLocationPricingDto, UpdateMonthlyPassSalesDto, UpdateOpeningHoursDto, UpdatePitchConditionDto, ViewNearbyLocationsDto } from './dto/location.dto';
 import { CurrentUser, IsOwner, UploadType, User, IsOwnerGuard } from '@app/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import * as multer from 'multer'
@@ -200,6 +200,17 @@ export class LocationsController {
       @Body() data: UpdateLocationPricingDto,
     ) {
       return this.locationsService.updateLocationPricing(locationId, user._id.toString(), data);
+    }
+
+    // Pause / resume selling and renewing monthly passes at this pitch.
+    @UseGuards(IsOwnerGuard)
+    @Patch(':locationId/monthly-pass-sales')
+    async setMonthlyPassSales(
+      @IsOwner() user: User,
+      @Param('locationId') locationId: string,
+      @Body() data: UpdateMonthlyPassSalesDto,
+    ) {
+      return this.locationsService.setMonthlyPassSalesPaused(locationId, user._id.toString(), data.paused);
     }
 
     @UseGuards(IsOwnerGuard)

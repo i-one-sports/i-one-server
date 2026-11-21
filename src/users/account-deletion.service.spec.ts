@@ -17,6 +17,10 @@ import { BankAccountRepository } from 'src/billing/repositories/bank-account.rep
 import { AwsService } from '@app/common/providers/aws.service';
 import { UploadType } from '@app/common';
 
+// Real bcrypt is deliberately slow; under a full parallel test run it can
+// blow Jest's 5s timeout. The service only needs *a* hash of random bytes.
+jest.mock('bcrypt', () => ({ hash: jest.fn().mockResolvedValue('$2b$10$stubbedhashstubbedhashstubbedhashstubbedhashstubbe') }));
+
 describe('AccountDeletionService', () => {
   const userId = new Types.ObjectId();
   const walletId = new Types.ObjectId();
@@ -169,7 +173,9 @@ describe('AccountDeletionService', () => {
       otp: null,
       deletedAt: expect.any(Date),
     });
-    expect(update.$set.password).toMatch(/^\$2[aby]\$/); // a bcrypt hash of random bytes
+    expect(update.$set.password).toMatch(/^\$2[aby]\$/); // a bcrypt hash…
+    const [hashedInput] = (jest.requireMock('bcrypt') as { hash: jest.Mock }).hash.mock.calls[0];
+    expect(hashedInput).toMatch(/^[0-9a-f]{64}$/); // …of 32 random bytes, not anything the user knows
   });
 
   it('removes the avatar file from storage after the account is deleted', async () => {

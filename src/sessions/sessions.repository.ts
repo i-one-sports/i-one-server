@@ -1,7 +1,30 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { AbstractRepository, SESSION_STATUS, Session } from '@app/common';
+import { AbstractRepository, SESSION_PAYMENT_MODE, SESSION_STATUS, Session } from '@app/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
+
+// "Is there still a spot for `userId`?" — members plus other players'
+// unexpired pass holds (buy-to-join) must stay below maxNumber. Used inside
+// atomic updates so two players can never both take the last spot.
+export const roomForExpr = (userId: Types.ObjectId, now: Date) => ({
+  $lt: [
+    {
+      $add: [
+        { $size: { $ifNull: ['$members', []] } },
+        {
+          $size: {
+            $filter: {
+              input: { $ifNull: ['$passHolds', []] },
+              as: 'hold',
+              cond: { $and: [{ $gt: ['$$hold.expiresAt', now] }, { $ne: ['$$hold.userId', userId] }] },
+            },
+          },
+        },
+      ],
+    },
+    '$maxNumber',
+  ],
+});
 
 @Injectable()
 export class SessionRepository extends AbstractRepository<Session> {
@@ -9,6 +32,65 @@ export class SessionRepository extends AbstractRepository<Session> {
 
   constructor(@InjectModel(Session.name) SessionModel: Model<Session>) {
     super(SessionModel);
+  }
+
+  // Holds a spot in an open pass session for a player who is buying a pass,
+  // if there's still room. Returns false when the session is full / closed.
+  async placePassHold(sessionId: Types.ObjectId, userId: Types.ObjectId, passId: Types.ObjectId, expiresAt: Date): Promise<boolean> {
+    const now = new Date();
+    await this.model.updateOne({ _id: sessionId }, { $pull: { passHolds: { userId } } }); // replace any older hold of theirs
+    const held = await this.model.findOneAndUpdate(
+      {
+        _id: sessionId,
+        requiresPass: true,
+        status: SESSION_STATUS.OPEN,
+        finished: { $ne: true },
+        isFull: { $ne: true },
+        members: { $ne: userId },
+        $expr: roomForExpr(userId, now),
+      },
+      { $push: { passHolds: { userId, passId, expiresAt } } },
+      { new: true },
+    );
+    return held !== null;
+  }
+
+  // The pitch stopped being monthly: its unplayed pass sessions stop needing
+  // passes. Going free they're simply free; going hourly they become pool
+  // sessions billed at the new hourly price (pricePerHour × hours). Returns
+  // how many were changed.
+  async releasePassSessions(locationId: Types.ObjectId, now: Date, hourly?: { pricePerHour: number }): Promise<number> {
+    const filter = {
+      location: locationId,
+      requiresPass: true,
+      status: SESSION_STATUS.OPEN,
+      finished: { $ne: true },
+      startTime: { $gt: now },
+    };
+    const result = hourly
+      ? await this.model.updateMany(filter, [
+          {
+            $set: {
+              requiresPass: false,
+              pricingOption: 'hourly',
+              passHolds: [],
+              paymentRequired: true,
+              paymentMode: SESSION_PAYMENT_MODE.POOL,
+              paymentAmount: 0,
+              paymentTarget: { $multiply: [hourly.pricePerHour, { $max: [1, { $ceil: { $divide: ['$timeDuration', 60] } }] }] },
+              amountPaid: 0,
+              amountReserved: 0,
+              paymentStatus: 'NOT_INITIATED',
+              allPaymentsCompleted: false,
+            },
+          },
+        ])
+      : await this.model.updateMany(filter, { $set: { requiresPass: false, passHolds: [] } });
+    return result.modifiedCount;
+  }
+
+  async releasePassHold(sessionId: Types.ObjectId, passId: Types.ObjectId): Promise<void> {
+    await this.model.updateOne({ _id: sessionId }, { $pull: { passHolds: { passId } } });
   }
 
   // A session at one of these pitches that is booked and not over yet

@@ -3,6 +3,7 @@ import { PaystackService } from '@app/common/providers/paystack.service';
 import { WalletService } from './wallet.service';
 import { SessionPaymentService } from './session-payment.service';
 import { TournamentPaymentService } from './tournament-payment.service';
+import { MonthlyPassService } from './monthly-pass.service';
 import { WebhookEventRepository } from '../repositories/webhook-event.repository';
 import { TransactionRepository } from '../repositories/transaction.repository';
 import { WalletRepository } from '../repositories/wallet.repository';
@@ -25,6 +26,7 @@ export class WebhookService {
     private readonly webhookEventRepository: WebhookEventRepository,
     private readonly transactionRepository: TransactionRepository,
     private readonly walletRepository: WalletRepository,
+    private readonly monthlyPassService: MonthlyPassService,
   ) {}
 
   async handleWebhook(signature: string, body: any, rawBody: string) {
@@ -94,6 +96,11 @@ export class WebhookService {
         case 'refund.pending':
         case 'refund.processing':
           await this.sessionPaymentService.handleRefundWebhookEvent(event, data);
+          // No-op unless the refund is for a monthly pass payment.
+          await this.monthlyPassService.handleRefundWebhookEvent(
+            event,
+            data?.transaction_reference || data?.transaction?.reference,
+          );
           break;
         default:
           this.logger.log(`Unhandled webhook event: ${event}`);
@@ -154,6 +161,13 @@ export class WebhookService {
     if (metadata.type === 'TOURNAMENT_REGISTRATION') {
       await this.tournamentPaymentService.confirmPayment(data.reference, amount);
       this.logger.log(`Tournament registration confirmed: ref ${data.reference}`);
+      return;
+    }
+
+    // Branch 2b: Monthly pass (30-day pass at a monthly pitch)
+    if (metadata.type === 'MONTHLY_PASS') {
+      await this.monthlyPassService.confirmPass(data.reference, amount, data.fees);
+      this.logger.log(`Monthly pass payment processed: ref ${data.reference}`);
       return;
     }
 
