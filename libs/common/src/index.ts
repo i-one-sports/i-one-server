@@ -28,6 +28,7 @@ export * from './schemas/player-match-stat.schema';
 export * from './schemas/session-vote.schema';
 export * from './schemas/user-badge.schema';
 export * from './schemas/payment-idempotency-key.schema';
+export * from './schemas/monthly-pass.schema';
 export * from './schemas/stats.schema';
 export * from './utils/phone.number';
 export * from './typings/global.interface';

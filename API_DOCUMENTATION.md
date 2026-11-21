@@ -21,6 +21,7 @@
 18. [Badges](#badges)
 19. [Captains](#captains)
 20. [Wallet & Payments](#wallet--payments) — includes refund flow
+20a. [Monthly Passes](#monthly-passes) — 30-day pass for a monthly pitch
 21. [Banks](#banks)
 22. [Settings](#settings) — platform commission rate, minimum pool contribution
 23. [Location Billing](#location-billing) — owner transaction history & team payment validator
@@ -438,7 +439,7 @@ Register a pitch owner together with their pitch and payout details in one call.
 ```
 
 - `pricePerHour`: **total** price of the pitch per hour, in kobo — required when `tier` is `"paid"` and `pricingOption` is `"hourly"`. Players in a session split it between themselves (pooled payment).
-- `paymentPerPersonMonthly`: per-player monthly price, in kobo — required when `pricingOption` is `"monthly"`.
+- `paymentPerPersonMonthly`: price of a 30-day monthly pass, in kobo — required when `pricingOption` is `"monthly"`. See [Monthly Passes](#monthly-passes).
 - `paymentPerPersonHourly` is no longer accepted — sending it returns `400` (`property paymentPerPersonHourly should not exist`).
 
 ---
@@ -945,7 +946,7 @@ Register a new sports location. Owner only.
 - `tier`: `"free"` | `"paid"` (required)
 - `pricingOption`: `"hourly"` | `"monthly"` — required when `tier` is `"paid"`
 - `pricePerHour`: **total** price of the pitch per hour, in **kobo** — required when `pricingOption` is `"hourly"` (e.g. `2000000` = ₦20,000/hr). The players in a session split it between themselves however they like (pooled payment — see [Wallet & Payments](#wallet--payments)). Replaces the old per-player `paymentPerPersonHourly`, which is no longer accepted.
-- `paymentPerPersonMonthly`: amount per player per month, in **kobo** — required when `pricingOption` is `"monthly"`
+- `paymentPerPersonMonthly`: price of a 30-day monthly pass, in **kobo** — required when `pricingOption` is `"monthly"` (see [Monthly Passes](#monthly-passes))
 - `openingHour` / `closingHour`: operating hours in `HH:mm` 24-hour format (e.g. `"08:00"`, `"22:00"`). Sessions cannot be booked outside these hours. All times are **Lagos time** (WAT, UTC+1), whatever timezone the server runs in. `closingHour` earlier than `openingHour` means open overnight (e.g. `23:00`–`05:00`, and a game from 23:30 to 01:00 is fine). The same time for both (e.g. `00:00`–`00:00`) means open 24 hours.
 
 **Success Response** `201 Created`: Full location document.
@@ -3487,6 +3488,119 @@ Withdraw funds to a bank account.
 
 ---
 
+## Monthly Passes
+
+A **monthly pass** is one player's 30-day pass for one **monthly** pitch (`tier: "paid"`, `pricingOption: "monthly"`). The price is the pitch's `paymentPerPersonMonthly` (kobo), now described as **the price of a 30-day pass**.
+
+> **Status (Phase 1):** passes can be bought, paid and listed. Sessions don't use them yet. Joining a session at a monthly pitch still works the old way until Phase 2, when joining will need a pass that covers the session's start time.
+
+**Rules**
+- A pass covers `startsAt ≤ time < endsAt`, and `endsAt = startsAt + 30 days`.
+- **Buying early never loses days:** a new pass starts when the player's current pass at that pitch ends (`state: "QUEUED"` until then).
+- **Price:** the same split as a session payment. The player pays price + commission + processing fee. The owner is credited the price when the Paystack webhook confirms payment. Price changes only affect passes bought after the change.
+- **One open checkout per player per pitch.** It lapses after **30 minutes** unpaid.
+- **Refunds:** a payment that can't become a pass is refunded in full and never credited to anyone. That covers a second charge for a paid pass, a payment after the checkout lapsed, and a payment after the pitch stopped being monthly.
+- **Paused sales:** if the owner has paused sales (`monthlyPassSalesPaused: true`), new checkouts are refused. Passes already sold stay valid.
+
+**Pass states** (`state` in responses)
+
+| `state` | Meaning |
+|---|---|
+| `PENDING` | Checkout opened, not paid yet |
+| `QUEUED` | Paid, starts later (bought before the current pass ends) |
+| `ACTIVE` | Paid and covering now |
+| `EXPIRED` | Paid, ended |
+| `REFUND_PENDING` / `REFUNDED` / `REFUND_FAILED` | A payment being / been returned |
+| `CANCELLED` | Checkout lapsed unpaid (not listed) |
+
+**Pass object**
+```json
+{
+  "_id": "…", "locationId": "…",
+  "pitch": { "_id": "…", "name": "Lekki Turf", "address": "…", "pitchPhoto": null },
+  "state": "ACTIVE",
+  "startsAt": "2026-12-01T13:00:00.000Z", "endsAt": "2026-12-31T13:00:00.000Z", "daysLeft": 30,
+  "amount": 2310000, "baseAmount": 2000000, "commissionAmount": 300000, "processingFee": 10000,
+  "paidAt": "2026-12-01T13:00:00.000Z"
+}
+```
+`pitch` is filled in on `GET /user/monthly-passes`, and `null` elsewhere. `daysLeft` counts to `endsAt`, and is `null` unless the pass is paid and not over.
+
+---
+
+### POST /location/:locationId/monthly-pass/checkout
+Opens a Paystack checkout for a 30-day pass at this pitch. Tapping again returns the same checkout while it's open.
+
+**Auth required**: Yes (JWT cookie)
+
+**Success Response** `201`:
+```json
+{
+  "passId": "…",
+  "authorizationUrl": "https://checkout.paystack.com/…",
+  "accessCode": "…",
+  "reference": "MONTHLY_PASS_…",
+  "amount": 2310000, "baseAmount": 2000000, "commissionAmount": 300000, "processingFee": 10000,
+  "expiresAt": "2026-12-01T13:30:00.000Z"
+}
+```
+If an earlier page for this checkout was already paid but the webhook hasn't arrived, the server confirms it and returns `{ "alreadyPaid": true, "status": "confirmed", "pass": { …pass object } }`. Don't open Paystack in that case.
+
+Payment is confirmed **only** by the Paystack webhook. After Paystack returns, poll `GET /location/:locationId/monthly-pass/me` until `current` (or `queued`) shows the pass.
+
+**Errors**:
+- `400` `details.code: "NOT_A_MONTHLY_PITCH"`: the pitch doesn't sell passes.
+- `409` `details.code: "PASS_SALES_PAUSED"`: the owner has paused pass sales.
+- `409` `code: "CHECKOUT_IN_PROGRESS"`: another request is preparing this checkout; try again.
+- `404`: pitch not found.
+
+---
+
+### GET /location/:locationId/monthly-pass/me
+This pitch's pass price, and the signed-in player's pass(es) here.
+
+**Auth required**: Yes (JWT cookie)
+
+```json
+{
+  "locationId": "…",
+  "isMonthlyPitch": true,
+  "salesPaused": false,
+  "price": { "baseAmount": 2000000, "commissionPercentage": 15, "commissionAmount": 300000, "processingFee": 10000, "amount": 2310000 },
+  "current": { …pass object, "state": "ACTIVE" } ,
+  "queued": [ { …pass object, "state": "QUEUED" } ]
+}
+```
+`price` is `null` when the pitch isn't selling passes (not monthly, or paused). `current` is `null` when no pass covers now.
+
+---
+
+### GET /user/monthly-passes
+Every pass the signed-in player has, newest first: active, queued, expired, pending, and refunds. Each has `pitch` filled in.
+
+**Auth required**: Yes (JWT cookie)
+
+---
+
+### GET /location/:locationId/monthly-passes
+Owner view (screen M01): who holds a pass now or queued, and pass income.
+
+**Auth required**: Yes (JWT cookie) + `IsOwnerGuard`, and you must own this pitch (`403` otherwise).
+
+```json
+{
+  "locationId": "…",
+  "activeCount": 12,
+  "queuedCount": 3,
+  "revenue": 30000000,
+  "salesPaused": false,
+  "passes": [ { …pass object, "player": { "_id": "…", "firstName": "Ada", "lastName": "Obi", "nickname": "ada9", "avatar": null, "position": "MF" } } ]
+}
+```
+`revenue` is everything credited to the owner for passes at this pitch, all time (kobo).
+
+---
+
 ## Banks
 
 Reference list of supported banks, synced from Paystack via `npx ts-node -r tsconfig-paths/register scripts/seed-banks.ts`. Used to populate bank-selection dropdowns when adding a `POST /wallet/bank-accounts` entry.
@@ -4148,6 +4262,7 @@ Receive and process events from Paystack. **This endpoint is called by Paystack,
 |---|---|
 | `charge.success` (session) | metadata has `sessionId`+`userId` → confirms session payment, credits owner wallet with `baseAmount`, records commission (if any). POOL contributions are matched by `reference`; a contribution that would overfund the pot (or arrives for a cancelled session / a player who left) is confirmed then refunded in full |
 | `charge.success` (tournament) | metadata has `type: "TOURNAMENT_REGISTRATION"` → credits the location owner's wallet and marks the team's registration as PAID |
+| `charge.success` (monthly pass) | metadata has `type: "MONTHLY_PASS"` + `passId` → activates the pass (30 days, queued after the player's current pass), credits the owner `baseAmount` (`MONTHLY_PASS`) and posts commission/fees to the platform wallet. A payment that can't become a pass (second charge, lapsed checkout, pitch no longer monthly) is refunded in full and credited to nobody. Refund events for those are matched by reference |
 | `charge.success` (wallet funding) | metadata has `type: "WALLET_FUNDING"` + `walletId` → credits the owner's wallet and marks the pending transaction as SUCCESS |
 | `transfer.success` | Marks the withdrawal transaction as SUCCESS |
 | `transfer.failed` | Refunds the debited wallet amount |
@@ -4350,7 +4465,8 @@ interface Location {
   pricingOption?: 'hourly' | 'monthly';
   pricePerHour?: number;            // total for the pitch per hour (kobo), set when pricingOption === 'hourly'
   paymentPerPersonHourly?: number;  // legacy per-player hourly price — no longer set
-  paymentPerPersonMonthly?: number; // set when pricingOption === 'monthly'
+  paymentPerPersonMonthly?: number; // price of a 30-day monthly pass (kobo), set when pricingOption === 'monthly'
+  monthlyPassSalesPaused?: boolean; // owner stopped selling/renewing passes; sold passes stay valid
   openingHour?: string;             // HH:mm Lagos time, e.g. "08:00"
   closingHour?: string;             // HH:mm Lagos time, e.g. "22:00". Earlier than openingHour = overnight; equal = 24 hours
   status?: 'pending_verification' | 'active' | 'rejected' | 'inactive'; // only 'active' (or missing) pitches are listed; 'inactive' = owner deleted their account

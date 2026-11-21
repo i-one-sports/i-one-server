@@ -1,4 +1,5 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { PlatformPostingService } from './platform-posting.service';
 import { PaymentIdempotencyKeyRepository } from '../repositories/payment-idempotency-key.repository';
 import { Types } from 'mongoose';
 import { ConflictException, ForbiddenException } from '@nestjs/common';
@@ -135,6 +136,7 @@ describe('SessionPaymentService', () => {
       locationModel as any,
       eventService as any,
       idempotencyKeys as unknown as PaymentIdempotencyKeyRepository,
+      new PlatformPostingService(walletService as never, settingsService as never),
     );
   });
 

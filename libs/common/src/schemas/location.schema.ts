@@ -62,8 +62,14 @@ export class Location extends AbstractDocument {
   @Prop({ type: Number, default: 0 })
   bookingVersion?: number;
 
+  // Kobo. Price of a 30-day monthly pass at this pitch (pricingOption 'monthly').
   @Prop({ type: Number, required: false })
   paymentPerPersonMonthly?: number;
+
+  // The owner has stopped selling and renewing monthly passes (e.g. to move
+  // the pitch to hourly once the last pass ends). Passes already sold stay valid.
+  @Prop({ type: Boolean, default: false })
+  monthlyPassSalesPaused?: boolean;
 
 
 

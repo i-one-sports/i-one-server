@@ -37,6 +37,7 @@ describe('WebhookService', () => {
       webhookEventRepository as any,
       {} as any,
       {} as any,
+      { confirmPass: jest.fn(), handleRefundWebhookEvent: jest.fn() } as never,
     );
   });
 

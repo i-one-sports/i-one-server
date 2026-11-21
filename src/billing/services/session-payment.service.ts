@@ -38,7 +38,8 @@ import {
   SessionPaymentEventService,
   SessionSnapshot,
 } from './session-payment-event.service';
-import { grossUp } from '../utils/processing-fee';
+import { PlatformPostingService } from './platform-posting.service';
+import { isDuplicateKeyError } from '../utils/mongo-errors';
 import { PaymentIdempotencyKeyRepository } from '../repositories/payment-idempotency-key.repository';
 import { PaymentIdempotencyKey } from '@app/common/schemas/payment-idempotency-key.schema';
 
@@ -60,8 +61,6 @@ const CHECKOUT_STUCK_MS = 60 * 1000;
 // payment) never count as a member's payment.
 const NOT_EXTRA_CHARGE = { duplicateOf: { $exists: false } };
 
-const isDuplicateKeyError = (error: unknown): boolean =>
-  typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 11000;
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 type PoolContributorLike = { userId: string; amount: number };
@@ -108,6 +107,7 @@ export class SessionPaymentService {
     @InjectModel(Location.name) private readonly locationModel: Model<Location>,
     private readonly sessionPaymentEventService: SessionPaymentEventService,
     private readonly idempotencyKeys: PaymentIdempotencyKeyRepository,
+    private readonly platformPosting: PlatformPostingService,
   ) {}
 
   // Explicit equality on purpose: lean reads of sessions created before
@@ -123,14 +123,8 @@ export class SessionPaymentService {
   // What a player is charged for a share of `base` kobo: base + commission
   // (i-One's cut, on top) + processing fee (covers Paystack's fee, on top).
   // Rates are read from Settings now and snapshotted on the payment row.
-  private async priceShare(base: number) {
-    const commissionPercentage = await this.settingsService.getCommissionPercentage();
-    const commissionAmount = Math.round((base * commissionPercentage) / 100);
-    const { total, processingFee } = grossUp(
-      base + commissionAmount,
-      await this.settingsService.getProcessingFeeConfig(),
-    );
-    return { commissionPercentage, commissionAmount, processingFee, amount: total };
+  private priceShare(base: number) {
+    return this.platformPosting.priceShare(base);
   }
 
   // `baseAmount` is the location's listed per-person price, in kobo — what
@@ -658,46 +652,18 @@ export class SessionPaymentService {
   // Throws on failure so the webhook is redelivered; the redelivery re-runs
   // these postings and the ones that already landed are skipped.
   private async postPlatformEntries(payment: any, paystackReference: string, paystackFee?: number) {
-    const platform = await this.walletService.getPlatformWallet();
-    const meta = {
-      paymentId: payment._id.toString(),
-      sessionId: payment.sessionId.toString(),
-      userId: payment.userId.toString(),
-    };
-
-    const commission = payment.commissionAmount ?? 0;
-    if (commission > 0) {
-      await this.walletService.creditWallet(
-        platform._id,
-        commission,
-        TransactionSource.PLATFORM_COMMISSION,
-        `COMMISSION_${paystackReference}`,
-        meta,
-        payment.sessionId,
-      );
-    }
-
-    const feeCollected = payment.processingFee ?? 0;
-    if (feeCollected > 0) {
-      await this.walletService.creditWallet(
-        platform._id,
-        feeCollected,
-        TransactionSource.PROCESSING_FEE_COLLECTED,
-        `FEE_IN_${paystackReference}`,
-        meta,
-        payment.sessionId,
-      );
-    }
-
-    if (Number.isFinite(paystackFee) && paystackFee > 0) {
-      await this.walletService.debitWallet(
-        platform._id,
-        paystackFee,
-        TransactionSource.PAYSTACK_FEE,
-        `FEE_OUT_${paystackReference}`,
-        meta,
-      );
-    }
+    await this.platformPosting.postPlatformEntries({
+      reference: paystackReference,
+      commissionAmount: payment.commissionAmount ?? 0,
+      processingFee: payment.processingFee ?? 0,
+      paystackFee,
+      meta: {
+        paymentId: payment._id.toString(),
+        sessionId: payment.sessionId.toString(),
+        userId: payment.userId.toString(),
+      },
+      sessionId: payment.sessionId,
+    });
   }
 
   // ─── POOL payments ────────────────────────────────────────────────────
