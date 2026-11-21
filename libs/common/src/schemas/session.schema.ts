@@ -1,7 +1,19 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { SchemaTypes, Types } from 'mongoose';
 import { AbstractDocument } from './abstract.schema';
-import { MATCH_TYPE, ROTATION_FORMAT, SESSION_PAYMENT_MODE, SESSION_STATUS, WINNING_DECIDER } from '../types/common';
+import { LOCATION_PRICING_OPTION, MATCH_TYPE, ROTATION_FORMAT, SESSION_PAYMENT_MODE, SESSION_STATUS, WINNING_DECIDER } from '../types/common';
+
+// A member who joined using a monthly pass (snapshot taken at join time).
+export interface PassHolder {
+  userId: Types.ObjectId;
+  passId: Types.ObjectId;
+}
+
+// A spot held for a player who is buying a pass to join (MP-5). Counts
+// against capacity until `expiresAt`; released when the checkout lapses.
+export interface PassHold extends PassHolder {
+  expiresAt: Date;
+}
 
 @Schema({ timestamps: true, versionKey: false })
 export class Session extends AbstractDocument {
@@ -105,6 +117,30 @@ export class Session extends AbstractDocument {
 
   @Prop({ type: Number, default: 0, min: 0 })
   amountReserved: number;
+
+  // ─── Monthly pitches ───────────────────────────────────────────────────
+  // Set when the session was created at a monthly pitch: there is no
+  // session bill; every member needs a monthly pass covering startTime.
+  // A snapshot — never re-read from the pitch, so a later pricing change
+  // doesn't change this session.
+  @Prop({ type: Boolean, default: false })
+  requiresPass: boolean;
+
+  // The pitch's pricing when the session was created (snapshot).
+  @Prop({ type: String, enum: Object.values(LOCATION_PRICING_OPTION), required: false })
+  pricingOption?: LOCATION_PRICING_OPTION;
+
+  @Prop({
+    type: [{ _id: false, userId: { type: SchemaTypes.ObjectId, ref: 'User' }, passId: { type: SchemaTypes.ObjectId, ref: 'MonthlyPass' } }],
+    default: [],
+  })
+  passHolders: PassHolder[];
+
+  @Prop({
+    type: [{ _id: false, userId: { type: SchemaTypes.ObjectId, ref: 'User' }, passId: { type: SchemaTypes.ObjectId, ref: 'MonthlyPass' }, expiresAt: Date }],
+    default: [],
+  })
+  passHolds: PassHold[];
 }
 export const SessionSchema = SchemaFactory.createForClass(Session);
 // Indexes to improve query performance for owner dashboard and session lookups

@@ -13,10 +13,13 @@ import {
   MONTHLY_PASS_DAYS,
   MONTHLY_PASS_STATUS,
   PaymentIdempotencyKey,
+  Session,
+  SESSION_STATUS,
 } from '@app/common';
 import { PaystackService } from '@app/common/providers/paystack.service';
 import { TransactionSource } from '@app/common/schemas/transaction.schema';
 import { LocationRepository } from 'src/locations/locations.repository';
+import { SessionRepository } from 'src/sessions/sessions.repository';
 import { MonthlyPassRepository, MonthlyPassRow } from '../repositories/monthly-pass.repository';
 import { PaymentIdempotencyKeyRepository } from '../repositories/payment-idempotency-key.repository';
 import { isDuplicateKeyError } from '../utils/mongo-errors';
@@ -71,6 +74,18 @@ export interface PassView {
 type CheckoutUser = { _id: Types.ObjectId; email: string };
 type PaidCharge = { reference: string; amount: number; fees?: number };
 type PitchRow = Location & { _id: Types.ObjectId };
+type SessionRow = Session & { _id: Types.ObjectId };
+
+// Called after a pass is paid and activated (e.g. to finish a buy-to-join).
+// Registered by other modules so billing doesn't depend on them.
+export type PassActivatedHandler = (pass: MonthlyPassRow) => Promise<void>;
+
+// What the app needs to offer "buy a pass" (402 PASS_REQUIRED details).
+export interface PassOffer {
+  locationId: string;
+  salesPaused: boolean;
+  price: { baseAmount: number; commissionPercentage: number; commissionAmount: number; processingFee: number; amount: number } | null;
+}
 
 // Monthly passes (one player, one monthly pitch, 30 days). A paid pass lets
 // the player join sessions at that pitch whose start time it covers.
@@ -83,6 +98,7 @@ type PitchRow = Location & { _id: Types.ObjectId };
 @Injectable()
 export class MonthlyPassService {
   private readonly logger = new Logger(MonthlyPassService.name);
+  private readonly activatedHandlers: PassActivatedHandler[] = [];
 
   constructor(
     private readonly passes: MonthlyPassRepository,
@@ -91,14 +107,39 @@ export class MonthlyPassService {
     private readonly idempotencyKeys: PaymentIdempotencyKeyRepository,
     private readonly platformPosting: PlatformPostingService,
     private readonly walletService: WalletService,
+    private readonly sessions: SessionRepository,
   ) {}
+
+  onActivated(handler: PassActivatedHandler): void {
+    this.activatedHandlers.push(handler);
+  }
+
+  // A paid pass covering `at` for this player at this pitch, if any.
+  findCoveringPass(userId: Types.ObjectId, locationId: Types.ObjectId, at: Date): Promise<MonthlyPassRow | null> {
+    return this.passes.findCovering(userId, locationId, at);
+  }
+
+  // The "you need a pass" offer for a pitch: its current price (null when it
+  // isn't selling passes).
+  async passOffer(locationId: Types.ObjectId): Promise<PassOffer> {
+    const pitch = (await this.locations.findOne({ _id: locationId })) as PitchRow | null;
+    const salesPaused = pitch?.monthlyPassSalesPaused === true;
+    const price = this.isMonthlyPitch(pitch) && !salesPaused
+      ? { baseAmount: pitch.paymentPerPersonMonthly as number, ...(await this.platformPosting.priceShare(pitch.paymentPerPersonMonthly as number)) }
+      : null;
+    return { locationId: locationId.toString(), salesPaused, price };
+  }
 
   // ─── Buying ────────────────────────────────────────────────────────────
 
   // One open checkout per player per pitch: double taps, retries and second
   // devices get the same checkout back (payment_idempotency_keys).
-  async checkout(locationId: string, user: CheckoutUser): Promise<PassCheckout | PassAlreadyPaid> {
+  // `holdSessionId` (buy-to-join): also hold the player's spot in that
+  // session for the 30 minutes the checkout is open; they're added to it
+  // when the payment is confirmed.
+  async checkout(locationId: string, user: CheckoutUser, holdSessionId?: string): Promise<PassCheckout | PassAlreadyPaid> {
     const pitch = await this.sellingPitch(locationId);
+    const holdSession = holdSessionId ? await this.holdTarget(pitch, holdSessionId, user._id) : null;
     const key = `monthly-pass-checkout:${pitch._id}:${user._id}`;
 
     const open: PaymentIdempotencyKey | null = await this.idempotencyKeys.findOpen(key);
@@ -122,7 +163,7 @@ export class MonthlyPassService {
     }
 
     try {
-      const result = await this.openCheckout(pitch, user);
+      const result = await this.openCheckout(pitch, user, holdSession);
       if ('authorizationUrl' in result) {
         await this.idempotencyKeys.complete(record._id, {
           authorizationUrl: result.authorizationUrl,
@@ -139,7 +180,7 @@ export class MonthlyPassService {
     }
   }
 
-  private async openCheckout(pitch: PitchRow, user: CheckoutUser): Promise<PassCheckout | PassAlreadyPaid> {
+  private async openCheckout(pitch: PitchRow, user: CheckoutUser, holdSession: SessionRow | null): Promise<PassCheckout | PassAlreadyPaid> {
     const price = pitch.paymentPerPersonMonthly ?? 0;
     let pass = await this.passes.findOpenCheckout(user._id, pitch._id);
 
@@ -156,7 +197,8 @@ export class MonthlyPassService {
       if (pass.baseAmount !== price) {
         // The owner changed the price since: start again at the new price. A
         // late payment on the old page is refunded (it's a cancelled pass).
-        await this.passes.transition(pass._id, MONTHLY_PASS_STATUS.PENDING, { status: MONTHLY_PASS_STATUS.CANCELLED });
+        const cancelled = await this.passes.transition(pass._id, MONTHLY_PASS_STATUS.PENDING, { status: MONTHLY_PASS_STATUS.CANCELLED });
+        if (cancelled) await this.releaseHold(cancelled);
         pass = null;
       }
     }
@@ -165,10 +207,14 @@ export class MonthlyPassService {
     const expiresAt = new Date(Date.now() + CHECKOUT_TTL_MS);
 
     if (pass) {
+      const previousHold = pass.holdSessionId;
       pass = await this.passes.transition(pass._id, MONTHLY_PASS_STATUS.PENDING, {
-        $set: { paymentReference: reference, expiresAt },
+        $set: { paymentReference: reference, expiresAt, holdSessionId: holdSession?._id ?? null },
         $addToSet: { previousReferences: pass.paymentReference },
       });
+      if (pass && previousHold && previousHold.toString() !== holdSession?._id.toString()) {
+        await this.sessions.releasePassHold(previousHold, pass._id);
+      }
       if (!pass) throw this.checkoutInProgress(); // settled by the webhook/expiry job just now
     } else {
       const share = await this.platformPosting.priceShare(price);
@@ -186,11 +232,16 @@ export class MonthlyPassService {
           paymentReference: reference,
           previousReferences: [],
           expiresAt,
+          ...(holdSession && { holdSessionId: holdSession._id }),
         })) as MonthlyPassRow;
       } catch (error: unknown) {
         if (isDuplicateKeyError(error)) throw this.checkoutInProgress(); // one open checkout per player per pitch
         throw error;
       }
+    }
+
+    if (holdSession && !(await this.sessions.placePassHold(holdSession._id, user._id, pass._id, expiresAt))) {
+      throw new CustomHttpException('This session just filled up', HttpStatus.CONFLICT, { code: 'SESSION_FULL' });
     }
 
     let result: { authorization_url: string; access_code?: string; reference: string };
@@ -248,6 +299,42 @@ export class MonthlyPassService {
       );
     }
     return pitch;
+  }
+
+  // The session a buy-to-join checkout would hold a spot in, or a clear error.
+  private async holdTarget(pitch: PitchRow, sessionId: string, userId: Types.ObjectId): Promise<SessionRow> {
+    const refuse = (message: string, code: string, status = HttpStatus.CONFLICT) =>
+      new CustomHttpException(message, status, { code });
+    const session = Types.ObjectId.isValid(sessionId)
+      ? ((await this.sessions.findOne({ _id: new Types.ObjectId(sessionId) })) as SessionRow | null)
+      : null;
+    if (!session) throw new NotFoundException('Session not found');
+    if (session.location?.toString() !== pitch._id.toString()) {
+      throw refuse('That session is at a different pitch', 'SESSION_NOT_AT_PITCH', HttpStatus.BAD_REQUEST);
+    }
+    if (!session.requiresPass) throw refuse("That session doesn't need a pass", 'SESSION_DOES_NOT_NEED_PASS', HttpStatus.BAD_REQUEST);
+    const now = new Date();
+    if (session.status !== SESSION_STATUS.OPEN || session.finished || !session.startTime || new Date(session.startTime) <= now) {
+      throw refuse('That session is no longer open to join', 'SESSION_CLOSED');
+    }
+    if ((session.members ?? []).some((member) => member.toString() === userId.toString())) {
+      throw refuse("You're already in this session", 'ALREADY_IN_SESSION');
+    }
+    const startTime = new Date(session.startTime);
+    if (await this.passes.findCovering(userId, pitch._id, startTime)) {
+      throw refuse('You already have a pass for this session — join it directly', 'ALREADY_HAS_PASS');
+    }
+    // A pass bought now starts now, or when their current pass here ends.
+    const latest = await this.passes.latestEndsAt(userId, pitch._id);
+    const startsAt = latest && latest > now ? latest : now;
+    if (startTime.getTime() >= startsAt.getTime() + MONTHLY_PASS_DAYS * DAY_MS) {
+      throw refuse('A pass bought now would end before this session starts', 'PASS_WOULD_NOT_COVER');
+    }
+    return session;
+  }
+
+  private async releaseHold(pass: MonthlyPassRow): Promise<void> {
+    if (pass.holdSessionId) await this.sessions.releasePassHold(pass.holdSessionId, pass._id);
   }
 
   private isMonthlyPitch(pitch: Location | null): pitch is Location {
@@ -328,7 +415,21 @@ export class MonthlyPassService {
     if (reference !== activated.paymentReference) await this.idempotencyKeys.closeByReference(reference, IDEMPOTENCY_STATUS.PAID);
 
     this.logger.log(`Monthly pass ${activated._id} active ${startsAt.toISOString()} → ${endsAt.toISOString()}`);
+    await this.runActivatedHandlers(activated);
     return activated;
+  }
+
+  // The pass is paid and credited whatever happens here, so a failing
+  // handler (e.g. the held session filled up) is logged, never thrown.
+  private async runActivatedHandlers(pass: MonthlyPassRow): Promise<void> {
+    for (const handler of this.activatedHandlers) {
+      try {
+        await handler(pass);
+      } catch (error: unknown) {
+        this.logger.error(`After-activation step failed for monthly pass ${pass._id}: ${errorMessage(error)}`);
+      }
+    }
+    if (pass.holdSessionId) await this.releaseHold(pass); // joined or not, the hold is done
   }
 
   // Owner + platform ledger rows for a paid pass. Every posting is keyed on
@@ -379,6 +480,7 @@ export class MonthlyPassService {
       refundReason: reason,
     });
     if (!claimed) return this.confirmPass(reference, amount, paystackFee); // settled by another caller just now
+    await this.releaseHold(claimed);
     await this.platformPosting.postPaystackFee(reference, paystackFee, { passId: claimed._id.toString(), refund: 'true' });
     return this.requestRefund(claimed, reference, amount, reason);
   }
@@ -457,7 +559,10 @@ export class MonthlyPassService {
           continue;
         }
         const cancelled = await this.passes.transition(pass._id, MONTHLY_PASS_STATUS.PENDING, { status: MONTHLY_PASS_STATUS.CANCELLED });
-        if (cancelled) await this.idempotencyKeys.closeByReference(cancelled.paymentReference, IDEMPOTENCY_STATUS.EXPIRED);
+        if (cancelled) {
+          await this.releaseHold(cancelled);
+          await this.idempotencyKeys.closeByReference(cancelled.paymentReference, IDEMPOTENCY_STATUS.EXPIRED);
+        }
       } catch (error: unknown) {
         this.logger.error(`Failed to settle lapsed monthly pass checkout ${pass._id}: ${errorMessage(error)}`);
       }

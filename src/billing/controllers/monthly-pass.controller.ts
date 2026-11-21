@@ -1,4 +1,5 @@
-import { Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { MonthlyPassCheckoutDto } from '../dto/monthly-pass.dto';
 import { CurrentUser, IsOwnerGuard, User } from '@app/common';
 import { JwtAuthGuard } from 'src/auth/guards/jwt.guard';
 import { MonthlyPassService } from '../services/monthly-pass.service';
@@ -12,9 +13,11 @@ export class MonthlyPassController {
   constructor(private readonly monthlyPassService: MonthlyPassService) {}
 
   // Opens (or returns the open) Paystack checkout for a 30-day pass.
+  // `holdSessionId`: buy-to-join — holds the player's spot in that session
+  // while they pay, and adds them to it once the payment is confirmed.
   @Post('location/:locationId/monthly-pass/checkout')
-  checkout(@Param('locationId') locationId: string, @CurrentUser() user: User) {
-    return this.monthlyPassService.checkout(locationId, { _id: user._id, email: user.email });
+  checkout(@Param('locationId') locationId: string, @Body() body: MonthlyPassCheckoutDto, @CurrentUser() user: User) {
+    return this.monthlyPassService.checkout(locationId, { _id: user._id, email: user.email }, body?.holdSessionId);
   }
 
   // This pitch's pass price and the player's current / queued pass there.

@@ -17,6 +17,7 @@ import { MonthlyPassRepository } from './repositories/monthly-pass.repository';
 import { MonthlyPassService } from './services/monthly-pass.service';
 import { MonthlyPassController } from './controllers/monthly-pass.controller';
 import { LocationRepository } from '../locations/locations.repository';
+import { SessionRepository } from '../sessions/sessions.repository';
 
 import { WalletRepository } from './repositories/wallet.repository';
 import { TransactionRepository } from './repositories/transaction.repository';
@@ -94,6 +95,7 @@ import { SetsModule } from '../sets/sets.module';
     MonthlyPassRepository,
     MonthlyPassService,
     LocationRepository,
+    SessionRepository,
     PaystackService,
   ],
   exports: [
@@ -102,6 +104,7 @@ import { SetsModule } from '../sets/sets.module';
     SessionPaymentEventService,
     TournamentPaymentService,
     WithdrawalService,
+    MonthlyPassService,
   ],
 })
 export class BillingModule {}

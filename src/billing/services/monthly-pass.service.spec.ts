@@ -9,6 +9,7 @@ import { PaymentIdempotencyKeyRepository } from '../repositories/payment-idempot
 import { MonthlyPassService } from './monthly-pass.service';
 import { PlatformPostingService } from './platform-posting.service';
 import { WalletService } from './wallet.service';
+import { SessionRepository } from 'src/sessions/sessions.repository';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -36,6 +37,7 @@ describe('MonthlyPassService', () => {
   let keys: Record<string, jest.Mock>;
   let posting: Record<string, jest.Mock>;
   let wallets: Record<string, jest.Mock>;
+  let sessions: Record<string, jest.Mock>;
   let service: MonthlyPassService;
 
   beforeEach(() => {
@@ -68,6 +70,7 @@ describe('MonthlyPassService', () => {
       getWalletByUserId: jest.fn().mockResolvedValue({ _id: ownerWalletId }),
       creditWallet: jest.fn().mockResolvedValue({ _id: new Types.ObjectId() }),
     };
+    sessions = { findOne: jest.fn(), placePassHold: jest.fn().mockResolvedValue(true), releasePassHold: jest.fn() };
     service = new MonthlyPassService(
       passes as unknown as MonthlyPassRepository,
       locations as unknown as LocationRepository,
@@ -75,6 +78,7 @@ describe('MonthlyPassService', () => {
       keys as unknown as PaymentIdempotencyKeyRepository,
       posting as unknown as PlatformPostingService,
       wallets as unknown as WalletService,
+      sessions as unknown as SessionRepository,
     );
   });
 
@@ -251,6 +255,75 @@ describe('MonthlyPassService', () => {
       paystack.verifyTransaction.mockRejectedValue(new Error('ETIMEDOUT'));
       await service.expireLapsedCheckouts();
       expect(passes.transition).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('buy-to-join (holdSessionId)', () => {
+    const user = { _id: userId, email: 'p@x.com' };
+    const sessionId = new Types.ObjectId();
+    const openSession = (over: Record<string, unknown> = {}) => ({
+      _id: sessionId, location: pitchId, requiresPass: true, status: 'OPEN', finished: false,
+      startTime: new Date(Date.now() + 2 * DAY), members: [new Types.ObjectId()], ...over,
+    });
+
+    beforeEach(() => {
+      passes.create.mockImplementation((doc) => Promise.resolve({ _id: new Types.ObjectId(), ...doc }));
+      passes.findCovering = jest.fn().mockResolvedValue(null);
+    });
+
+    it('holds the spot for the 30-minute checkout and remembers the session on the pass', async () => {
+      sessions.findOne.mockResolvedValue(openSession());
+      await service.checkout(pitchId.toString(), user, sessionId.toString());
+      const created = passes.create.mock.calls[0][0];
+      expect(created.holdSessionId).toEqual(sessionId);
+      expect(sessions.placePassHold).toHaveBeenCalledWith(sessionId, userId, expect.any(Types.ObjectId), created.expiresAt);
+    });
+
+    it('a session that filled up meanwhile: 409 SESSION_FULL, Paystack never opened', async () => {
+      sessions.findOne.mockResolvedValue(openSession());
+      sessions.placePassHold.mockResolvedValue(false);
+      expect(await errorCode(service.checkout(pitchId.toString(), user, sessionId.toString()))).toBe('SESSION_FULL');
+      expect(paystack.initializeTransaction).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['a session at another pitch', { location: new Types.ObjectId() }, 'SESSION_NOT_AT_PITCH'],
+      ['a session that needs no pass', { requiresPass: false }, 'SESSION_DOES_NOT_NEED_PASS'],
+      ['a session that has started', { startTime: new Date(Date.now() - 60_000) }, 'SESSION_CLOSED'],
+      ['a session they are already in', { members: [userId] }, 'ALREADY_IN_SESSION'],
+      ['a session beyond what a new pass would cover', { startTime: new Date(Date.now() + 31 * DAY) }, 'PASS_WOULD_NOT_COVER'],
+    ])('refuses %s', async (_label, over, code) => {
+      sessions.findOne.mockResolvedValue(openSession(over));
+      expect(await errorCode(service.checkout(pitchId.toString(), user, sessionId.toString()))).toBe(code);
+      expect(paystack.initializeTransaction).not.toHaveBeenCalled();
+    });
+
+    it('refuses when they already hold a pass covering it (join directly)', async () => {
+      sessions.findOne.mockResolvedValue(openSession());
+      passes.findCovering.mockResolvedValue(pendingPass({ status: MONTHLY_PASS_STATUS.ACTIVE }));
+      expect(await errorCode(service.checkout(pitchId.toString(), user, sessionId.toString()))).toBe('ALREADY_HAS_PASS');
+    });
+
+    it('on payment: runs the join hook, then releases the hold; a failing hook never fails the payment', async () => {
+      const pass = pendingPass({ holdSessionId: sessionId });
+      passes.findByReference.mockResolvedValue(pass);
+      passes.transition.mockImplementation((_id, _from, update) => Promise.resolve({ ...pass, ...update }));
+      const hook = jest.fn().mockRejectedValue(new Error('session full'));
+      service.onActivated(hook);
+
+      const active = await service.confirmPass('REF_1', 2_310_000);
+
+      expect(hook).toHaveBeenCalledWith(expect.objectContaining({ holdSessionId: sessionId, status: MONTHLY_PASS_STATUS.ACTIVE }));
+      expect(active?.status).toBe(MONTHLY_PASS_STATUS.ACTIVE);
+      expect(sessions.releasePassHold).toHaveBeenCalledWith(sessionId, pass._id);
+    });
+
+    it('a lapsed checkout releases its hold', async () => {
+      const lapsed = pendingPass({ holdSessionId: sessionId });
+      passes.findLapsedCheckouts.mockResolvedValue([lapsed]);
+      passes.transition.mockResolvedValue({ ...lapsed, status: MONTHLY_PASS_STATUS.CANCELLED });
+      await service.expireLapsedCheckouts();
+      expect(sessions.releasePassHold).toHaveBeenCalledWith(sessionId, lapsed._id);
     });
   });
 });

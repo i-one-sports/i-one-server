@@ -3,12 +3,60 @@ import { AbstractRepository, SESSION_STATUS, Session } from '@app/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 
+// "Is there still a spot for `userId`?" — members plus other players'
+// unexpired pass holds (buy-to-join) must stay below maxNumber. Used inside
+// atomic updates so two players can never both take the last spot.
+export const roomForExpr = (userId: Types.ObjectId, now: Date) => ({
+  $lt: [
+    {
+      $add: [
+        { $size: { $ifNull: ['$members', []] } },
+        {
+          $size: {
+            $filter: {
+              input: { $ifNull: ['$passHolds', []] },
+              as: 'hold',
+              cond: { $and: [{ $gt: ['$$hold.expiresAt', now] }, { $ne: ['$$hold.userId', userId] }] },
+            },
+          },
+        },
+      ],
+    },
+    '$maxNumber',
+  ],
+});
+
 @Injectable()
 export class SessionRepository extends AbstractRepository<Session> {
   protected readonly logger = new Logger(SessionRepository.name);
 
   constructor(@InjectModel(Session.name) SessionModel: Model<Session>) {
     super(SessionModel);
+  }
+
+  // Holds a spot in an open pass session for a player who is buying a pass,
+  // if there's still room. Returns false when the session is full / closed.
+  async placePassHold(sessionId: Types.ObjectId, userId: Types.ObjectId, passId: Types.ObjectId, expiresAt: Date): Promise<boolean> {
+    const now = new Date();
+    await this.model.updateOne({ _id: sessionId }, { $pull: { passHolds: { userId } } }); // replace any older hold of theirs
+    const held = await this.model.findOneAndUpdate(
+      {
+        _id: sessionId,
+        requiresPass: true,
+        status: SESSION_STATUS.OPEN,
+        finished: { $ne: true },
+        isFull: { $ne: true },
+        members: { $ne: userId },
+        $expr: roomForExpr(userId, now),
+      },
+      { $push: { passHolds: { userId, passId, expiresAt } } },
+      { new: true },
+    );
+    return held !== null;
+  }
+
+  async releasePassHold(sessionId: Types.ObjectId, passId: Types.ObjectId): Promise<void> {
+    await this.model.updateOne({ _id: sessionId }, { $pull: { passHolds: { passId } } });
   }
 
   // A session at one of these pitches that is booked and not over yet

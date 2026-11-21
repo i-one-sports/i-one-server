@@ -1147,7 +1147,10 @@ export class SessionPaymentService {
     const memberIds = (session.members ?? []).map((m) => m.toString());
     const names = new Map(session.memberUsers.map((u) => [u._id.toString(), displayName(u)]));
     const rows = session.paymentRequired ? await this.getSessionMemberPaymentMap(sessionId) : new Map();
-    const covered = isPool ? new Set<string>() : await this.getCoveredMembers(session, memberIds, rows);
+    // Members who joined with a monthly pass (recorded at join, never
+    // recomputed — so an expired pass or a pitch pricing change doesn't
+    // un-cover a session they already joined).
+    const covered = new Set((session.passHolders ?? []).map((holder) => holder.userId.toString()));
 
     const stateFor = (userId: string): MemberPaymentState => {
       if (covered.has(userId)) return 'COVERED';
@@ -1178,30 +1181,6 @@ export class SessionPaymentService {
       coveredCount: count('COVERED'),
       pool: isPool && session.paymentRequired ? await this.getPoolSnapshot(sessionId) : null,
     };
-  }
-
-  // Members with no bill on a per-person session whose bills are already out
-  // — at a monthly pitch that's because an active pass covers them
-  // (onSessionFull skipped them). Checked against the pass itself rather
-  // than assumed from the missing bill.
-  private async getCoveredMembers(
-    session: Session,
-    memberIds: string[],
-    rows: Map<string, PaymentStatus>,
-  ): Promise<Set<string>> {
-    const unbilled = memberIds.filter((id) => !rows.has(id));
-    if (!session.paymentRequired || !session.paymentStatus || session.paymentStatus === 'NOT_INITIATED' || !unbilled.length) {
-      return new Set<string>();
-    }
-    const location = await this.locationModel.findById(session.location).select('pricingOption').lean();
-    if (location?.pricingOption !== LOCATION_PRICING_OPTION.MONTHLY) {
-      return new Set<string>();
-    }
-    return this.getUsersWithActiveRecurringPayment(
-      new Types.ObjectId(session.location.toString()),
-      unbilled.map((id) => new Types.ObjectId(id)),
-      LOCATION_PRICING_OPTION.MONTHLY,
-    );
   }
 
   // Who may see a session's payments (who paid, how much, contributor
@@ -1276,45 +1255,6 @@ export class SessionPaymentService {
     ]);
 
     return total === 0 || unpaid === 0;
-  }
-
-  async getUsersWithActiveRecurringPayment(
-    locationId: Types.ObjectId,
-    userIds: Types.ObjectId[],
-    pricingOption: LOCATION_PRICING_OPTION,
-  ): Promise<Set<string>> {
-    if (!userIds.length || pricingOption === LOCATION_PRICING_OPTION.HOURLY) {
-      return new Set<string>();
-    }
-
-    const now = new Date();
-    const validityMs = 30 * 24 * 60 * 60 * 1000;
-
-    const paidRecords = await this.sessionPaymentRepository.find({
-      locationId,
-      userId: { $in: userIds },
-      status: PaymentStatus.PAID,
-      'metadata.pricingOption': pricingOption,
-    });
-
-    const latestPaidByUser = new Map<string, Date>();
-    for (const record of paidRecords) {
-      if (!record.paidAt) continue;
-      const userId = record.userId.toString();
-      const currentLatest = latestPaidByUser.get(userId);
-      if (!currentLatest || new Date(record.paidAt) > currentLatest) {
-        latestPaidByUser.set(userId, new Date(record.paidAt));
-      }
-    }
-
-    const activeUsers = new Set<string>();
-    for (const [userId, paidAt] of latestPaidByUser.entries()) {
-      if (now.getTime() - paidAt.getTime() < validityMs) {
-        activeUsers.add(userId);
-      }
-    }
-
-    return activeUsers;
   }
 
   async getSessionPaymentStatus(sessionId: string) {
@@ -1454,6 +1394,13 @@ export class SessionPaymentService {
       return payment;
     }
 
+    // An old monthly payment migrated into a MonthlyPass belongs to the pass
+    // now: cancelling or leaving a session never refunds it (MP-6).
+    if (payment.metadata?.convertedToPass) {
+      this.logger.warn(`Payment ${paymentId} was converted to monthly pass ${payment.metadata.convertedToPass}; not refunding`);
+      return payment;
+    }
+
     if (
       payment.status === PaymentStatus.REFUND_PENDING ||
       payment.status === PaymentStatus.REFUND_NEEDS_ATTENTION
@@ -1511,6 +1458,7 @@ export class SessionPaymentService {
     const paidPayments = await this.sessionPaymentRepository.find({
       sessionId: new Types.ObjectId(sessionId),
       status: PaymentStatus.PAID,
+      'metadata.convertedToPass': { $exists: false },
     });
 
     const results: Array<{ paymentId: string; userId: string; success: boolean; error?: string }> = [];

@@ -1,5 +1,7 @@
-import { HttpStatus, Injectable, Logger } from '@nestjs/common';
-import { SessionRepository } from '../sessions/sessions.repository';
+import { HttpStatus, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { roomForExpr, SessionRepository } from '../sessions/sessions.repository';
+import { MonthlyPassService } from 'src/billing/services/monthly-pass.service';
+import type { MonthlyPassRow } from 'src/billing/repositories/monthly-pass.repository';
 import { LocationRepository } from '../locations/locations.repository';
 import { MatchRepository } from '../matches/matches.repository';
 import { UserRepository } from '../users/users.repository';
@@ -33,7 +35,7 @@ import { SetsService } from 'src/sets/sets.service';
 import { SessionEmailInput, sessionEmailDetails, sessionWhen } from './session-email-details';
 
 @Injectable()
-export class SessionsService {
+export class SessionsService implements OnModuleInit {
   private readonly logger = new Logger(SessionsService.name);
 
   private parseHourToMinutes(time?: string): number | null {
@@ -166,8 +168,9 @@ export class SessionsService {
   }
 
   // Hourly pitches are POOL: the owner's pricePerHour × hours is the total the
-  // whole session pays, split however members choose. Monthly stays
-  // PER_PERSON (a per-player 30-day membership).
+  // whole session pays, split however members choose. Monthly pitches have
+  // no session bill at all: every member needs a monthly pass covering the
+  // session (requiresPass).
   private buildPaymentConfig(location: any, timeDurationMins: number) {
     if (location?.tier !== LOCATION_TIER.PAID) {
       return {
@@ -175,6 +178,7 @@ export class SessionsService {
         paymentAmount: 0,
         paymentMode: SESSION_PAYMENT_MODE.POOL,
         paymentTarget: 0,
+        requiresPass: false,
       };
     }
 
@@ -206,6 +210,7 @@ export class SessionsService {
         paymentAmount: 0,
         paymentMode: SESSION_PAYMENT_MODE.POOL,
         paymentTarget: location.pricePerHour * hourUnits,
+        requiresPass: false,
       };
     }
 
@@ -218,10 +223,11 @@ export class SessionsService {
       }
 
       return {
-        paymentRequired: true,
-        paymentAmount: location.paymentPerPersonMonthly,
+        paymentRequired: false,
+        paymentAmount: 0,
         paymentMode: SESSION_PAYMENT_MODE.PER_PERSON,
         paymentTarget: 0,
+        requiresPass: true,
       };
     }
 
@@ -242,7 +248,42 @@ export class SessionsService {
     private readonly cacheService: CacheService,
     @InjectConnection() private readonly connection: Connection,
     private readonly setsService: SetsService,
+    private readonly monthlyPassService: MonthlyPassService,
   ) {}
+
+  onModuleInit() {
+    // Buy-to-join: once the pass is paid, add the player to the session
+    // whose spot was held for them.
+    this.monthlyPassService.onActivated((pass) => this.completeHeldJoin(pass));
+  }
+
+  // 402 for a player without a pass covering the session, with what the app
+  // needs to offer one (price, or that the pitch isn't selling right now).
+  private async passRequired(locationId: Types.ObjectId | string, sessionId: string) {
+    const offer = await this.monthlyPassService.passOffer(new Types.ObjectId(locationId.toString()));
+    return new CustomHttpException(
+      offer.price
+        ? 'You need a monthly pass for this pitch to join'
+        : "You need a monthly pass to play here, but this pitch isn't selling passes right now",
+      HttpStatus.PAYMENT_REQUIRED,
+      { code: 'PASS_REQUIRED', sessionId, pass: offer },
+    );
+  }
+
+  private async completeHeldJoin(pass: MonthlyPassRow): Promise<void> {
+    if (!pass.holdSessionId) return;
+    const sessionId = pass.holdSessionId.toString();
+    try {
+      await this.joinSession(pass.userId.toString(), sessionId);
+      this.logger.log(`Buy-to-join: ${pass.userId} joined ${sessionId} with pass ${pass._id}`);
+    } catch (error: unknown) {
+      // Paid and kept (MP-6): the pass is for the pitch, not this session.
+      this.logger.warn(
+        `Buy-to-join: ${pass.userId} has pass ${pass._id} but couldn't be added to ${sessionId}: ` +
+          (error instanceof Error ? error.message : String(error)),
+      );
+    }
+  }
 
   async findNearbySessionMatches(lng: number, lat: number) {
     try {
@@ -466,6 +507,14 @@ export class SessionsService {
     this.validateSessionWithinOperatingHours(location, new Date(startTime), addedStopTime);
     const paymentConfig = this.buildPaymentConfig(location, timeDuration);
 
+    // At a monthly pitch the captain plays too, so they need a pass as well.
+    const captainPass = paymentConfig.requiresPass
+      ? await this.monthlyPassService.findCoveringPass(new Types.ObjectId(userId), location._id, new Date(startTime))
+      : null;
+    if (paymentConfig.requiresPass && !captainPass) {
+      throw await this.passRequired(location._id, sessionId);
+    }
+
     const maxNumber = playersPerTeam * setNumber;
 
     const newSession = await this.bookSlot(
@@ -492,6 +541,10 @@ export class SessionsService {
         amountReserved: 0,
         paymentStatus: paymentConfig.paymentRequired ? 'NOT_INITIATED' : 'COMPLETED',
         allPaymentsCompleted: !paymentConfig.paymentRequired,
+        requiresPass: paymentConfig.requiresPass,
+        ...(location.tier === LOCATION_TIER.PAID && location.pricingOption && { pricingOption: location.pricingOption }),
+        passHolders: captainPass ? [{ userId: new Types.ObjectId(userId), passId: captainPass._id }] : [],
+        passHolds: [],
       },
     );
 
@@ -631,17 +684,31 @@ export class SessionsService {
       throw new CustomHttpException('Session is full', HttpStatus.BAD_REQUEST);
     }
 
+    // At a monthly pitch the player needs a pass covering the session's start
+    // (MP-5). The pass used is recorded on the session now and never
+    // recomputed, so a later expiry or pricing change can't un-cover them.
+    const userObjectId = new Types.ObjectId(userId);
+    let pass: MonthlyPassRow | null = null;
+    if (session.requiresPass) {
+      pass = await this.monthlyPassService.findCoveringPass(userObjectId, new Types.ObjectId(session.location.toString()), new Date(session.startTime));
+      if (!pass) throw await this.passRequired(session.location, sessionId);
+    }
+
     // Add the player only if there's still room and they aren't in yet —
     // checked inside the update, so two players racing for the last spot
     // can't both get in (the earlier read above is just for clear errors).
+    // Spots held for players buying a pass count as taken (their own doesn't).
     const joined: Session | null = await this.sessionRepository.findOneAndUpdate(
       {
         _id: sessionId,
         isFull: { $ne: true },
         members: { $ne: userId },
-        $expr: { $lt: [{ $size: '$members' }, '$maxNumber'] },
+        $expr: roomForExpr(userObjectId, new Date()),
       },
-      { $push: { members: userId } },
+      {
+        $push: { members: userId, ...(pass && { passHolders: { userId: userObjectId, passId: pass._id } }) },
+        $pull: { passHolds: { userId: userObjectId } },
+      },
     );
     if (!joined) {
       const now: Session | null = await this.sessionRepository.findOne({ _id: sessionId });
@@ -742,7 +809,13 @@ export class SessionsService {
         this.sessionRepository.findOneAndUpdate(
           { _id: sessionId },
           {
-            $pull: { members: userId },
+            // A pass is never refunded for leaving a session (MP-6); the
+            // player just stops being one of its pass holders.
+            $pull: {
+              members: userId,
+              passHolders: { userId: new Types.ObjectId(userId) },
+              passHolds: { userId: new Types.ObjectId(userId) },
+            },
             $set: { isFull: false },
           },
         ),
@@ -1123,9 +1196,8 @@ export class SessionsService {
     }
   }
 
-  // Free sessions (and monthly ones where every member is already covered)
-  // have no payment to wait for, so their teams are made the moment they
-  // fill (paid sessions get theirs when the last payment lands, in
+  // Free sessions and pass sessions (monthly pitches) have no payment to
+  // wait for, so their teams are made the moment they fill (paid sessions get theirs when the last payment lands, in
   // SessionPaymentService). Fire-and-forget like the paid path: a failure
   // must never fail the join, and POST /sets/create/:sessionId is the manual
   // fallback. createSet refuses if teams already exist, so a repeat is harmless.
@@ -1177,40 +1249,20 @@ export class SessionsService {
       return;
     }
 
+    // PER_PERSON: only sessions created before pooling (monthly sessions no
+    // longer bill — they need passes instead). Billed at the session's own
+    // price, never the pitch's current settings.
     const memberIds = session.members.map((m) => new Types.ObjectId(m));
-    let payableMemberIds = memberIds;
-
-    if (location.pricingOption === LOCATION_PRICING_OPTION.MONTHLY) {
-      const activePaidUsers = await this.sessionPaymentService.getUsersWithActiveRecurringPayment(
-        session.location as any,
-        memberIds,
-        location.pricingOption,
-      );
-
-      payableMemberIds = memberIds.filter((memberId) => !activePaidUsers.has(memberId.toString()));
-    }
-
-    if (payableMemberIds.length === 0) {
-      await this.sessionRepository.findOneAndUpdate(
-        { _id: session._id },
-        { paymentStatus: 'COMPLETED', allPaymentsCompleted: true },
-      );
-      await this.sessionPaymentService.publishSessionUpdate(session._id.toString(), 'billing_opened');
-      // Everyone's covered by a monthly pass: nothing to wait for, so the
-      // teams are made now (no payment will arrive to trigger it).
-      this.allocateTeams(session._id.toString());
-      return;
-    }
 
     await Promise.all([
       this.sessionPaymentService.initializeSessionPayments(
         session._id,
-        session.location as any,
-        location.owner as any,
-        payableMemberIds,
+        new Types.ObjectId(session.location.toString()),
+        new Types.ObjectId(location.owner.toString()),
+        memberIds,
         session.paymentAmount,
         paymentDeadline,
-        location.pricingOption,
+        session.pricingOption,
       ),
       this.sessionRepository.findOneAndUpdate(
         { _id: session._id },

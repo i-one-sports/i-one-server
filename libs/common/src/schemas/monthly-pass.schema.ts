@@ -87,6 +87,11 @@ export class MonthlyPass extends AbstractDocument {
   @Prop({ type: SchemaTypes.ObjectId, ref: 'Transaction', required: false })
   transactionId?: Types.ObjectId;
 
+  // Buy-to-join: the session whose spot is held while this checkout is open.
+  // On payment the player is added to it (if the pass covers it).
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Session', required: false })
+  holdSessionId?: Types.ObjectId;
+
   // When an unpaid checkout lapses.
   @Prop({ type: Date, required: true })
   expiresAt: Date;
