@@ -81,6 +81,19 @@ export class MonthlyPassRepository extends AbstractRepository<MonthlyPass> {
       .lean<MonthlyPassRow[]>();
   }
 
+  // Passes still running at a pitch (paid and not ended), plus open
+  // checkouts that could still become passes.
+  async liveAtPitch(locationId: Types.ObjectId, now: Date): Promise<{ activeCount: number; pendingCount: number; lastEndsAt: Date | null }> {
+    const [active, pendingCount] = await Promise.all([
+      this.model.aggregate<{ count: number; lastEndsAt: Date }>([
+        { $match: { locationId, status: MONTHLY_PASS_STATUS.ACTIVE, endsAt: { $gt: now }, ...NOT_EXTRA_CHARGE } },
+        { $group: { _id: null, count: { $sum: 1 }, lastEndsAt: { $max: '$endsAt' } } },
+      ]),
+      this.model.countDocuments({ locationId, status: MONTHLY_PASS_STATUS.PENDING }),
+    ]);
+    return { activeCount: active[0]?.count ?? 0, pendingCount, lastEndsAt: active[0]?.lastEndsAt ?? null };
+  }
+
   // Total credited to the owner for passes at this pitch (kobo).
   async revenueAtPitch(locationId: Types.ObjectId): Promise<number> {
     const [row] = await this.model.aggregate<{ total: number }>([

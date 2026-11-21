@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { AbstractRepository, SESSION_STATUS, Session } from '@app/common';
+import { AbstractRepository, SESSION_PAYMENT_MODE, SESSION_STATUS, Session } from '@app/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 
@@ -53,6 +53,40 @@ export class SessionRepository extends AbstractRepository<Session> {
       { new: true },
     );
     return held !== null;
+  }
+
+  // The pitch stopped being monthly: its unplayed pass sessions stop needing
+  // passes. Going free they're simply free; going hourly they become pool
+  // sessions billed at the new hourly price (pricePerHour × hours). Returns
+  // how many were changed.
+  async releasePassSessions(locationId: Types.ObjectId, now: Date, hourly?: { pricePerHour: number }): Promise<number> {
+    const filter = {
+      location: locationId,
+      requiresPass: true,
+      status: SESSION_STATUS.OPEN,
+      finished: { $ne: true },
+      startTime: { $gt: now },
+    };
+    const result = hourly
+      ? await this.model.updateMany(filter, [
+          {
+            $set: {
+              requiresPass: false,
+              pricingOption: 'hourly',
+              passHolds: [],
+              paymentRequired: true,
+              paymentMode: SESSION_PAYMENT_MODE.POOL,
+              paymentAmount: 0,
+              paymentTarget: { $multiply: [hourly.pricePerHour, { $max: [1, { $ceil: { $divide: ['$timeDuration', 60] } }] }] },
+              amountPaid: 0,
+              amountReserved: 0,
+              paymentStatus: 'NOT_INITIATED',
+              allPaymentsCompleted: false,
+            },
+          },
+        ])
+      : await this.model.updateMany(filter, { $set: { requiresPass: false, passHolds: [] } });
+    return result.modifiedCount;
   }
 
   async releasePassHold(sessionId: Types.ObjectId, passId: Types.ObjectId): Promise<void> {

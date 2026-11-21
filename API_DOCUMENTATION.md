@@ -4121,6 +4121,26 @@ Get wallet details for any user. Super admin only.
 
 ---
 
+### PATCH /location/:locationId/monthly-pass-sales
+Pause or resume selling (and renewing) monthly passes at this pitch. Owner only. Passes already sold stay valid.
+
+**Auth required**: Yes (JWT cookie + `IsOwnerGuard`); you must own the pitch.
+
+**Request Body**: `{ "paused": true }`
+
+**Success Response** `200 OK`:
+```json
+{
+  "message": "Monthly pass sales paused",
+  "monthlyPassSalesPaused": true,
+  "activePasses": 12,
+  "lastPassEndsAt": "2026-12-06T13:00:00.000Z"
+}
+```
+While paused, `POST /location/:locationId/monthly-pass/checkout` returns `409 PASS_SALES_PAUSED`, and a player without a pass who tries to join gets `402 PASS_REQUIRED` with `pass.price: null`. Once `lastPassEndsAt` has passed, the pitch can switch to hourly.
+
+---
+
 ### PATCH /location/:locationId/pricing-options
 Update pricing options for a location. Owner only.
 
@@ -4158,14 +4178,33 @@ Update pricing options for a location. Owner only.
 - If `tier` is `"paid"`, the owner must already have at least one active bank account on file (`POST /wallet/bank-accounts`) — switching to paid with no payout destination configured is rejected
 - If `tier` is `"paid"`, `pricingOption` is required
 - If `pricingOption` is `"hourly"`, `pricePerHour` (total for the pitch per hour, kobo) must be greater than `0`. Existing sessions keep the price they were configured with.
-- If `pricingOption` is `"monthly"`, `paymentPerPersonMonthly` must be greater than `0`
+- If `pricingOption` is `"monthly"`, `paymentPerPersonMonthly` (price of a 30-day pass) must be greater than `0`. A price change only affects passes bought after it; sold passes keep their price and dates.
 - Setting `tier` to `"free"` clears `pricingOption`, `pricePerHour`, `paymentPerPersonHourly` (legacy), and `paymentPerPersonMonthly`
+
+**Monthly passes and switching** (see [Monthly Passes](#monthly-passes)):
+- **→ hourly is blocked while monthly passes are running** at this pitch. "Running" means paid passes that haven't ended (including queued ones), or a checkout being paid right now. This also applies when the pitch is currently free, so monthly → free → hourly can't get round it. The response is `409`:
+  ```json
+  {
+    "statusCode": 409,
+    "message": "Monthly passes are still running at this pitch — the last one ends on 6 Dec 2026. Pause pass sales, then switch to hourly after that.",
+    "details": { "code": "PASSES_ACTIVE", "activeCount": 12, "pendingCount": 0, "lastEndsAt": "2026-12-06T13:00:00.000Z" }
+  }
+  ```
+  To get there, the owner pauses pass sales (`PATCH /location/:locationId/monthly-pass-sales`) and switches once `lastEndsAt` has passed.
+- **→ free is allowed at any time, with no refunds.** Passes already sold stay valid by date, and count again if the pitch goes monthly again later.
+- **Upcoming sessions** at the pitch that needed a pass (`requiresPass`) stop needing one when it leaves monthly:
+  - going **free**, they become free sessions;
+  - going **hourly**, they become pool sessions at the new price. That's `pricePerHour` × hours, rounded **up** to whole hours, so a 1h30 session pays for 2 hours.
+
+  Sessions already played or cancelled are untouched.
+- **hourly → monthly** is allowed. Sessions already booked keep their pool payment; new sessions need passes.
 
 **Success Response** `200 OK`:
 ```json
 {
   "message": "Location pricing options updated successfully",
-  "location": { ...updatedLocationDocument }
+  "location": { ...updatedLocationDocument },
+  "passSessionsChanged": 2
 }
 ```
 

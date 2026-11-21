@@ -15,6 +15,7 @@ import { handleError } from 'src/helpers/errorHandler';
 import { SessionRepository } from 'src/sessions/sessions.repository';
 import { SessionPaymentService } from 'src/billing/services/session-payment.service';
 import { WithdrawalService } from 'src/billing/services/withdrawal.service';
+import { MonthlyPassService } from 'src/billing/services/monthly-pass.service';
 import { Types } from 'mongoose';
 import { CacheService } from 'src/cache/cache.service';
 
@@ -34,6 +35,7 @@ export class LocationsService {
     private readonly sessionPaymentService: SessionPaymentService,
     private readonly withdrawalService: WithdrawalService,
     private readonly cacheService: CacheService,
+    private readonly monthlyPassService: MonthlyPassService,
   ) {}
 
   private nameSearchCacheKey(nameLower: string): string {
@@ -325,6 +327,28 @@ export class LocationsService {
 
   async updateLocationPricing(locationId: string, ownerId: string, dto: UpdateLocationPricingDto) {
     const location = await this.verifyOwnership(locationId, ownerId);
+    const pitchId = new Types.ObjectId(location._id.toString());
+
+    // MP-9: a pitch can't go hourly while monthly passes are still running
+    // (or being paid for) — those players paid for 30 days of sessions here.
+    // Checked on every move to hourly, so going monthly → free → hourly can't
+    // get round it. Pausing pass sales lets the owner wait it out.
+    const goingHourly = dto.tier === LOCATION_TIER.PAID && dto.pricingOption === LOCATION_PRICING_OPTION.HOURLY;
+    if (goingHourly) {
+      const live = await this.monthlyPassService.livePassSummary(pitchId);
+      if (live.activeCount + live.pendingCount > 0) {
+        const until = live.lastEndsAt
+          ? live.lastEndsAt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Africa/Lagos' })
+          : null;
+        throw new CustomHttpException(
+          until
+            ? `Monthly passes are still running at this pitch — the last one ends on ${until}. Pause pass sales, then switch to hourly after that.`
+            : 'Someone is paying for a monthly pass at this pitch right now — try again in a few minutes.',
+          HttpStatus.CONFLICT,
+          { code: 'PASSES_ACTIVE', activeCount: live.activeCount, pendingCount: live.pendingCount, lastEndsAt: live.lastEndsAt },
+        );
+      }
+    }
 
     const updatePayload: any = {
       tier: dto.tier,
@@ -390,9 +414,43 @@ export class LocationsService {
     );
     await this.cacheService.delete(this.nameSearchCacheKey(location.nameLower));
 
+    // No longer monthly: its upcoming pass sessions stop needing passes.
+    // Free → they're free. Hourly → pool sessions at the new price (only
+    // possible once no pass is running, so nobody in them paid for a pass
+    // that's still valid). Passes already sold stay valid by date (MP-9: no
+    // refunds going free), and count again if the pitch goes monthly again.
+    const stillMonthly = dto.tier === LOCATION_TIER.PAID && dto.pricingOption === LOCATION_PRICING_OPTION.MONTHLY;
+    const sessionsChanged = stillMonthly
+      ? 0
+      : await this.sessionRepository.releasePassSessions(
+          pitchId,
+          new Date(),
+          goingHourly ? { pricePerHour: dto.pricePerHour as number } : undefined,
+        );
+
     return {
       message: 'Location pricing options updated successfully',
       location: updatedLocation,
+      ...(sessionsChanged > 0 && { passSessionsChanged: sessionsChanged }),
+    };
+  }
+
+  // Owner stops (or resumes) selling and renewing monthly passes at a pitch.
+  // Passes already sold stay valid. Pausing is how an owner gets to a point
+  // where no pass is running, so the pitch can switch to hourly.
+  async setMonthlyPassSalesPaused(locationId: string, ownerId: string, paused: boolean) {
+    const location = await this.verifyOwnership(locationId, ownerId);
+    const updated = await this.locationRepository.findOneAndUpdate(
+      { _id: locationId },
+      { monthlyPassSalesPaused: paused },
+    );
+    await this.cacheService.delete(this.nameSearchCacheKey(location.nameLower));
+    const live = await this.monthlyPassService.livePassSummary(new Types.ObjectId(location._id.toString()));
+    return {
+      message: paused ? 'Monthly pass sales paused' : 'Monthly pass sales resumed',
+      monthlyPassSalesPaused: updated?.monthlyPassSalesPaused === true,
+      activePasses: live.activeCount,
+      lastPassEndsAt: live.lastEndsAt,
     };
   }
 

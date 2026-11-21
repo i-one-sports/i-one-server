@@ -119,6 +119,12 @@ export class MonthlyPassService {
     return this.passes.findCovering(userId, locationId, at);
   }
 
+  // Passes still running (and open checkouts) at a pitch: while any exist the
+  // pitch can't switch to hourly (MP-9).
+  livePassSummary(locationId: Types.ObjectId) {
+    return this.passes.liveAtPitch(locationId, new Date());
+  }
+
   // The "you need a pass" offer for a pitch: its current price (null when it
   // isn't selling passes).
   async passOffer(locationId: Types.ObjectId): Promise<PassOffer> {
