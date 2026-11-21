@@ -995,20 +995,20 @@ Get all registered locations.
 ---
 
 ### GET /location/nearby
-Get locations near a coordinate, sorted by proximity.
+Get the listed pitches for the home screen.
 
 **Auth required**: Optional — signed out gets the guest view (see [Guest access](#guest-access-signed-out)); signed in gets the full response below.
 
 **Query Parameters**:
-- `lng` (number, required) — longitude
-- `lat` (number, required) — latitude
+- `lng` (number) — longitude (not used yet; keep sending it)
+- `lat` (number) — latitude (not used yet; keep sending it)
 
 **Example**: `GET /location/nearby?lng=3.42158&lat=6.45306`
 
 **Notes**:
-- Results are capped to locations within **5 km** of the supplied coordinate (`$maxDistance: 5000`). Locations beyond 5 km are excluded regardless of query params.
+- The distance filter is **switched off for now**: this returns every listed pitch (`status` `active`), not only nearby ones, and not sorted by distance. `lng`/`lat` are accepted but not used yet. Unlisted pitches (pending verification, rejected, inactive) are never returned.
 
-**Success Response** `200 OK`: Array of location documents sorted nearest-first.
+**Success Response** `200 OK`: Array of location documents (signed in) or guest pitch views (signed out).
 
 ---
 
