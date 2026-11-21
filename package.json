@@ -30,7 +30,8 @@
     "migrate:location-name-lower": "ts-node -r tsconfig-paths/register src/helpers/migrate-add-location-name-lower",
     "migrate:pool-payments": "ts-node -r tsconfig-paths/register src/helpers/migrate-pool-payments",
     "migrate:platform-wallets": "ts-node -r tsconfig-paths/register src/helpers/migrate-platform-wallets",
-    "migrate:match-rotation": "ts-node -r tsconfig-paths/register src/helpers/migrate-match-rotation"
+    "migrate:match-rotation": "ts-node -r tsconfig-paths/register src/helpers/migrate-match-rotation",
+    "migrate:monthly-passes": "ts-node -r tsconfig-paths/register src/helpers/migrate-monthly-passes"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.858.0",

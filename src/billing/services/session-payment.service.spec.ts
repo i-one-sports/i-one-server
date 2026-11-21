@@ -543,6 +543,46 @@ describe('SessionPaymentService', () => {
     });
   });
 
+  describe('a bill cancelled before its payment arrived (e.g. by the monthly pass migration)', () => {
+    const cancelledBill = () => ({
+      _id: new Types.ObjectId(), sessionId, userId: userOne, ownerId, amount: 2310000, baseAmount: 2000000,
+      status: PaymentStatus.EXPIRED, paymentReference: 'REF_LATE', previousReferences: [],
+      metadata: { pricingOption: 'monthly', cancelledByMigration: true },
+    });
+
+    it('refunds the charge in full and credits nobody', async () => {
+      const bill = cancelledBill();
+      sessionPaymentRepository.findOne.mockResolvedValue(bill);
+      sessionPaymentRepository.findOneAndUpdate
+        .mockResolvedValueOnce(null) // the PENDING claim fails: the bill isn't pending any more
+        .mockResolvedValueOnce({ ...bill, status: PaymentStatus.REFUND_PENDING }) // EXPIRED → REFUND_PENDING
+        .mockResolvedValueOnce({ ...bill, status: PaymentStatus.REFUND_PENDING, refundReference: '999' });
+
+      await service.confirmSessionPayment(sessionId, userOne, 'REF_LATE', 2310000, 4465);
+
+      expect(sessionPaymentRepository.findOneAndUpdate).toHaveBeenNthCalledWith(2,
+        { _id: bill._id, status: PaymentStatus.EXPIRED },
+        expect.objectContaining({ status: PaymentStatus.REFUND_PENDING, paidReference: 'REF_LATE', 'metadata.neverCredited': true }),
+      );
+      expect(paystackService.refundTransaction).toHaveBeenCalledWith('REF_LATE', 2310000, expect.any(String));
+      expect(walletService.creditWallet).not.toHaveBeenCalled(); // nobody is credited
+    });
+
+    it('when the refund settles, the owner is not debited (they were never credited)', async () => {
+      const bill = { ...cancelledBill(), status: PaymentStatus.REFUND_PENDING, metadata: { neverCredited: true } };
+      sessionPaymentRepository.findOne.mockResolvedValue(bill);
+      sessionPaymentRepository.findOneAndUpdate.mockResolvedValue({ ...bill, status: PaymentStatus.REFUNDED });
+      sessionPaymentRepository.findRaw.mockReturnValue({ countDocuments: jest.fn().mockResolvedValue(1) });
+
+      await service.handleRefundWebhookEvent('refund.processed', { transaction_reference: 'REF_LATE' });
+
+      expect(walletService.debitWallet).not.toHaveBeenCalled();
+      expect(sessionPaymentRepository.findOneAndUpdate).toHaveBeenCalledWith(
+        { _id: bill._id }, { status: PaymentStatus.REFUNDED, refundedAt: expect.any(Date) },
+      );
+    });
+  });
+
   describe('payments converted to monthly passes', () => {
     it('refundPayment never refunds a payment that became a pass', async () => {
       const converted = { _id: new Types.ObjectId(), status: PaymentStatus.PAID, metadata: { convertedToPass: 'pass1' } };

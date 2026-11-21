@@ -501,6 +501,12 @@ export class SessionPaymentService {
       : [original.paymentReference, ...(original.previousReferences ?? [])].includes(paystackReference);
 
     if (sameCharge) {
+      // The bill was cancelled (EXPIRED) before this payment on its own page
+      // arrived — e.g. the monthly pass migration cancelled unpaid monthly
+      // bills. Nothing is owed any more, so the money goes back in full.
+      if (original.status === PaymentStatus.EXPIRED) {
+        return this.refundChargeOnCancelledBill(original, paystackReference, amount, paystackFee);
+      }
       if (original.status === PaymentStatus.PAID) {
         await this.creditOwnerForPayment(original, paystackReference, original.amount, paystackFee);
       }
@@ -509,6 +515,36 @@ export class SessionPaymentService {
     }
 
     return this.refundExtraCharge(original, paystackReference, amount, paystackFee);
+  }
+
+  // A per-player bill was cancelled (EXPIRED) and then paid on a page the
+  // player still had open: refund it in full. It was never credited, so the
+  // refund webhook only closes it (metadata.neverCredited — see completeRefund).
+  private async refundChargeOnCancelledBill(bill: SessionPayment, paystackReference: string, amount: number, paystackFee?: number) {
+    const claimed = await this.sessionPaymentRepository.findOneAndUpdate(
+      { _id: bill._id, status: PaymentStatus.EXPIRED },
+      {
+        status: PaymentStatus.REFUND_PENDING,
+        paidReference: paystackReference,
+        paidAt: new Date(),
+        'metadata.neverCredited': true,
+      },
+    );
+    if (!claimed) return null; // already being handled (webhook redelivery)
+
+    this.logger.warn(`Charge ${paystackReference} (${amount} kobo) on cancelled bill ${bill._id} — refunding in full`);
+    await this.platformPosting.postPaystackFee(paystackReference, paystackFee, { paymentId: bill._id.toString(), cancelledBill: 'true' });
+    try {
+      const refund = await this.paystackService.refundTransaction(
+        paystackReference,
+        amount,
+        'Refund: this bill was cancelled before your payment arrived',
+      );
+      return this.sessionPaymentRepository.findOneAndUpdate({ _id: bill._id }, { refundReference: refund?.id?.toString() });
+    } catch (error: unknown) {
+      this.logger.error(`CRITICAL: refund request for ${paystackReference} on cancelled bill ${bill._id} failed (${errorMessage(error)}) — needs manual follow-up`);
+      return this.sessionPaymentRepository.findOneAndUpdate({ _id: bill._id }, { status: PaymentStatus.REFUND_FAILED });
+    }
   }
 
   // Records an extra charge as its own row (linked to the original) and
@@ -1548,9 +1584,10 @@ export class SessionPaymentService {
       return;
     }
 
-    // An extra charge was never credited to the owner or the platform, so
-    // there's nothing to reverse — the refund just closes it.
-    if (payment.duplicateOf) {
+    // An extra charge, or a charge on a cancelled bill, was never credited to
+    // the owner or the platform, so there's nothing to reverse — the refund
+    // just closes it.
+    if (payment.duplicateOf || payment.metadata?.neverCredited) {
       await this.sessionPaymentRepository.findOneAndUpdate(
         { _id: payment._id },
         { status: PaymentStatus.REFUNDED, refundedAt: new Date() },

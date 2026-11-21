@@ -96,6 +96,11 @@ export class MonthlyPass extends AbstractDocument {
   @Prop({ type: Date, required: true })
   expiresAt: Date;
 
+  // Migrated passes: the old monthly SessionPayment this pass was made from
+  // (that payment's metadata.convertedToPass points back here).
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'SessionPayment', required: false })
+  convertedFromPaymentId?: Types.ObjectId;
+
   // Set on a row recording a second charge for a pass that was already paid.
   @Prop({ type: SchemaTypes.ObjectId, ref: 'MonthlyPass', required: false })
   duplicateOf?: Types.ObjectId;

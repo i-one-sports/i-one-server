@@ -3519,6 +3519,13 @@ A **monthly pass** is one player's 30-day pass for one **monthly** pitch (`tier:
 - **Refunds:** a payment that can't become a pass is refunded in full and never credited to anyone. That covers a second charge for a paid pass, a payment after the checkout lapsed, and a payment after the pitch stopped being monthly.
 - **Paused sales:** if the owner has paused sales (`monthlyPassSalesPaused: true`), new checkouts are refused. Passes already sold stay valid.
 
+**Moving existing data over (once, at deploy):** `npm run migrate:monthly-passes` (use `-- --dry-run` first). It:
+- turns each paid monthly session payment from the last 30 days into a pass (several for one player at one pitch are chained, so nobody loses days);
+- converts open, unplayed sessions at monthly pitches to pass sessions (no bill), recording members whose pass covers them;
+- cancels unpaid monthly bills. Those players stay in the session and must buy a pass to be covered. If one of them pays the old bill's page anyway, it's refunded in full automatically.
+
+It prints anything that needs a person: full sessions that now need teams (`POST /sets/create/:id`), and paid monthly bills too old to become a pass. It's safe to run again.
+
 **Pass states** (`state` in responses)
 
 | `state` | Meaning |
@@ -4331,6 +4338,7 @@ Receive and process events from Paystack. **This endpoint is called by Paystack,
 |---|---|
 | `charge.success` (session) | metadata has `sessionId`+`userId` → confirms session payment, credits owner wallet with `baseAmount`, records commission (if any). POOL contributions are matched by `reference`; a contribution that would overfund the pot (or arrives for a cancelled session / a player who left) is confirmed then refunded in full |
 | `charge.success` (tournament) | metadata has `type: "TOURNAMENT_REGISTRATION"` → credits the location owner's wallet and marks the team's registration as PAID |
+| `charge.success` (cancelled bill) | a per-player bill that was cancelled (`EXPIRED`, e.g. by the monthly pass migration) gets paid on a page the player still had open → refunded in full, credited to nobody (`metadata.neverCredited`); its `refund.processed` doesn't debit the owner |
 | `charge.success` (monthly pass) | metadata has `type: "MONTHLY_PASS"` + `passId` → activates the pass (30 days, queued after the player's current pass), credits the owner `baseAmount` (`MONTHLY_PASS`) and posts commission/fees to the platform wallet. A payment that can't become a pass (second charge, lapsed checkout, pitch no longer monthly) is refunded in full and credited to nobody. Refund events for those are matched by reference |
 | `charge.success` (wallet funding) | metadata has `type: "WALLET_FUNDING"` + `walletId` → credits the owner's wallet and marks the pending transaction as SUCCESS |
 | `transfer.success` | Marks the withdrawal transaction as SUCCESS |
