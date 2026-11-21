@@ -105,6 +105,7 @@
     ],
     "coverageDirectory": "./coverage",
     "testEnvironment": "node",
+    "maxWorkers": "50%",
     "roots": [
       "<rootDir>/src/",
       "<rootDir>/libs/"
