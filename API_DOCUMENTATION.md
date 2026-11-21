@@ -577,7 +577,7 @@ Full URL: `DELETE {baseUrl}/user/account` (e.g. `https://…/i-one/user/account`
 **Auth required**: Yes (JWT cookie). Works **before** email verification and for owners still pending KYC, so anyone who signs up can delete.
 
 **What happens**: the account is anonymised, not erased — payments, the ledger, matches and stats still point at it, shown as "Deleted player".
-- Wiped: name, nickname, email, phone, address, date of birth, avatar link, height, position, push token, OTPs. The password is replaced, so nobody can sign in.
+- Wiped: name, nickname, email, phone, address, date of birth, avatar (the link and the image file in storage), height, position, push token, OTPs. The password is replaced, so nobody can sign in.
 - The email is freed: the same address can sign up again as a new account.
 - Saved bank accounts are deleted. The wallet (balance ₦0) is closed. An owner's pitches are unlisted (`status: "inactive"`).
 - Kept: wallet transactions, payments, match records and stats.
@@ -995,20 +995,20 @@ Get all registered locations.
 ---
 
 ### GET /location/nearby
-Get locations near a coordinate, sorted by proximity.
+Get the listed pitches for the home screen.
 
 **Auth required**: Optional — signed out gets the guest view (see [Guest access](#guest-access-signed-out)); signed in gets the full response below.
 
 **Query Parameters**:
-- `lng` (number, required) — longitude
-- `lat` (number, required) — latitude
+- `lng` (number) — longitude (not used yet; keep sending it)
+- `lat` (number) — latitude (not used yet; keep sending it)
 
 **Example**: `GET /location/nearby?lng=3.42158&lat=6.45306`
 
 **Notes**:
-- Results are capped to locations within **5 km** of the supplied coordinate (`$maxDistance: 5000`). Locations beyond 5 km are excluded regardless of query params.
+- The distance filter is **switched off for now**: this returns every listed pitch (`status` `active`), not only nearby ones, and not sorted by distance. `lng`/`lat` are accepted but not used yet. Unlisted pitches (pending verification, rejected, inactive) are never returned.
 
-**Success Response** `200 OK`: Array of location documents sorted nearest-first.
+**Success Response** `200 OK`: Array of location documents (signed in) or guest pitch views (signed out).
 
 ---
 

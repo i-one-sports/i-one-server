@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common'
-import { PutObjectCommand, S3 } from '@aws-sdk/client-s3'
+import { DeleteObjectCommand, PutObjectCommand, S3 } from '@aws-sdk/client-s3'
 import { RandomGen, UploadType } from '@app/common'
 import { ConfigService } from '@nestjs/config'
 
@@ -52,6 +52,26 @@ export class AwsService {
         key: Key
       })
       return undefined
+    }
+  }
+
+  // Deletes a file this service uploaded, given its public URL. Only acts on
+  // URLs under our own AWS_S3_BASE_URL and inside one of `allowedTypes`'
+  // folders, so a URL from elsewhere (or another kind of upload) is never
+  // touched. Never throws: returns false when nothing was deleted.
+  async deleteByUrl(url: string | null | undefined, allowedTypes: UploadType[]): Promise<boolean> {
+    const baseUrl = this.configService.get<string>('AWS_S3_BASE_URL')
+    if (!url || !baseUrl || !url.startsWith(`${baseUrl}/`)) return false
+
+    const Key = decodeURIComponent(url.slice(baseUrl.length + 1).split('?')[0])
+    if (Key.includes('..') || !allowedTypes.some((type) => Key.startsWith(`${type}/`))) return false
+
+    try {
+      await this.s3.send(new DeleteObjectCommand({ Bucket: this.AWS_S3_BUCKET, Key }))
+      return true
+    } catch (error) {
+      this.logger.error({ message: 'Failed to delete file from S3', error, key: Key })
+      return false
     }
   }
 }

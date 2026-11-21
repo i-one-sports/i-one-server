@@ -14,6 +14,8 @@ import { WalletRepository } from 'src/billing/repositories/wallet.repository';
 import { TransactionRepository } from 'src/billing/repositories/transaction.repository';
 import { WebhookEventRepository } from 'src/billing/repositories/webhook-event.repository';
 import { BankAccountRepository } from 'src/billing/repositories/bank-account.repository';
+import { AwsService } from '@app/common/providers/aws.service';
+import { UploadType } from '@app/common';
 
 describe('AccountDeletionService', () => {
   const userId = new Types.ObjectId();
@@ -30,6 +32,7 @@ describe('AccountDeletionService', () => {
   const transactions = { findWithdrawalsSince: jest.fn() };
   const webhookEvents = { processedEventIds: jest.fn() };
   const bankAccounts = { deleteForUser: jest.fn() };
+  const aws = { deleteByUrl: jest.fn() };
   const connection = { transaction: jest.fn((work: (session: typeof tx) => Promise<void>) => work(tx)) };
 
   const service = new AccountDeletionService(
@@ -42,6 +45,7 @@ describe('AccountDeletionService', () => {
     transactions as unknown as TransactionRepository,
     webhookEvents as unknown as WebhookEventRepository,
     bankAccounts as unknown as BankAccountRepository,
+    aws as unknown as AwsService,
     connection as unknown as Connection,
   );
 
@@ -166,6 +170,25 @@ describe('AccountDeletionService', () => {
       deletedAt: expect.any(Date),
     });
     expect(update.$set.password).toMatch(/^\$2[aby]\$/); // a bcrypt hash of random bytes
+  });
+
+  it('removes the avatar file from storage after the account is deleted', async () => {
+    users.findOne.mockResolvedValue({ _id: userId, currentSession: null, avatar: 'https://cdn.example/users/1/a.png' });
+    aws.deleteByUrl.mockResolvedValue(true);
+    await service.deleteAccount(userId.toString());
+    expect(aws.deleteByUrl).toHaveBeenCalledWith('https://cdn.example/users/1/a.png', [UploadType.USER_AVATAR, UploadType.AVATAR]);
+  });
+
+  it('a storage failure does not fail the deletion', async () => {
+    users.findOne.mockResolvedValue({ _id: userId, currentSession: null, avatar: 'https://cdn.example/users/1/a.png' });
+    aws.deleteByUrl.mockResolvedValue(false);
+    await expect(service.deleteAccount(userId.toString())).resolves.toEqual({ message: 'Account deleted successfully' });
+  });
+
+  it('a refused deletion never touches storage', async () => {
+    users.findOne.mockResolvedValue({ _id: userId, currentSession: new Types.ObjectId(), avatar: 'https://cdn.example/users/1/a.png' });
+    await refusal('IN_SESSION');
+    expect(aws.deleteByUrl).not.toHaveBeenCalled();
   });
 
   it('a player with no wallet or pitches: nothing to close or unlist', async () => {

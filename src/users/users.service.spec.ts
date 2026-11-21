@@ -11,6 +11,7 @@ import {
   USER_ROLE,
 } from '@app/common';
 import { UsersService } from './users.service';
+import { NOTIFICATION_CHANNEL, NOTIFICATION_TYPE } from 'src/notifications/notification.types';
 import { RegisterOwnerRequest } from './dto/user.dto';
 
 jest.mock('bcrypt', () => ({
@@ -31,11 +32,7 @@ describe('UsersService', () => {
     create: jest.Mock;
     findRaw: jest.Mock;
   };
-  let mailService: {
-    sendMail: jest.Mock;
-    sendTemplateMail: jest.Mock;
-    sendEmailVerificationOtp: jest.Mock;
-  };
+  let notificationService: { send: jest.Mock };
   let statsService: { initializeStat: jest.Mock };
   let cacheService: { set: jest.Mock; get: jest.Mock; delete: jest.Mock };
   let locationRepository: { findOne: jest.Mock; create: jest.Mock };
@@ -44,10 +41,6 @@ describe('UsersService', () => {
   let connection: { transaction: jest.Mock };
 
   const userId = new Types.ObjectId();
-
-  const leanResult = (value: any) => ({
-    lean: jest.fn().mockResolvedValue(value),
-  });
 
   beforeEach(() => {
     (crypto.randomInt as unknown as jest.Mock).mockReturnValue(111111);
@@ -58,11 +51,7 @@ describe('UsersService', () => {
       create: jest.fn(),
       findRaw: jest.fn(),
     };
-    mailService = {
-      sendMail: jest.fn().mockResolvedValue(undefined),
-      sendTemplateMail: jest.fn().mockResolvedValue(undefined),
-      sendEmailVerificationOtp: jest.fn().mockResolvedValue(undefined),
-    };
+    notificationService = { send: jest.fn().mockResolvedValue(undefined) };
     statsService = { initializeStat: jest.fn().mockResolvedValue(undefined) };
     cacheService = {
       set: jest.fn().mockResolvedValue(undefined),
@@ -85,7 +74,7 @@ describe('UsersService', () => {
 
     service = new UsersService(
       usersRepository as any,
-      mailService as any,
+      notificationService as never,
       statsService as any,
       cacheService as any,
       locationRepository as never,
@@ -136,20 +125,21 @@ describe('UsersService', () => {
       expect(statsService.initializeStat).toHaveBeenCalledWith(
         userId.toString(),
       );
-      expect(mailService.sendTemplateMail).toHaveBeenCalledWith(
-        'jane@example.com',
-        'welcome',
-        { firstName: 'Jane' },
-      );
+      expect(notificationService.send).toHaveBeenCalledWith(NOTIFICATION_CHANNEL.EMAIL, {
+        type: NOTIFICATION_TYPE.WELCOME,
+        to: 'jane@example.com',
+        variables: { firstName: 'Jane' },
+      });
       expect(cacheService.set).toHaveBeenCalledWith(
         'email_verify:jane@example.com',
         '111111',
         600,
       );
-      expect(mailService.sendEmailVerificationOtp).toHaveBeenCalledWith(
-        'jane@example.com',
-        111111,
-      );
+      expect(notificationService.send).toHaveBeenCalledWith(NOTIFICATION_CHANNEL.EMAIL, {
+        type: NOTIFICATION_TYPE.EMAIL_VERIFICATION_OTP,
+        to: 'jane@example.com',
+        variables: { otp: 111111, code: 111111, expiresInMinutes: 10, email: 'jane@example.com' },
+      });
     });
 
     it('rejects duplicate nicknames before creating a user', async () => {
@@ -284,10 +274,11 @@ describe('UsersService', () => {
         '111111',
         600,
       );
-      expect(mailService.sendEmailVerificationOtp).toHaveBeenCalledWith(
-        'owner@example.com',
-        111111,
-      );
+      expect(notificationService.send).toHaveBeenCalledWith(NOTIFICATION_CHANNEL.EMAIL, {
+        type: NOTIFICATION_TYPE.EMAIL_VERIFICATION_OTP,
+        to: 'owner@example.com',
+        variables: { otp: 111111, code: 111111, expiresInMinutes: 10, email: 'owner@example.com' },
+      });
 
       const freeOwnerRequest: RegisterOwnerRequest = {
         user: {
@@ -340,11 +331,11 @@ describe('UsersService', () => {
           otpExpiration: expect.any(Date),
         }),
       );
-      expect(mailService.sendTemplateMail).toHaveBeenCalledWith(
-        'jane@example.com',
-        'password-reset',
-        { otp: 123456, expiresInMinutes: 15 },
-      );
+      expect(notificationService.send).toHaveBeenCalledWith(NOTIFICATION_CHANNEL.EMAIL, {
+        type: NOTIFICATION_TYPE.PASSWORD_RESET,
+        to: 'jane@example.com',
+        variables: { otp: 123456, expiresInMinutes: 15 },
+      });
     });
 
     it('verifies a valid OTP', async () => {
@@ -424,10 +415,11 @@ describe('UsersService', () => {
         '654321',
         600,
       );
-      expect(mailService.sendEmailVerificationOtp).toHaveBeenCalledWith(
-        'jane@example.com',
-        654321,
-      );
+      expect(notificationService.send).toHaveBeenCalledWith(NOTIFICATION_CHANNEL.EMAIL, {
+        type: NOTIFICATION_TYPE.EMAIL_VERIFICATION_OTP,
+        to: 'jane@example.com',
+        variables: { otp: 654321, code: 654321, expiresInMinutes: 10, email: 'jane@example.com' },
+      });
     });
 
     it('confirms email verification and deletes the cached OTP', async () => {
