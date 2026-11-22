@@ -28,9 +28,30 @@ import { DeepLinksModule } from './deep-links/deep-links.module';
 import { RefereesModule } from './referees/referees.module';
 import { VotesModule } from './votes/votes.module';
 import { BadgesModule } from './badges/badges.module';
+import { LoggerModule } from 'nestjs-pino';
+import { randomUUID } from 'node:crypto';
 
 @Module({
   imports: [
+    LoggerModule.forRoot({
+      pinoHttp: {
+        level: process.env.LOG_LEVEL || 'info',
+        autoLogging: false,
+        genReqId: (_request, response) => {
+          const requestId = randomUUID();
+          response.setHeader('x-request-id', requestId);
+          return requestId;
+        },
+        redact: {
+          paths: [
+            'req.headers.authorization',
+            'req.headers.cookie',
+            'req.headers["set-cookie"]',
+          ],
+          censor: '[REDACTED]',
+        },
+      },
+    }),
     ScheduleModule.forRoot(),
     ConfigModule.forRoot({
       isGlobal: true,
