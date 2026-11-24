@@ -191,7 +191,7 @@ function detailsTable(rows: Array<[string, string]>): string {
     </table>`;
 }
 
-const escapeHtml = (value: unknown): string =>
+export const escapeHtml = (value: unknown): string =>
   String(value ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -257,7 +257,56 @@ function sessionRescheduledTemplate(vars: MailVariables): RenderedTemplate {
   };
 }
 
+// ─── Batch-sent templates ──────────────────────────────────────────────────
+// Sent to many people in one request (MailProvider.sendBatch), so every value
+// is a plain substitution: no fallbacks or branches on vars here — callers
+// pass ready-made text (e.g. firstName "there", refundLine).
+
+function sessionAtRiskTemplate(vars: MailVariables): RenderedTemplate {
+  const intro = `Hi ${vars.firstName}, your ${vars.startTimeLabel} game at ${vars.pitchName} isn't fully paid, so it will be cancelled in ${vars.minutesLeft} minutes.`;
+  const body = `
+    <h1 style="margin:0 0 12px; font-size:20px; line-height:1.3; font-weight:700; color:${TEXT_PRIMARY}; text-align:center;">Your game is about to be cancelled</h1>
+    <p style="margin:0 0 20px; color:${TEXT_SECONDARY}; text-align:center;">${intro}</p>
+    <p style="margin:0; color:${TEXT_SECONDARY}; font-size:13px; text-align:center;">Open the i-One app and pay your share now to keep it. If it's cancelled, any money already paid is refunded.</p>
+  `;
+  return {
+    subject: `Pay now or your ${vars.startTimeLabel} game at ${vars.pitchName} will be cancelled`,
+    html: renderLayout(body),
+    text: `${intro}\n\nOpen the i-One app and pay your share now to keep it. If it's cancelled, any money already paid is refunded.`,
+  };
+}
+
+function sessionAutoCancelledTemplate(vars: MailVariables): RenderedTemplate {
+  const intro = `Hi ${vars.firstName}, your ${vars.startTimeLabel} game at ${vars.pitchName} was cancelled because it wasn't fully paid by kick-off.`;
+  const body = `
+    <h1 style="margin:0 0 12px; font-size:20px; line-height:1.3; font-weight:700; color:${TEXT_PRIMARY}; text-align:center;">Game cancelled</h1>
+    <p style="margin:0 0 20px; color:${TEXT_SECONDARY}; text-align:center;">${intro}</p>
+    <p style="margin:0; color:${TEXT_SECONDARY}; font-size:13px; text-align:center;">${vars.refundLine}</p>
+  `;
+  return {
+    subject: `Your ${vars.startTimeLabel} game at ${vars.pitchName} was cancelled`,
+    html: renderLayout(body),
+    text: `${intro}\n\n${vars.refundLine}`,
+  };
+}
+
+function accountDeletedTemplate(vars: MailVariables): RenderedTemplate {
+  const body = `
+    <h1 style="margin:0 0 12px; font-size:20px; line-height:1.3; font-weight:700; color:${TEXT_PRIMARY}; text-align:center;">Your i-One account has been deleted</h1>
+    <p style="margin:0 0 20px; color:${TEXT_SECONDARY}; text-align:center;">Hi ${vars.firstName}, as you asked, your account and personal details have been deleted.</p>
+    <p style="margin:0; color:${TEXT_SECONDARY}; font-size:13px; text-align:center;">Records of payments and games you played are kept without your name. You're welcome to sign up again with this email at any time.</p>
+  `;
+  return {
+    subject: 'Your i-One account has been deleted',
+    html: renderLayout(body),
+    text: `Hi ${vars.firstName}, as you asked, your i-One account and personal details have been deleted.\n\nRecords of payments and games you played are kept without your name. You're welcome to sign up again with this email at any time.`,
+  };
+}
+
 export const LOCAL_TEMPLATES: Record<string, (vars: MailVariables) => RenderedTemplate> = {
+  'session-at-risk': sessionAtRiskTemplate,
+  'session-auto-cancelled': sessionAutoCancelledTemplate,
+  'account-deleted': accountDeletedTemplate,
   'email-verification': emailVerificationTemplate,
   'password-reset': passwordResetTemplate,
   welcome: welcomeTemplate,
@@ -267,3 +316,21 @@ export const LOCAL_TEMPLATES: Record<string, (vars: MailVariables) => RenderedTe
   'session-created': sessionCreatedTemplate,
   'session-rescheduled': sessionRescheduledTemplate,
 };
+
+// Renders a template with the subject and text from plain values and the HTML
+// from HTML-escaped values, so user-typed text (a name, a pitch name) can never
+// inject markup. Batch providers pass either real values or placeholders.
+export function renderTemplate(
+  name: string,
+  textVars: MailVariables,
+  htmlVars: MailVariables,
+): RenderedTemplate | null {
+  const render = LOCAL_TEMPLATES[name];
+  if (!render) return null;
+  const plain = render(textVars);
+  return { subject: plain.subject, text: plain.text, html: render(htmlVars).html };
+}
+
+export const escapeVariables = (vars: MailVariables): MailVariables =>
+  Object.fromEntries(Object.entries(vars).map(([key, value]) => [key, escapeHtml(value)]));
+

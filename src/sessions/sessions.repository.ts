@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { AbstractRepository, SESSION_PAYMENT_MODE, SESSION_STATUS, Session } from '@app/common';
+import { AbstractRepository, SESSION_CANCEL_REASON, SESSION_PAYMENT_MODE, SESSION_STATUS, Session } from '@app/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 
@@ -25,6 +25,19 @@ export const roomForExpr = (userId: Types.ObjectId, now: Date) => ({
     '$maxNumber',
   ],
 });
+
+// Not cancelled, refunded or completed. Sessions saved before `status` existed
+// have none, which counts as open.
+const STILL_OPEN = { status: { $nin: [SESSION_STATUS.CANCELLED, SESSION_STATUS.REFUNDED, SESSION_STATUS.COMPLETED] } };
+
+// A paid session that isn't ready to play: never filled (payment never
+// opened) or filled but not fully paid.
+const PAID_NOT_READY = { paymentRequired: true, paymentStatus: { $ne: 'COMPLETED' } };
+
+export type LifecycleSession = Pick<Session, 'members' | 'startTime' | 'paymentMode'> & {
+  _id: Types.ObjectId;
+  location: Types.ObjectId;
+};
 
 @Injectable()
 export class SessionRepository extends AbstractRepository<Session> {
@@ -91,6 +104,115 @@ export class SessionRepository extends AbstractRepository<Session> {
 
   async releasePassHold(sessionId: Types.ObjectId, passId: Types.ObjectId): Promise<void> {
     await this.model.updateOne({ _id: sessionId }, { $pull: { passHolds: { passId } } });
+  }
+
+  // ─── Session lifecycle (SessionLifecycleService) ─────────────────────────
+
+  // Paid, not ready, kick-off in (after, upTo]. Not started (a match in
+  // progress means it was ready).
+  async findPaidNotReady(after: Date | null, upTo: Date, limit: number): Promise<LifecycleSession[]> {
+    return this.model
+      .find({
+        ...STILL_OPEN,
+        ...PAID_NOT_READY,
+        finished: { $ne: true },
+        inProgress: { $ne: true },
+        startTime: { ...(after && { $gt: after }), $lte: upTo },
+      })
+      .select('_id location members startTime paymentMode')
+      .sort({ startTime: 1 })
+      .limit(limit)
+      .lean<LifecycleSession[]>();
+  }
+
+  // Ended at or before `cutoff` but never closed (nobody tapped End). Paid
+  // sessions that never got paid are left to the auto-cancel sweep.
+  async findOverdueForCloseOut(cutoff: Date, limit: number): Promise<Array<{ _id: Types.ObjectId }>> {
+    return this.model
+      .find({ ...STILL_OPEN, finished: { $ne: true }, stopTime: { $lte: cutoff }, $nor: [PAID_NOT_READY] })
+      .select('_id')
+      .sort({ stopTime: 1 })
+      .limit(limit)
+      .lean<Array<{ _id: Types.ObjectId }>>();
+  }
+
+  // Started (POST /sessions/start) but never given a date, created at or
+  // before `cutoff`.
+  async findStaleDrafts(cutoff: Date, limit: number): Promise<Array<{ _id: Types.ObjectId }>> {
+    return this.model
+      .find({ ...STILL_OPEN, startTime: null, createdAt: { $lte: cutoff } })
+      .select('_id')
+      .limit(limit)
+      .lean<Array<{ _id: Types.ObjectId }>>();
+  }
+
+  // Open → CANCELLED, only if still open (and still matching `extra`), so a
+  // manual action, a payment landing, or another server can't double-act.
+  // Returns the session as it was cancelled, or null if someone got there first.
+  async cancelIfOpen(id: Types.ObjectId, reason: SESSION_CANCEL_REASON | null, extra: Record<string, unknown> = {}): Promise<Session | null> {
+    return this.model
+      .findOneAndUpdate(
+        { _id: id, ...STILL_OPEN, ...extra },
+        { $set: { status: SESSION_STATUS.CANCELLED, ...(reason && { cancelReason: reason }) } },
+        { new: true },
+      )
+      .lean<Session>();
+  }
+
+  // Bulk versions for the lifecycle job: one write for many sessions, each
+  // still only changed while open (and matching `extra`). Returns how many.
+  async markEndedManyIfOpen(ids: Types.ObjectId[]): Promise<number> {
+    if (ids.length === 0) return 0;
+    const result = await this.model.updateMany(
+      { _id: { $in: ids }, ...STILL_OPEN },
+      { $set: { captain: null, inProgress: false, finished: true, status: SESSION_STATUS.COMPLETED } },
+    );
+    return result.modifiedCount;
+  }
+
+  async cancelManyIfOpen(ids: Types.ObjectId[], reason: SESSION_CANCEL_REASON, extra: Record<string, unknown> = {}): Promise<number> {
+    if (ids.length === 0) return 0;
+    const result = await this.model.updateMany(
+      { _id: { $in: ids }, ...STILL_OPEN, ...extra },
+      { $set: { status: SESSION_STATUS.CANCELLED, cancelReason: reason } },
+    );
+    return result.modifiedCount;
+  }
+
+  // Is this paid session still open and not ready? (Used to drop a queued
+  // "will be cancelled" push that no longer applies.)
+  async isPaidNotReady(id: Types.ObjectId): Promise<boolean> {
+    return (await this.model.exists({ _id: id, ...STILL_OPEN, ...PAID_NOT_READY })) !== null;
+  }
+
+  // Marks a session played and over (what the End button does), only if it
+  // isn't closed already. Returns null if it was.
+  async markEndedIfOpen(id: Types.ObjectId): Promise<Session | null> {
+    return this.model
+      .findOneAndUpdate(
+        { _id: id, ...STILL_OPEN },
+        { $set: { captain: null, inProgress: false, finished: true, status: SESSION_STATUS.COMPLETED } },
+        { new: true },
+      )
+      .lean<Session>();
+  }
+
+  // The player's current or next session: open, not over, earliest first.
+  // A draft they started counts too (drafts list the starter only as
+  // captain, not in members, until it's configured).
+  async findCurrentForUser(userId: Types.ObjectId, now: Date): Promise<{ _id: Types.ObjectId } | null> {
+    return this.model
+      .findOne({
+        ...STILL_OPEN,
+        finished: { $ne: true },
+        $or: [
+          { members: userId, stopTime: { $gt: now } },
+          { captain: userId, startTime: null },
+        ],
+      })
+      .sort({ startTime: 1 })
+      .select('_id')
+      .lean<{ _id: Types.ObjectId }>();
   }
 
   // A session at one of these pitches that is booked and not over yet

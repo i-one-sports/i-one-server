@@ -14,6 +14,8 @@ import { WalletRepository } from 'src/billing/repositories/wallet.repository';
 import { TransactionRepository } from 'src/billing/repositories/transaction.repository';
 import { WebhookEventRepository } from 'src/billing/repositories/webhook-event.repository';
 import { BankAccountRepository } from 'src/billing/repositories/bank-account.repository';
+import { NotificationService } from 'src/notifications/notification.service';
+import { NOTIFICATION_TYPE } from 'src/notifications/notification.types';
 
 // Why a deletion was refused. Sent as `details.code` so the app can branch;
 // the message is written to be shown to the user as-is.
@@ -58,6 +60,7 @@ export class AccountDeletionService {
     private readonly webhookEvents: WebhookEventRepository,
     private readonly bankAccounts: BankAccountRepository,
     private readonly aws: AwsService,
+    private readonly notifications: NotificationService,
     @InjectConnection() private readonly connection: Connection,
   ) {}
 
@@ -68,7 +71,10 @@ export class AccountDeletionService {
 
     const ownedPitches = await this.locations.findOwnedBy(id);
     const wallet = await this.wallets.findOwnerWallet(id);
-    await this.assertCanDelete(id, Boolean(user.currentSession), ownedPitches, wallet);
+    // Real membership of an open, not-yet-over session — not user.currentSession,
+    // which can point at a game that finished long ago.
+    const inSession = (await this.sessions.findCurrentForUser(id, new Date())) !== null;
+    await this.assertCanDelete(id, inSession, ownedPitches, wallet);
 
     // All-or-nothing: if any step fails (or a check made inside a write no
     // longer holds), nothing is changed and the user can simply try again.
@@ -82,10 +88,18 @@ export class AccountDeletionService {
       if (ownedPitches.length) await this.locations.unlistOwnedBy(id, tx);
 
       const anonymised = await this.users.anonymise(id, await this.anonymisedFields(id), tx);
-      if (!anonymised) {
-        throw this.blocked('IN_SESSION', 'You must leave your current session before deleting your account');
-      }
+      if (!anonymised) throw new CustomHttpException('User not found', HttpStatus.NOT_FOUND); // deleted just now by another request
     });
+
+    // Confirmation (Apple: "provide a confirmation when the deletion is
+    // complete"), to the real address captured before it was wiped. Never
+    // awaited by the response, never fails it.
+    if (user.email) {
+      void this.notifications.sendEmailBatch({
+        type: NOTIFICATION_TYPE.ACCOUNT_DELETED,
+        recipients: [{ to: user.email, variables: { firstName: user.firstName || 'there' } }],
+      });
+    }
 
     // After the commit: the account is already deleted, so a storage hiccup
     // must not fail the request — it's logged instead.

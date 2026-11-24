@@ -251,4 +251,34 @@ describe('NotificationOutboxService', () => {
       expect(claim).not.toHaveBeenCalled();
     });
   });
+
+  describe('enqueueManyReturningKeys', () => {
+    const item = (key: string) => ({
+      params: { type: 'SESSION_AT_RISK' as never, targetUserId: '6b0000000000000000000001', title: 't', body: 'b' },
+      options: { dedupeKey: key },
+    });
+
+    it('all new: one insert, every key returned', async () => {
+      model.collection.insertMany.mockResolvedValue({ insertedCount: 2 });
+      await expect(service.enqueueManyReturningKeys([item('a'), item('b')])).resolves.toEqual(new Set(['a', 'b']));
+      expect(model.collection.insertMany).toHaveBeenCalledTimes(1);
+      expect(model.collection.insertMany.mock.calls[0][1]).toEqual({ ordered: false });
+    });
+
+    it('some already queued: returns only the keys that were actually inserted', async () => {
+      model.collection.insertMany.mockRejectedValue({ writeErrors: [{ code: 11000, index: 1 }] });
+      await expect(service.enqueueManyReturningKeys([item('a'), item('b'), item('c')])).resolves.toEqual(new Set(['a', 'c']));
+    });
+
+    it('a real error (not a duplicate) is thrown', async () => {
+      model.collection.insertMany.mockRejectedValue({ writeErrors: [{ code: 121, index: 0 }] });
+      await expect(service.enqueueManyReturningKeys([item('a')])).rejects.toBeDefined();
+    });
+
+    it('nothing to queue: no write', async () => {
+      await expect(service.enqueueManyReturningKeys([])).resolves.toEqual(new Set());
+      expect(model.collection.insertMany).not.toHaveBeenCalled();
+    });
+  });
 });
+

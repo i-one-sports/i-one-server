@@ -1,8 +1,11 @@
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import nodemailer, { Transporter } from 'nodemailer';
-import { MailMessage, MailProvider } from './mail-provider.interface';
-import { LOCAL_TEMPLATES } from './templates';
+import { MailBatch, MailBatchResult, MailMessage, MailProvider } from './mail-provider.interface';
+import { escapeVariables, LOCAL_TEMPLATES, renderTemplate } from './templates';
+
+// SMTP has no batch API: send this many at a time so the relay isn't flooded.
+export const SMTP_BATCH_CONCURRENCY = 5;
 
 // Brevo is used as a plain SMTP relay here, so `template` is rendered locally against templates.ts rather than server-side.
 export class BrevoProvider implements MailProvider {
@@ -52,5 +55,34 @@ export class BrevoProvider implements MailProvider {
     } catch (error: any) {
       this.logger.error(`Email failed to send to ${message.to}: ${error.message}`);
     }
+  }
+
+  // Renders each email locally (HTML from escaped values) and sends them
+  // SMTP_BATCH_CONCURRENCY at a time.
+  async sendBatch(batch: MailBatch): Promise<MailBatchResult> {
+    const from = this.configService.get<string>('MAIL_FROM');
+    if (!from || !this.configService.get<string>('MAIL_HOST')) {
+      this.logger.warn('Brevo (SMTP) is not configured. Batch email was not sent.');
+      return { sent: 0, failed: batch.recipients.length };
+    }
+    let sent = 0;
+    let failed = 0;
+    for (let i = 0; i < batch.recipients.length; i += SMTP_BATCH_CONCURRENCY) {
+      const results = await Promise.allSettled(
+        batch.recipients.slice(i, i + SMTP_BATCH_CONCURRENCY).map(({ to, variables }) => {
+          const rendered = renderTemplate(batch.template, variables, escapeVariables(variables));
+          if (!rendered) return Promise.reject(new Error(`No local template "${batch.template}"`));
+          return this.transporter.sendMail({ from, to, subject: rendered.subject, text: rendered.text, html: rendered.html });
+        }),
+      );
+      for (const result of results) {
+        if (result.status === 'fulfilled') sent++;
+        else {
+          failed++;
+          this.logger.error(`Batch "${batch.template}" email failed: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`);
+        }
+      }
+    }
+    return { sent, failed };
   }
 }

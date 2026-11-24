@@ -12,11 +12,11 @@ export class UserRepository extends AbstractRepository<User> {
   }
 
   // Wipes a user's personal data (account deletion). Only applies to a user
-  // who isn't deleted yet and isn't in a session — checked in the same write,
-  // so a join that lands after the caller's checks makes this a no-op.
+  // who isn't deleted yet. (currentSession isn't checked: it can be stale —
+  // the caller checks real session membership instead.)
   async anonymise(userId: Types.ObjectId, update: UpdateQuery<User>, session: ClientSession): Promise<boolean> {
     const updated = await this.model.findOneAndUpdate(
-      { _id: userId, deletedAt: null, currentSession: null },
+      { _id: userId, deletedAt: null },
       update,
       { new: true, session },
     );

@@ -16,6 +16,7 @@ import {
   lagosMidnight,
   lagosParts,
   PUBLIC_USER_FIELDS,
+  SESSION_CANCEL_REASON,
   SESSION_STATUS,
   Session,
   SessionI,
@@ -645,19 +646,55 @@ export class SessionsService implements OnModuleInit {
       throw new CustomHttpException('Session not found', HttpStatus.NOT_FOUND);
 
     await this.verifyCaptainOrOwner(session, userId, 'end');
-
-    await Promise.all([
-      this.userRepository.updateMany(
-        { _id: { $in: session.members } },
-        { $set: { currentSession: null } },
-      ),
-      this.sessionRepository.findOneAndUpdate(
-        { _id: session._id.toString() },
-        { captain: null, inProgress: false, finished: true, status: SESSION_STATUS.COMPLETED },
-      ),
-    ]);
+    await this.markEnded(new Types.ObjectId(session._id.toString()));
 
     return { message: 'Session ended successfully', session };
+  }
+
+  // What the End button does — also used by the lifecycle job's close-out.
+  // Only acts on a session that isn't closed yet. Returns false if it was.
+  async markEnded(sessionId: Types.ObjectId): Promise<boolean> {
+    const ended = await this.sessionRepository.markEndedIfOpen(sessionId);
+    if (!ended) return false;
+    await this.clearCurrentSessionPointers([sessionId]);
+    return true;
+  }
+
+  // Cancels a still-open session and refunds every payment on it. Shared by
+  // the Cancel button (after its permission checks) and the lifecycle job's
+  // auto-cancel. `extra` narrows the conditional update (e.g. "still not
+  // paid"), so a payment completing in the same instant wins. Returns null
+  // if the session was already closed or no longer matched.
+  async cancelAndRefund(
+    sessionId: Types.ObjectId,
+    reason: SESSION_CANCEL_REASON | null,
+    extra: Record<string, unknown> = {},
+  ) {
+    const cancelled = await this.sessionRepository.cancelIfOpen(sessionId, reason, extra);
+    if (!cancelled) return null;
+
+    const id = sessionId.toString();
+    const refunds = await this.sessionPaymentService.refundAllForSession(id);
+    await this.clearCurrentSessionPointers([sessionId]);
+    await this.sessionPaymentService.publishSessionUpdate(id, 'cancelled');
+
+    if (!refunds.allInitiated) {
+      const failedCount = refunds.results.filter((r) => !r.success).length;
+      this.logger.error(
+        `Session ${id} cancelled but ${failedCount}/${refunds.totalPaid} refund requests were rejected by Paystack — needs manual follow-up`,
+      );
+    }
+    return { session: cancelled, refunds };
+  }
+
+  // user.currentSession is kept for the app's profile, but never trusted for
+  // decisions (see findCurrentForUser). Clear any that point at these.
+  async clearCurrentSessionPointers(sessionIds: Types.ObjectId[]): Promise<void> {
+    if (sessionIds.length === 0) return;
+    await this.userRepository.updateMany(
+      { currentSession: { $in: sessionIds } },
+      { $set: { currentSession: null } },
+    );
   }
 
   async joinSession(userId: string, sessionId: string) {
@@ -871,11 +908,12 @@ export class SessionsService implements OnModuleInit {
     }
   }
 
+  // The player's current or next session, worked out from the sessions
+  // themselves (never stale, and right when they're in several).
   async getMyCurrentSession(userId: string) {
-    const user = await this.userRepository.findOne({ _id: userId });
-    if (!user?.currentSession) return null;
-
-    return this.viewSession(user.currentSession.toString());
+    const current = await this.sessionRepository.findCurrentForUser(new Types.ObjectId(userId), new Date());
+    if (!current) return null;
+    return this.viewSession(current._id.toString());
   }
 
   async viewSession(sessionId: string) {
@@ -1013,25 +1051,11 @@ export class SessionsService implements OnModuleInit {
       throw new CustomHttpException('Cannot cancel a completed session', HttpStatus.BAD_REQUEST);
     }
 
-    const updatedSession = await this.sessionRepository.findOneAndUpdate(
-      { _id: sessionId },
-      { status: SESSION_STATUS.CANCELLED },
-    );
-
-    const refundSummary = await this.sessionPaymentService.refundAllForSession(sessionId);
-
-    await this.userRepository.updateMany(
-      { _id: { $in: session.members } },
-      { $set: { currentSession: null } },
-    );
-    await this.sessionPaymentService.publishSessionUpdate(sessionId, 'cancelled');
-
-    if (!refundSummary.allInitiated) {
-      const failedCount = refundSummary.results.filter((r) => !r.success).length;
-      this.logger.error(
-        `Session ${sessionId} cancelled but ${failedCount}/${refundSummary.totalPaid} refund requests were rejected by Paystack — needs manual follow-up`,
-      );
+    const result = await this.cancelAndRefund(new Types.ObjectId(session._id.toString()), null);
+    if (!result) {
+      throw new CustomHttpException('Session is already cancelled', HttpStatus.BAD_REQUEST);
     }
+    const { session: updatedSession, refunds: refundSummary } = result;
 
     return {
       message:

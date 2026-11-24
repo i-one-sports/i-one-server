@@ -11,6 +11,7 @@ import {
 } from '@app/common';
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
+import { SessionLifecycleService } from './session-lifecycle.service';
 import { SessionsService } from './sessions.service';
 import { SessionReminderService } from './session-reminder.service';
 import { SessionsController } from './sessions.controller';
@@ -39,6 +40,7 @@ import { NotificationsModule } from 'src/notifications/notifications.module';
   providers: [
     SessionsService,
     SessionReminderService,
+    SessionLifecycleService,
     SessionRepository,
     UserRepository,
     LocationRepository,
