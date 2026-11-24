@@ -1,3 +1,4 @@
+import { MailBatchResult } from '@app/common';
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Observable, Subject } from 'rxjs';
 import { filter } from 'rxjs/operators';
@@ -6,12 +7,7 @@ import { PushNotificationService, User } from '@app/common';
 import { UserRepository } from 'src/users/users.repository';
 import { PushNotificationChannel } from './channels/push.channel';
 import { EmailNotificationChannel } from './channels/email.channel';
-import {
-  EmailNotificationParams,
-  NOTIFICATION_CHANNEL,
-  NOTIFICATION_TYPE,
-  PushNotificationParams,
-} from './notification.types';
+import { EmailNotificationParams, NOTIFICATION_CHANNEL, NOTIFICATION_TYPE, PushNotificationParams, EmailBatchParams } from './notification.types';
 
 export interface AppNotification {
   targetUserId: string;
@@ -78,6 +74,12 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
       default:
         this.logger.warn(`Unknown notification channel: ${channel}`);
     }
+  }
+
+  // Many emails of one type in as few provider requests as possible (Mailgun:
+  // one request per 1,000 recipients). Never throws.
+  sendEmailBatch(params: EmailBatchParams): Promise<MailBatchResult> {
+    return this.emailChannel.sendBatch(params);
   }
 
   getStream(userId: string): Observable<AppNotification> {

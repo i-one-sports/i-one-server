@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { MailProvider, MailVariables } from './mail-provider.interface';
+import { MailBatch, MailBatchResult, MailProvider, MailVariables } from './mail-provider.interface';
 import { MailgunProvider } from './mailgun.provider';
 import { BrevoProvider } from './brevo.provider';
 
@@ -41,6 +41,14 @@ export class MailerService {
   ): Promise<void> {
     this.logger.log(`Sending template "${template}" to ${to}`);
     await this.provider.send({ to, subject, template, variables });
+  }
+
+  // Many emails from one local template in as few requests as the provider
+  // allows (Mailgun: one per 1,000 recipients). Never throws.
+  async sendTemplateBatch(batch: MailBatch): Promise<MailBatchResult> {
+    if (batch.recipients.length === 0) return { sent: 0, failed: 0 };
+    this.logger.log(`Sending batch "${batch.template}" to ${batch.recipients.length} recipient(s)`);
+    return this.provider.sendBatch(batch);
   }
 
   async sendEmailVerificationOtp(to: string, otp: number): Promise<void> {

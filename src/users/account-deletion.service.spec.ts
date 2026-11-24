@@ -15,6 +15,7 @@ import { TransactionRepository } from 'src/billing/repositories/transaction.repo
 import { WebhookEventRepository } from 'src/billing/repositories/webhook-event.repository';
 import { BankAccountRepository } from 'src/billing/repositories/bank-account.repository';
 import { AwsService } from '@app/common/providers/aws.service';
+import { NotificationService } from 'src/notifications/notification.service';
 import { UploadType } from '@app/common';
 
 // Real bcrypt is deliberately slow; under a full parallel test run it can
@@ -31,7 +32,8 @@ describe('AccountDeletionService', () => {
   const teams = { findIdsWithPlayer: jest.fn() };
   const tournaments = { findLiveForTeams: jest.fn(), findLiveOrganisedBy: jest.fn(), findLiveAtLocations: jest.fn() };
   const locations = { findOwnedBy: jest.fn(), unlistOwnedBy: jest.fn() };
-  const sessions = { findActiveAtLocations: jest.fn() };
+  const sessions = { findActiveAtLocations: jest.fn(), findCurrentForUser: jest.fn() };
+  const notifications = { sendEmailBatch: jest.fn() };
   const wallets = { findOwnerWallet: jest.fn(), closeIfEmpty: jest.fn() };
   const transactions = { findWithdrawalsSince: jest.fn() };
   const webhookEvents = { processedEventIds: jest.fn() };
@@ -50,13 +52,16 @@ describe('AccountDeletionService', () => {
     webhookEvents as unknown as WebhookEventRepository,
     bankAccounts as unknown as BankAccountRepository,
     aws as unknown as AwsService,
+    notifications as unknown as NotificationService,
     connection as unknown as Connection,
   );
 
   // A player with nothing open and no wallet; each test adds the one thing it checks.
   beforeEach(() => {
     jest.clearAllMocks();
-    users.findOne.mockResolvedValue({ _id: userId, currentSession: null, avatar: null });
+    users.findOne.mockResolvedValue({ _id: userId, email: 'ada@example.com', firstName: 'Ada', currentSession: null, avatar: null });
+    sessions.findCurrentForUser.mockResolvedValue(null);
+    notifications.sendEmailBatch.mockResolvedValue({ sent: 1, failed: 0 });
     users.anonymise.mockResolvedValue(true);
     teams.findIdsWithPlayer.mockResolvedValue([]);
     tournaments.findLiveForTeams.mockResolvedValue(null);
@@ -93,9 +98,10 @@ describe('AccountDeletionService', () => {
       expect(users.anonymise).not.toHaveBeenCalled();
     });
 
-    it('in a session', async () => {
-      users.findOne.mockResolvedValue({ _id: userId, currentSession: new Types.ObjectId() });
+    it('in a session that is open and not over yet', async () => {
+      sessions.findCurrentForUser.mockResolvedValue({ _id: new Types.ObjectId() });
       expect(await refusal('IN_SESSION')).toBe('You must leave your current session before deleting your account');
+      expect(sessions.findCurrentForUser).toHaveBeenCalledWith(userId, expect.any(Date));
     });
 
     it('on a team in a live tournament', async () => {
@@ -192,7 +198,7 @@ describe('AccountDeletionService', () => {
   });
 
   it('a refused deletion never touches storage', async () => {
-    users.findOne.mockResolvedValue({ _id: userId, currentSession: new Types.ObjectId(), avatar: 'https://cdn.example/users/1/a.png' });
+    sessions.findCurrentForUser.mockResolvedValue({ _id: new Types.ObjectId() });
     await refusal('IN_SESSION');
     expect(aws.deleteByUrl).not.toHaveBeenCalled();
   });
@@ -212,10 +218,33 @@ describe('AccountDeletionService', () => {
       expect(users.anonymise).not.toHaveBeenCalled();
     });
 
-    it('joined a session after the session check', async () => {
+    it('deleted by another request at the same moment: 404, nothing else changed', async () => {
       users.anonymise.mockResolvedValue(false);
-      await refusal('IN_SESSION');
+      await expect(service.deleteAccount(userId.toString())).rejects.toMatchObject({ status: HttpStatus.NOT_FOUND });
+      expect(notifications.sendEmailBatch).not.toHaveBeenCalled();
     });
+  });
+
+  it('a stale currentSession pointer (a game that finished long ago) no longer blocks deletion', async () => {
+    users.findOne.mockResolvedValue({ _id: userId, email: 'ada@example.com', firstName: 'Ada', currentSession: new Types.ObjectId(), avatar: null });
+    sessions.findCurrentForUser.mockResolvedValue(null);
+    await expect(service.deleteAccount(userId.toString())).resolves.toEqual({ message: 'Account deleted successfully' });
+  });
+
+  it('sends the confirmation email to the real address, captured before it was wiped', async () => {
+    await service.deleteAccount(userId.toString());
+    expect(notifications.sendEmailBatch).toHaveBeenCalledWith({
+      type: 'ACCOUNT_DELETED',
+      recipients: [{ to: 'ada@example.com', variables: { firstName: 'Ada' } }],
+    });
+    const anonymisedEmail = users.anonymise.mock.calls[0][1].$set.email;
+    expect(anonymisedEmail).not.toBe('ada@example.com');
+  });
+
+  it('a refused deletion sends no confirmation email', async () => {
+    sessions.findCurrentForUser.mockResolvedValue({ _id: new Types.ObjectId() });
+    await refusal('IN_SESSION');
+    expect(notifications.sendEmailBatch).not.toHaveBeenCalled();
   });
 
   it('formats kobo as naira', () => {

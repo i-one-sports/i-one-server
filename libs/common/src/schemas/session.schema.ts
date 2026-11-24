@@ -9,6 +9,14 @@ export interface PassHolder {
   passId: Types.ObjectId;
 }
 
+// Why a session was cancelled automatically (unset for a manual cancel).
+export enum SESSION_CANCEL_REASON {
+  // Paid, but not ready (never filled / not fully paid) 10 min after kick-off.
+  NOT_READY = 'NOT_READY',
+  // Started but never given a date and time, for 24 hours.
+  NEVER_CONFIGURED = 'NEVER_CONFIGURED',
+}
+
 // A spot held for a player who is buying a pass to join (MP-5). Counts
 // against capacity until `expiresAt`; released when the checkout lapses.
 export interface PassHold extends PassHolder {
@@ -141,10 +149,23 @@ export class Session extends AbstractDocument {
     default: [],
   })
   passHolds: PassHold[];
+
+  // Set when the lifecycle job cancelled the session (see SESSION_CANCEL_REASON).
+  @Prop({ type: String, enum: Object.values(SESSION_CANCEL_REASON), required: false })
+  cancelReason?: SESSION_CANCEL_REASON;
+
+  createdAt?: Date;
 }
 export const SessionSchema = SchemaFactory.createForClass(Session);
 // Indexes to improve query performance for owner dashboard and session lookups
 SessionSchema.index({ startTime: 1 });
+// Session lifecycle job (SessionLifecycleService): close-out and the paid
+// at-risk / auto-cancel sweeps.
+SessionSchema.index({ status: 1, stopTime: 1 });
+SessionSchema.index({ status: 1, paymentRequired: 1, startTime: 1 });
+// "My current session" (SessionRepository.findCurrentForUser).
+SessionSchema.index({ members: 1, status: 1, startTime: 1 });
+SessionSchema.index({ captain: 1, startTime: 1 });
 // The per-minute Player of the Session job looks up recently ended sessions.
 SessionSchema.index({ stopTime: 1 });
 SessionSchema.index({ location: 1 });

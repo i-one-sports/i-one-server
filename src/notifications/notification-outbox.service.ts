@@ -120,6 +120,43 @@ export class NotificationOutboxService {
     }
   }
 
+  // Like enqueueMany (one write, duplicates skipped) but returns the dedupe
+  // keys that were actually inserted. Lets a caller do something exactly once
+  // per new notification (e.g. send the matching email) even when several
+  // ticks or servers race: the unique dedupeKey index decides who "won".
+  // Every item must have a dedupeKey.
+  async enqueueManyReturningKeys(items: Array<{ params: PushNotificationParams; options: EnqueueOptions & { dedupeKey: string } }>): Promise<Set<string>> {
+    if (items.length === 0) return new Set();
+    const now = new Date();
+    const docs = items.map(({ params, options }) => ({
+      _id: new Types.ObjectId(),
+      targetUserId: new Types.ObjectId(params.targetUserId),
+      type: params.type,
+      title: params.title,
+      body: params.body,
+      payload: params.payload,
+      dedupeKey: options.dedupeKey,
+      deliverBefore: options.deliverBefore,
+      status: OUTBOX_STATUS.PENDING,
+      attempts: 0,
+      nextAttemptAt: now,
+      deliveredVia: [],
+      createdAt: now,
+      updatedAt: now,
+    }));
+
+    try {
+      await this.outboxModel.collection.insertMany(docs, { ordered: false });
+      return new Set(docs.map((d) => d.dedupeKey));
+    } catch (error: unknown) {
+      const writeErrors = (error as { writeErrors?: Array<{ code?: number; index: number; err?: { code?: number; index?: number } }> }).writeErrors ?? [];
+      const duplicates = writeErrors.filter((e) => (e.code ?? e.err?.code) === 11000);
+      if (writeErrors.length === 0 || duplicates.length !== writeErrors.length) throw error;
+      const rejected = new Set(writeErrors.map((e) => e.index ?? e.err?.index));
+      return new Set(docs.filter((_doc, i) => !rejected.has(i)).map((d) => d.dedupeKey));
+    }
+  }
+
   // Payloads of notifications of `type` already queued for any of `values`
   // of payload[field] — lets a producer skip work it has already done.
   async findQueuedPayloads(type: string, field: string, values: string[]): Promise<Record<string, any>[]> {

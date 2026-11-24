@@ -1030,4 +1030,62 @@ describe('SessionsService', () => {
       await expect(handler({ _id: passId, userId, holdSessionId: sessionId })).resolves.toBeUndefined();
     });
   });
+
+  describe('ending, cancelling and "my current session"', () => {
+    const repo = () => sessionRepository as unknown as Record<string, jest.Mock>;
+    const openSession = () => ({ _id: sessionId, location: locationId, captain: userId, members: [userId], status: 'OPEN' });
+
+    beforeEach(() => {
+      repo().cancelIfOpen = jest.fn();
+      repo().markEndedIfOpen = jest.fn();
+      repo().findCurrentForUser = jest.fn();
+      (sessionPaymentService as unknown as Record<string, jest.Mock>).refundAllForSession = jest
+        .fn()
+        .mockResolvedValue({ allInitiated: true, totalPaid: 0, results: [] });
+      locationRepository.findOne.mockResolvedValue({ _id: locationId, owner: ownerId });
+    });
+
+    it('Cancel: cancels only while open, refunds, clears pointers to THIS session only, tells the stream', async () => {
+      sessionRepository.findOne.mockResolvedValue(openSession());
+      repo().cancelIfOpen.mockResolvedValue({ ...openSession(), status: 'CANCELLED' });
+
+      await expect(service.cancelSession(sessionId.toString(), userId.toString())).resolves.toMatchObject({ message: 'Session cancelled' });
+
+      expect(repo().cancelIfOpen).toHaveBeenCalledWith(sessionId, null, {});
+      expect((sessionPaymentService as unknown as Record<string, jest.Mock>).refundAllForSession).toHaveBeenCalledWith(sessionId.toString());
+      expect(userRepository.updateMany).toHaveBeenCalledWith({ currentSession: { $in: [sessionId] } }, { $set: { currentSession: null } });
+      expect(sessionPaymentService.publishSessionUpdate).toHaveBeenCalledWith(sessionId.toString(), 'cancelled');
+    });
+
+    it('Cancel racing another close: "already cancelled", and no refund is attempted', async () => {
+      sessionRepository.findOne.mockResolvedValue(openSession());
+      repo().cancelIfOpen.mockResolvedValue(null);
+      await expect(service.cancelSession(sessionId.toString(), userId.toString())).rejects.toMatchObject({ status: HttpStatus.BAD_REQUEST });
+      expect((sessionPaymentService as unknown as Record<string, jest.Mock>).refundAllForSession).not.toHaveBeenCalled();
+    });
+
+    it('End: marks it over only if still open and clears pointers to it', async () => {
+      sessionRepository.findOne.mockResolvedValue(openSession());
+      repo().markEndedIfOpen.mockResolvedValue({ ...openSession(), status: 'COMPLETED' });
+
+      await service.endSession(sessionId.toString(), userId.toString());
+
+      expect(repo().markEndedIfOpen).toHaveBeenCalledWith(sessionId);
+      expect(userRepository.updateMany).toHaveBeenCalledWith({ currentSession: { $in: [sessionId] } }, { $set: { currentSession: null } });
+    });
+
+    it('End by someone who is neither captain nor owner is refused', async () => {
+      sessionRepository.findOne.mockResolvedValue({ ...openSession(), captain: new Types.ObjectId() });
+      await expect(service.endSession(sessionId.toString(), new Types.ObjectId().toString())).rejects.toMatchObject({ status: HttpStatus.FORBIDDEN });
+      expect(repo().markEndedIfOpen).not.toHaveBeenCalled();
+    });
+
+    it('my current session comes from the sessions themselves, not the stored pointer', async () => {
+      repo().findCurrentForUser.mockResolvedValue(null);
+      await expect(service.getMyCurrentSession(userId.toString())).resolves.toBeNull();
+      expect(repo().findCurrentForUser).toHaveBeenCalledWith(userId, expect.any(Date));
+      expect(userRepository.findOne).not.toHaveBeenCalled();
+    });
+  });
 });
+

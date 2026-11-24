@@ -583,12 +583,13 @@ Full URL: `DELETE {baseUrl}/user/account` (e.g. `https://…/i-one/user/account`
 - Saved bank accounts are deleted. The wallet (balance ₦0) is closed. An owner's pitches are unlisted (`status: "inactive"`).
 - Kept: wallet transactions, payments, match records and stats.
 - Any cookie issued before deletion stops working (`401`).
+- A confirmation email ("Your i-One account has been deleted") goes to the address the account had, saying what's kept. Deletion is immediate: Apple accepts that, and asks the app to tell people what's kept, so the confirm screen should say: "Your account and personal details will be deleted. Records of payments and games you played are kept without your name."
 
 **Blockers** — `400` with a message to show the user as-is, and `details.code` to branch on. Checked in this order; only the first problem is returned:
 
 | `details.code` | When | Message |
 |---|---|---|
-| `IN_SESSION` | In a session | "You must leave your current session before deleting your account" |
+| `IN_SESSION` | In a session that's still open and hasn't ended (a game that's over no longer counts) | "You must leave your current session before deleting your account" |
 | `IN_TOURNAMENT` | On a team in a tournament that is in `registration` or `started` | "You are part of an active tournament ({name}). Leave or finish it before deleting your account" |
 | `ORGANISING_TOURNAMENT` | Organiser of a tournament in `registration` or `started` | "You're running {name}. Finish or cancel it before deleting your account." |
 | `WALLET_BALANCE` | Wallet balance above ₦0 | "You have ₦12,500 in your wallet. Withdraw it before deleting your account." |
@@ -1242,7 +1243,19 @@ Update the pitch condition for a location. Owner only.
 
 ## Sessions
 
-All session endpoints require authentication.
+All session endpoints require authentication, except the guest-readable `GET`s marked below.
+
+### How sessions end on their own
+A job runs every minute so no session is left hanging. **Players are never removed from a session by it**; only the session's state changes.
+
+| When | What happens |
+|---|---|
+| A **paid** session isn't ready **7 min after kick-off** (never filled, or not fully paid) | Every member gets a push + email: "…will be cancelled in 3 minutes because it isn't fully paid. Pay now to keep it." (`SESSION_AT_RISK`) |
+| Still not ready **10 min after kick-off** | Cancelled: `status: "CANCELLED"`, `cancelReason: "NOT_READY"`. Every payment is refunded (same as a manual cancel; a payment landing afterwards is refunded too). Every member gets a push + email (`SESSION_AUTO_CANCELLED`). A payment that completes in the same instant wins: the session isn't cancelled |
+| **30 min after the end time** (`stopTime`) and nobody tapped End | Marked over, exactly as `POST /sessions/end` does (`status: "COMPLETED"`, `finished: true`) |
+| A session **started but never given a date** for **24 hours** | Cancelled: `cancelReason: "NEVER_CONFIGURED"` (no money is ever involved) |
+
+**Free and monthly-pass sessions are never auto-cancelled**, however few players join; they're just closed out after the end time. The session stream sends `cancelled` for automatic cancels too, so open screens update.
 
 ### GET /sessions/nearby-sessions
 Find active sessions near a coordinate.
@@ -1420,7 +1433,9 @@ Join an existing session as a member.
 ---
 
 ### GET /sessions/my-current
-Get the calling user's active session. Returns the full session document (same shape as `GET /sessions/:sessionId`) or `null` if the user is not currently in a session.
+The calling user's current or next session: the earliest session they're a member of that is still open and hasn't ended (`stopTime` in the future), or a draft they started and haven't given a date yet. Returns the full session document (same shape as `GET /sessions/:sessionId`) or `null`.
+
+This is worked out from the sessions themselves, so it's right when a player is in several sessions and never points at a game that's over. The `currentSession` field on the user profile is still filled in, but don't rely on it.
 
 **Auth required**: Yes (JWT cookie)
 
@@ -4525,6 +4540,7 @@ interface Session {
   allPaymentsCompleted: boolean; // mirrors paymentStatus === 'COMPLETED'
   status: 'OPEN' | 'CANCELLED' | 'COMPLETED' | 'REFUNDED'; // lifecycle status, layered on top of finished/paymentStatus/isFull above — see POST /sessions/cancel. Absent on sessions created before this field existed until the backfill migration runs.
   allRefunded: boolean;        // true once every paid member's refund has been confirmed by Paystack
+  cancelReason?: 'NOT_READY' | 'NEVER_CONFIGURED'; // set when the session was cancelled automatically (see "How sessions end on their own"); unset for a manual cancel
   createdAt: string;
   updatedAt: string;
 }

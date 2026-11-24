@@ -10,6 +10,22 @@ export interface MailMessage {
   variables?: MailVariables;
 }
 
+// One email per recipient, all from the same local template (templates.ts).
+// Each recipient's `variables` are substituted into the template as text, so
+// a template used for batches must not branch on them (put the branch in the
+// value itself, e.g. a ready-made sentence). Every recipient must have the
+// same variable keys.
+export interface MailBatch {
+  template: string;
+  recipients: Array<{ to: string; variables: MailVariables }>;
+}
+
+export interface MailBatchResult {
+  sent: number;
+  failed: number;
+}
+
 export interface MailProvider {
   send(message: MailMessage): Promise<void>;
+  sendBatch(batch: MailBatch): Promise<MailBatchResult>;
 }
